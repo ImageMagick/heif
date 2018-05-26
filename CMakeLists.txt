@@ -30,8 +30,8 @@ if (HAVE_UNISTD_H)
 endif()
 
 configure_file (
-  "${PROJECT_SOURCE_DIR}/src/heif-version.h.in"
-  "${PROJECT_SOURCE_DIR}/src/heif-version.h"
+  "${PROJECT_SOURCE_DIR}/libheif/heif_version.h.in"
+  "${PROJECT_SOURCE_DIR}/libheif/heif_version.h"
 )
 
 if(CMAKE_COMPILER_IS_GNUCXX)
@@ -41,6 +41,7 @@ if(CMAKE_COMPILER_IS_GNUCXX)
   add_definitions(-Wsign-compare)
   add_definitions(-Wconversion)
   add_definitions(-Wno-sign-conversion)
+  add_definitions(-Wno-error=conversion)
   set(CMAKE_CXX_FLAGS "-std=gnu++0x ${CMAKE_CXX_FLAGS}")
 elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
   add_definitions(-Wall)
@@ -48,10 +49,11 @@ elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
   add_definitions(-Wsign-compare)
   add_definitions(-Wconversion)
   add_definitions(-Wno-sign-conversion)
+  add_definitions(-Wno-error=conversion)
   set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
 endif()
 
-include_directories ("${PROJECT_SOURCE_DIR}/src")
+include_directories ("${PROJECT_SOURCE_DIR}")
 
 if(UNIX)
   set(LIBHEIF_LIBRARY_NAME heif)
@@ -60,4 +62,4 @@ else()
 endif()
 
 add_subdirectory (examples)
-add_subdirectory (src)
+add_subdirectory (libheif)

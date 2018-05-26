@@ -1,14 +1,14 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.1.0], [opensource@struktur.de])
-AC_CONFIG_SRCDIR([src/box.cc])
+AC_INIT([libheif], [1.2.0], [opensource@struktur.de])
+AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
-NUMERIC_VERSION=0x01010000 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
+NUMERIC_VERSION=0x01020000 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
 AC_SUBST(NUMERIC_VERSION)
 
-LIBHEIF_CURRENT=2
+LIBHEIF_CURRENT=3
 LIBHEIF_REVISION=0
-LIBHEIF_AGE=1
+LIBHEIF_AGE=2
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
 AC_SUBST(LIBHEIF_AGE)
@@ -25,6 +25,7 @@ AC_PROG_CC
 AC_PROG_INSTALL
 AC_PROG_LN_S
 AC_PROG_GREP
+AM_CONDITIONAL(MINGW, expr $host : '.*-mingw' >/dev/null 2>&1)
 
 AM_INIT_AUTOMAKE([foreign])
 
@@ -131,8 +132,10 @@ AC_MSG_NOTICE([---------------------------------------])
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([examples/Makefile])
 AC_CONFIG_FILES([extra/Makefile])
+AC_CONFIG_FILES([go/Makefile])
+AC_CONFIG_FILES([gnome/Makefile])
 AC_CONFIG_FILES([scripts/Makefile])
-AC_CONFIG_FILES([src/Makefile])
-AC_CONFIG_FILES([src/heif-version.h])
+AC_CONFIG_FILES([libheif/Makefile])
+AC_CONFIG_FILES([libheif/heif_version.h])
 AC_CONFIG_FILES([libheif.pc])
 AC_OUTPUT

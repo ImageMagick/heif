@@ -273,8 +273,14 @@ top_srcdir = @top_srcdir@
 x265_CFLAGS = @x265_CFLAGS@
 x265_LIBS = @x265_LIBS@
 EXTRA_DIST = \
-    *.hook \
-    *.sh \
+    pre-commit.hook \
+    check-emscripten-enums.sh \
+    check-licenses.sh \
+    install-ci-linux.sh \
+    install-ci-osx.sh \
+    install-emscripten.sh \
+    prepare-ci.sh \
+    run-ci.sh \
     cpplint.py \
     test-javascript.js
 
