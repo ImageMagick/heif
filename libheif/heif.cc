@@ -49,6 +49,9 @@
 #if defined(_MSC_VER)
 // for _write
 #include <io.h>
+#if _MSC_VER < 1900
+#define snprintf _snprintf
+#endif
 #endif
 
 using namespace heif;
