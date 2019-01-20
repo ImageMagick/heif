@@ -1,14 +1,20 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.2.0], [opensource@struktur.de])
+AC_INIT([libheif], [1.3.2], [opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
-NUMERIC_VERSION=0x01020000 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
+NUMERIC_VERSION=0x01030200 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
 AC_SUBST(NUMERIC_VERSION)
 
-LIBHEIF_CURRENT=3
-LIBHEIF_REVISION=0
-LIBHEIF_AGE=2
+# From https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html:
+# If the library source code has changed at all since the last update, then increment revision (‘c:r:a’ becomes ‘c:r+1:a’).
+# If any interfaces have been added, removed, or changed since the last update, increment current, and set revision to 0.
+# If any interfaces have been added since the last public release, then increment age.
+# If any interfaces have been removed or changed since the last public release, then set age to 0.
+
+LIBHEIF_CURRENT=4
+LIBHEIF_REVISION=2
+LIBHEIF_AGE=3
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
 AC_SUBST(LIBHEIF_AGE)
@@ -58,6 +64,7 @@ PKG_CHECK_MODULES([libde265], [libde265], [
     have_libde265="yes"
 ], [have_libde265="no"])
 AM_CONDITIONAL([HAVE_LIBDE265], [test "x$have_libde265" = "xyes"])
+AC_SUBST([have_libde265])
 
 PKG_CHECK_MODULES([x265], [x265], [
     AC_DEFINE([HAVE_X265], [1], [Whether x265 was found.])
@@ -66,6 +73,7 @@ PKG_CHECK_MODULES([x265], [x265], [
     have_x265="yes"
 ], [have_x265="no"])
 AM_CONDITIONAL([HAVE_X265], [test "x$have_x265" = "xyes"])
+AC_SUBST([have_x265])
 
 AC_CHECK_HEADERS([jpeglib.h])
 AC_CHECK_LIB([jpeg], [jpeg_CreateCompress], [

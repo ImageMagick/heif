@@ -28,6 +28,15 @@
 
 #include "heif_plugin_registry.h"
 
+#if HAVE_LIBDE265
+#include "heif_decoder_libde265.h"
+#endif
+
+#if HAVE_X265
+#include "heif_encoder_x265.h"
+#endif
+
+
 using namespace heif;
 
 
@@ -49,6 +58,22 @@ std::set<std::unique_ptr<struct heif_encoder_descriptor>,
          encoder_descriptor_priority_order> s_encoder_descriptors;
 
 
+
+static class Register_Default_Plugins
+{
+public:
+  Register_Default_Plugins() {
+#if HAVE_LIBDE265
+    heif::register_decoder(get_decoder_plugin_libde265());
+#endif
+
+#if HAVE_X265
+    heif::register_encoder(get_encoder_plugin_x265());
+#endif
+  }
+} dummy;
+
+
 void heif::register_decoder(const heif_decoder_plugin* decoder_plugin)
 {
   if (decoder_plugin->init_plugin) {
@@ -58,6 +83,22 @@ void heif::register_decoder(const heif_decoder_plugin* decoder_plugin)
   s_decoder_plugins.insert(decoder_plugin);
 }
 
+
+const struct heif_decoder_plugin* heif::get_decoder(enum heif_compression_format type)
+{
+  int highest_priority = 0;
+  const struct heif_decoder_plugin* best_plugin = nullptr;
+
+  for (const auto* plugin : s_decoder_plugins) {
+    int priority = plugin->does_support_format(type);
+    if (priority > highest_priority) {
+      highest_priority = priority;
+      best_plugin = plugin;
+    }
+  }
+
+  return best_plugin;
+}
 
 void heif::register_encoder(const heif_encoder_plugin* encoder_plugin)
 {

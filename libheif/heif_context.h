@@ -31,6 +31,7 @@
 
 #include "heif.h"
 #include "heif_plugin.h"
+#include "bitstream.h"
 
 namespace heif {
 class HeifContext;
@@ -62,8 +63,11 @@ namespace heif {
     HeifContext();
     ~HeifContext();
 
+    void set_max_decoding_threads(int max_threads) { m_max_decoding_threads = max_threads; }
+
+    Error read(std::shared_ptr<StreamReader> reader);
     Error read_from_file(const char* input_filename);
-    Error read_from_memory(const void* data, size_t size);
+    Error read_from_memory(const void* data, size_t size, bool copy);
 
     class Image : public ErrorBuffer {
     public:
@@ -145,6 +149,7 @@ namespace heif {
 
       Error encode_image_as_hevc(std::shared_ptr<HeifPixelImage> image,
                                  struct heif_encoder* encoder,
+                                 const struct heif_encoding_options* options,
                                  enum heif_image_input_class input_class);
 
     private:
@@ -193,13 +198,30 @@ namespace heif {
     // contain no valid data yet.
     void reset_to_empty_heif();
 
-    std::shared_ptr<Image> add_new_hvc1_image();
-
-    Error add_alpha_image(std::shared_ptr<HeifPixelImage> image,
-                          heif_item_id* out_item_id,
-                          struct heif_encoder* encoder);
+    Error encode_image(std::shared_ptr<HeifPixelImage> image,
+                       struct heif_encoder* encoder,
+                       const struct heif_encoding_options* options,
+                       enum heif_image_input_class input_class,
+                       std::shared_ptr<Image>& out_image);
 
     void set_primary_image(std::shared_ptr<Image> image);
+
+    Error set_primary_item(heif_item_id id);
+
+    bool  is_primary_image_set() const { return !!m_primary_image; }
+
+    Error assign_thumbnail(std::shared_ptr<Image> master_image,
+                           std::shared_ptr<Image> thumbnail_image);
+
+    Error encode_thumbnail(std::shared_ptr<HeifPixelImage> image,
+                           struct heif_encoder* encoder,
+                           const struct heif_encoding_options* options,
+                           int bbox_size,
+                           std::shared_ptr<Image>& out_image_handle);
+
+    Error add_exif_metadata(std::shared_ptr<Image> master_image, const void* data, int size);
+
+    Error add_XMP_metadata(std::shared_ptr<Image> master_image, const void* data, int size);
 
     void write(StreamWriter& writer);
 
@@ -217,6 +239,8 @@ namespace heif {
     std::shared_ptr<Image> m_primary_image; // shortcut to primary image
 
     std::shared_ptr<HeifFile> m_heif_file;
+
+    int m_max_decoding_threads = 4;
 
     Error interpret_heif_file();
 

@@ -47,27 +47,37 @@ extern "C" {
 
 #include <assert.h>
 
+int master_alpha = 1;
+int thumb_alpha = 1;
 
 static struct option long_options[] = {
   {"help",       no_argument,       0, 'h' },
   {"quality",    required_argument, 0, 'q' },
   {"output",     required_argument, 0, 'o' },
   {"lossless",   no_argument,       0, 'L' },
+  {"thumb",      required_argument, 0, 't' },
   {"verbose",    no_argument,       0, 'v' },
   {"params",     no_argument,       0, 'P' },
+  {"no-alpha",   no_argument, &master_alpha, 0 },
+  {"no-thumb-alpha",   no_argument, &thumb_alpha, 0 },
   {0,         0,                 0,  0 }
 };
 
 void show_help(const char* argv0)
 {
   std::cerr << " heif-enc  libheif version: " << heif_get_version() << "\n"
-            << "------------------------------------\n"
-            << "usage: heif-enc [options] image.jpeg\n"
+            << "----------------------------------------\n"
+            << "usage: heif-enc [options] image.jpeg ...\n"
+            << "\n"
+            << "When specifying multiple source images, they will all be saved into the same HEIF file.\n"
             << "\n"
             << "options:\n"
             << "  -h, --help      show help\n"
             << "  -q, --quality   set output quality (0-100) for lossy compression\n"
             << "  -L, --lossless  generate lossless output (-q has no effect)\n"
+            << "  -t, --thumb #   generate thumbnail with maximum size # (default: off)\n"
+            << "      --no-alpha  do not save alpha channel\n"
+            << "      --no-thumb-alpha  do not save alpha channel in thumbnail image\n"
             << "  -o, --output    output filename (optional)\n"
             << "  -v, --verbose   enable logging output (more -v will increase logging level)\n"
             << "  -P, --params    show all encoder parameters\n"
@@ -579,12 +589,14 @@ int main(int argc, char** argv)
   std::string output_filename;
   int logging_level = 0;
   bool option_show_parameters = false;
+  int thumbnail_bbox_size = 0;
 
   std::vector<std::string> raw_params;
 
+
   while (true) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "hq:Lo:vPp:", long_options, &option_index);
+    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:", long_options, &option_index);
     if (c == -1)
       break;
 
@@ -610,10 +622,13 @@ int main(int argc, char** argv)
     case 'p':
       raw_params.push_back(optarg);
       break;
+    case 't':
+      thumbnail_bbox_size = atoi(optarg);
+      break;
     }
   }
 
-  if (optind != argc-1) {
+  if (optind > argc-1) {
     show_help(argv[0]);
     return 0;
   }
@@ -679,69 +694,101 @@ int main(int argc, char** argv)
 
 
 
+  struct heif_error error;
 
-  std::string input_filename = argv[optind];
+  for ( ; optind<argc ; optind++) {
+    std::string input_filename = argv[optind];
 
-  if (output_filename.empty()) {
-    std::string filename_without_suffix;
-    std::string::size_type dot_position = input_filename.find_last_of('.');
-    if (dot_position != std::string::npos) {
-      filename_without_suffix = input_filename.substr(0 , dot_position);
+    if (output_filename.empty()) {
+      std::string filename_without_suffix;
+      std::string::size_type dot_position = input_filename.find_last_of('.');
+      if (dot_position != std::string::npos) {
+        filename_without_suffix = input_filename.substr(0 , dot_position);
+      }
+      else {
+        filename_without_suffix = input_filename;
+      }
+
+      output_filename = filename_without_suffix + ".heic";
+    }
+
+
+    // ==============================================================================
+
+    // get file type from file name
+
+    std::string suffix;
+    auto suffix_pos = input_filename.find_last_of('.');
+    if (suffix_pos != std::string::npos) {
+      suffix = input_filename.substr(suffix_pos+1);
+      std::transform(suffix.begin(), suffix.end(), suffix.begin(), ::tolower);
+    }
+
+    enum { PNG, JPEG } filetype = JPEG;
+    if (suffix == "png") {
+      filetype = PNG;
+    }
+
+    std::shared_ptr<heif_image> image;
+    if (filetype==PNG) {
+      image = loadPNG(input_filename.c_str());
     }
     else {
-      filename_without_suffix = input_filename;
+      image = loadJPEG(input_filename.c_str());
     }
 
-    output_filename = filename_without_suffix + ".heic";
-  }
 
 
-  // ==============================================================================
+    heif_encoder_set_lossy_quality(encoder, quality);
+    heif_encoder_set_lossless(encoder, lossless);
+    heif_encoder_set_logging_level(encoder, logging_level);
 
-  // get file type from file name
+    set_params(encoder, raw_params);
 
-  std::string suffix;
-  auto suffix_pos = input_filename.find_last_of('.');
-  if (suffix_pos != std::string::npos) {
-    suffix = input_filename.substr(suffix_pos+1);
-    std::transform(suffix.begin(), suffix.end(), suffix.begin(), ::tolower);
-  }
+    struct heif_encoding_options* options = heif_encoding_options_alloc();
+    options->save_alpha_channel = (uint8_t)master_alpha;
 
-  enum { PNG, JPEG } filetype = JPEG;
-  if (suffix == "png") {
-    filetype = PNG;
-  }
-
-  std::shared_ptr<heif_image> image;
-  if (filetype==PNG) {
-    image = loadPNG(input_filename.c_str());
-  }
-  else {
-    image = loadJPEG(input_filename.c_str());
-  }
+    struct heif_image_handle* handle;
+    error = heif_context_encode_image(context.get(),
+                                      image.get(),
+                                      encoder,
+                                      options,
+                                      &handle);
+    if (error.code != 0) {
+      std::cerr << "Could not read HEIF file: " << error.message << "\n";
+      return 1;
+    }
 
 
+    if (thumbnail_bbox_size > 0)
+      {
+        // encode thumbnail
 
-  heif_encoder_set_lossy_quality(encoder, quality);
-  heif_encoder_set_lossless(encoder, lossless);
-  heif_encoder_set_logging_level(encoder, logging_level);
+        struct heif_image_handle* thumbnail_handle;
 
-  set_params(encoder, raw_params);
+        options->save_alpha_channel = master_alpha && thumb_alpha;
 
-  struct heif_image_handle* handle;
-  struct heif_error error = heif_context_encode_image(context.get(),
-                                                      image.get(),
-                                                      encoder,
-                                                      nullptr,
-                                                      &handle);
-  if (error.code != 0) {
-    std::cerr << "Could not read HEIF file: " << error.message << "\n";
-    return 1;
+        error = heif_context_encode_thumbnail(context.get(),
+                                              image.get(),
+                                              handle,
+                                              encoder,
+                                              options,
+                                              thumbnail_bbox_size,
+                                              &thumbnail_handle);
+        if (error.code) {
+          std::cerr << "Could not generate thumbnail: " << error.message << "\n";
+          return 5;
+        }
+
+        if (thumbnail_handle) {
+          heif_image_handle_release(thumbnail_handle);
+        }
+      }
+
+    heif_image_handle_release(handle);
   }
 
   heif_encoder_release(encoder);
-
-  heif_image_handle_release(handle);
 
   error = heif_context_write_to_file(context.get(), output_filename.c_str());
   if (error.code) {

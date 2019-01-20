@@ -29,6 +29,7 @@
 #include <limits>
 #include <utility>
 #include <math.h>
+#include <deque>
 
 #if ENABLE_PARALLEL_TILE_DECODING
 #include <future>
@@ -41,14 +42,6 @@
 #include "heif_limits.h"
 #include "heif_hevc.h"
 #include "heif_plugin_registry.h"
-
-#if HAVE_LIBDE265
-#include "heif_decoder_libde265.h"
-#endif
-
-#if HAVE_X265
-#include "heif_encoder_x265.h"
-#endif
 
 
 using namespace heif;
@@ -329,19 +322,22 @@ void ImageOverlay::get_offset(size_t image_index, int32_t* x, int32_t* y) const
 
 HeifContext::HeifContext()
 {
-#if HAVE_LIBDE265
-  heif::register_decoder(get_decoder_plugin_libde265());
-#endif
-
-#if HAVE_X265
-  heif::register_encoder(get_encoder_plugin_x265());
-#endif
-
   reset_to_empty_heif();
 }
 
 HeifContext::~HeifContext()
 {
+}
+
+Error HeifContext::read(std::shared_ptr<StreamReader> reader)
+{
+  m_heif_file = std::make_shared<HeifFile>();
+  Error err = m_heif_file->read(reader);
+  if (err) {
+    return err;
+  }
+
+  return interpret_heif_file();
 }
 
 Error HeifContext::read_from_file(const char* input_filename)
@@ -355,10 +351,10 @@ Error HeifContext::read_from_file(const char* input_filename)
   return interpret_heif_file();
 }
 
-Error HeifContext::read_from_memory(const void* data, size_t size)
+Error HeifContext::read_from_memory(const void* data, size_t size, bool copy)
 {
   m_heif_file = std::make_shared<HeifFile>();
-  Error err = m_heif_file->read_from_memory(data,size);
+  Error err = m_heif_file->read_from_memory(data,size, copy);
   if (err) {
     return err;
   }
@@ -404,12 +400,9 @@ const struct heif_decoder_plugin* HeifContext::get_decoder(enum heif_compression
 
   // search global plugins
 
-  for (const auto* plugin : s_decoder_plugins) {
-    int priority = plugin->does_support_format(type);
-    if (priority > highest_priority) {
-      highest_priority = priority;
-      best_plugin = plugin;
-    }
+  best_plugin = heif::get_decoder(type);
+  if (best_plugin != nullptr) {
+    highest_priority = best_plugin->does_support_format(type);
   }
 
 
@@ -1013,9 +1006,18 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
   int y0=0;
   int reference_idx = 0;
 
+
 #if ENABLE_PARALLEL_TILE_DECODING
-  std::vector<std::future<Error> > errs;
-  errs.resize(grid.get_rows() * grid.get_columns() );
+  // remember which tile to put where into the image
+  struct tile_data {
+    heif_item_id tileID;
+    int x_origin,y_origin;
+  };
+
+  std::deque<tile_data> tiles;
+  tiles.resize(grid.get_rows() * grid.get_columns() );
+
+  std::deque<std::future<Error> > errs;
 #endif
 
   for (int y=0;y<grid.get_rows();y++) {
@@ -1031,9 +1033,7 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
       int src_height = tileImg->get_height();
 
 #if ENABLE_PARALLEL_TILE_DECODING
-      errs[x+y*grid.get_columns()] = std::async(std::launch::async,
-                                                &HeifContext::decode_and_paste_tile_image, this,
-                                                tileID, img, x0,y0);
+      tiles[x+y*grid.get_columns()] = tile_data { tileID, x0,y0 };
 #else
       Error err = decode_and_paste_tile_image(tileID, img, x0,y0);
       if (err) {
@@ -1051,13 +1051,42 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
   }
 
 #if ENABLE_PARALLEL_TILE_DECODING
-  // check for decoding errors in all decoded tiles
+  // Process all tiles in a set of background threads.
+  // Do not start more than the maximum number of threads.
 
-  for (int i=0;i<grid.get_rows() * grid.get_columns();i++) {
-    Error e = errs[i].get();
+  while (tiles.empty()==false) {
+
+    // If maximum number of threads running, wait until first thread finishes
+
+    if (errs.size() >= (size_t)m_max_decoding_threads) {
+      Error e = errs.front().get();
+      if (e) {
+        return e;
+      }
+
+      errs.pop_front();
+    }
+
+
+    // Start a new decoding thread
+
+    tile_data data = tiles.front();
+    tiles.pop_front();
+
+    errs.push_back( std::async(std::launch::async,
+                               &HeifContext::decode_and_paste_tile_image, this,
+                               data.tileID, img, data.x_origin,data.y_origin) );
+  }
+
+  // check for decoding errors in remaining tiles
+
+  while (errs.empty() == false) {
+    Error e = errs.front().get();
     if (e) {
       return e;
     }
+
+    errs.pop_front();
   }
 #endif
 
@@ -1248,29 +1277,9 @@ Error HeifContext::decode_overlay_image(heif_item_id ID,
 }
 
 
-std::shared_ptr<HeifContext::Image> HeifContext::add_new_hvc1_image()
+static std::shared_ptr<HeifPixelImage>
+create_alpha_image_from_image_alpha_channel(const std::shared_ptr<HeifPixelImage> image)
 {
-  heif_item_id image_id = m_heif_file->add_new_image("hvc1");
-
-  auto image = std::make_shared<Image>(this, image_id);
-
-  m_top_level_images.push_back(image);
-
-  return image;
-}
-
-
-Error HeifContext::add_alpha_image(std::shared_ptr<HeifPixelImage> image, heif_item_id* out_item_id,
-                                   struct heif_encoder* encoder)
-{
-  std::shared_ptr<HeifContext::Image> heif_alpha_image;
-
-  heif_alpha_image = add_new_hvc1_image();
-
-  assert(out_item_id);
-  *out_item_id = heif_alpha_image->get_id();
-
-
   // --- generate alpha image
   // TODO: can we directly code a monochrome image instead of the dummy color channels?
 
@@ -1284,14 +1293,8 @@ Error HeifContext::add_alpha_image(std::shared_ptr<HeifPixelImage> image, heif_i
   alpha_image->fill_new_plane(heif_channel_Cb, 128, chroma_width, chroma_height);
   alpha_image->fill_new_plane(heif_channel_Cr, 128, chroma_width, chroma_height);
 
-
-  // --- encode the alpha image
-
-  Error error = heif_alpha_image->encode_image_as_hevc(alpha_image, encoder,
-                                                       heif_image_input_class_alpha);
-  return error;
+  return alpha_image;
 }
-
 
 
 void HeifContext::Image::set_preencoded_hevc_image(const std::vector<uint8_t>& data)
@@ -1393,8 +1396,40 @@ void HeifContext::Image::set_preencoded_hevc_image(const std::vector<uint8_t>& d
 }
 
 
+Error HeifContext::encode_image(std::shared_ptr<HeifPixelImage> pixel_image,
+                                struct heif_encoder* encoder,
+                                const struct heif_encoding_options* options,
+                                enum heif_image_input_class input_class,
+                                std::shared_ptr<Image>& out_image)
+{
+  Error error;
+
+  switch (encoder->plugin->compression_format) {
+    case heif_compression_HEVC:
+      {
+        heif_item_id image_id = m_heif_file->add_new_image("hvc1");
+
+        out_image = std::make_shared<Image>(this, image_id);
+        m_top_level_images.push_back(out_image);
+
+        error = out_image->encode_image_as_hevc(pixel_image,
+                                                encoder,
+                                                options,
+                                                heif_image_input_class_normal);
+      }
+      break;
+
+    default:
+      return Error(heif_error_Encoder_plugin_error, heif_suberror_Unsupported_codec);
+  }
+
+  return error;
+}
+
+
 Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> image,
                                                struct heif_encoder* encoder,
+                                               const struct heif_encoding_options* options,
                                                enum heif_image_input_class input_class)
 {
   /*
@@ -1423,14 +1458,33 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
   }
 
 
+  m_width  = image->get_width(heif_channel_Y);
+  m_height = image->get_height(heif_channel_Y);
+
 
   // --- if there is an alpha channel, add it as an additional image
 
-  if (image->has_channel(heif_channel_Alpha)) {
-    heif_item_id alpha_image_id;
-    Error err = m_heif_context->add_alpha_image(image, &alpha_image_id, encoder);
-    if (err) {
-      return err;
+  if (options->save_alpha_channel && image->has_channel(heif_channel_Alpha)) {
+
+    // --- generate alpha image
+    // TODO: can we directly code a monochrome image instead of the dummy color channels?
+
+    std::shared_ptr<HeifPixelImage> alpha_image;
+    alpha_image = create_alpha_image_from_image_alpha_channel(image);
+
+
+    // --- encode the alpha image
+
+    heif_item_id alpha_image_id = m_heif_context->m_heif_file->add_new_image("hvc1");
+
+    std::shared_ptr<HeifContext::Image> heif_alpha_image;
+    heif_alpha_image = std::make_shared<Image>(m_heif_context, alpha_image_id);
+
+
+    Error error = heif_alpha_image->encode_image_as_hevc(alpha_image, encoder, options,
+                                                         heif_image_input_class_alpha);
+    if (error) {
+      return error;
     }
 
     m_heif_context->m_heif_file->add_iref_reference(alpha_image_id, fourcc("auxl"), { m_id });
@@ -1502,4 +1556,144 @@ void HeifContext::set_primary_image(std::shared_ptr<Image> image)
   // update pitm box in HeifFile
 
   m_heif_file->set_primary_item_id(image->get_id());
+}
+
+
+Error HeifContext::set_primary_item(heif_item_id id)
+{
+  auto iter = m_all_images.find(id);
+  if (iter == m_all_images.end()) {
+    return Error(heif_error_Usage_error,
+                 heif_suberror_No_or_invalid_primary_item,
+                 "Cannot set primary item as the ID does not exist.");
+  }
+
+  set_primary_image(iter->second);
+
+  return Error::Ok;
+}
+
+
+Error HeifContext::assign_thumbnail(std::shared_ptr<Image> master_image,
+                                    std::shared_ptr<Image> thumbnail_image)
+{
+  m_heif_file->add_iref_reference(thumbnail_image->get_id(),
+                                  fourcc("thmb"), { master_image->get_id() });
+
+  return Error::Ok;
+}
+
+
+Error HeifContext::encode_thumbnail(std::shared_ptr<HeifPixelImage> image,
+                                    struct heif_encoder* encoder,
+                                    const struct heif_encoding_options* options,
+                                    int bbox_size,
+                                    std::shared_ptr<Image>& out_thumbnail_handle)
+{
+  Error error;
+
+  int orig_width  = image->get_width();
+  int orig_height = image->get_height();
+
+  int thumb_width, thumb_height;
+
+  if (orig_width <= bbox_size && orig_height <= bbox_size) {
+    // original image is smaller than thumbnail size -> do not encode any thumbnail
+
+    out_thumbnail_handle.reset();
+    return Error::Ok;
+  }
+  else if (orig_width > orig_height) {
+    thumb_height = orig_height * bbox_size / orig_width;
+    thumb_width  = bbox_size;
+  }
+  else {
+    thumb_width  = orig_width * bbox_size / orig_height;
+    thumb_height = bbox_size;
+  }
+
+
+  // round size to even width and height
+
+  thumb_width  &= ~1;
+  thumb_height &= ~1;
+
+
+  std::shared_ptr<HeifPixelImage> thumbnail_image;
+  error = image->scale_nearest_neighbor(thumbnail_image, thumb_width, thumb_height);
+  if (error) {
+    return error;
+  }
+
+  error = encode_image(thumbnail_image,
+                       encoder, options,
+                       heif_image_input_class_thumbnail,
+                       out_thumbnail_handle);
+  if (error) {
+    return error;
+  }
+
+  return error;
+}
+
+
+Error HeifContext::add_exif_metadata(std::shared_ptr<Image> master_image, const void* data, int size)
+{
+  // create an infe box describing what kind of data we are storing (this also creates a new ID)
+
+  auto metadata_infe_box = m_heif_file->add_new_infe_box("Exif");
+  metadata_infe_box->set_hidden_item(true);
+
+  heif_item_id metadata_id = metadata_infe_box->get_item_ID();
+
+
+  // we assign this data to the image
+
+  m_heif_file->add_iref_reference(metadata_id,
+                                  fourcc("cdsc"), { master_image->get_id() });
+
+
+  // copy the Exif data into the file, store the pointer to it in an iloc box entry
+
+  std::vector<uint8_t> data_array;
+  data_array.resize(size+4);
+  data_array[0] = 0;
+  data_array[1] = 0;
+  data_array[2] = 0;
+  data_array[3] = 0;
+  memcpy(data_array.data()+4, data, size);
+
+  m_heif_file->append_iloc_data(metadata_id, data_array);
+
+  return Error::Ok;
+}
+
+
+
+Error HeifContext::add_XMP_metadata(std::shared_ptr<Image> master_image, const void* data, int size)
+{
+  // create an infe box describing what kind of data we are storing (this also creates a new ID)
+
+  auto metadata_infe_box = m_heif_file->add_new_infe_box("mime");
+  metadata_infe_box->set_content_type("application/rdf+xml");
+  metadata_infe_box->set_hidden_item(true);
+
+  heif_item_id metadata_id = metadata_infe_box->get_item_ID();
+
+
+  // we assign this data to the image
+
+  m_heif_file->add_iref_reference(metadata_id,
+                                  fourcc("cdsc"), { master_image->get_id() });
+
+
+  // copy the XMP data into the file, store the pointer to it in an iloc box entry
+
+  std::vector<uint8_t> data_array;
+  data_array.resize(size);
+  memcpy(data_array.data(), data, size);
+
+  m_heif_file->append_iloc_data(metadata_id, data_array);
+
+  return Error::Ok;
 }

@@ -43,83 +43,151 @@
 
 namespace heif {
 
+  class StreamReader
+  {
+  public:
+    virtual ~StreamReader() { }
+
+    virtual int64_t get_position() const = 0;
+
+    enum grow_status {
+      size_reached,   // requested size has been reached
+      timeout,        // size has not been reached yet, but it may still grow further
+      size_beyond_eof // size has not been reached and never will. The file has grown to its full size
+    };
+
+    // a StreamReader can maintain a timeout for waiting for new data
+    virtual grow_status wait_for_file_size(int64_t target_size) = 0;
+
+    // returns 'false' when we read out of the available file size
+    virtual bool    read(void* data, size_t size) = 0;
+
+    virtual bool    seek(int64_t position) = 0;
+
+    bool seek_cur(int64_t position_offset) {
+      return seek(get_position() + position_offset);
+    }
+  };
+
+
+  class StreamReader_istream : public StreamReader
+  {
+  public:
+    StreamReader_istream(std::unique_ptr<std::istream>&& istr);
+
+    int64_t get_position() const override;
+
+    grow_status wait_for_file_size(int64_t target_size) override;
+
+    bool    read(void* data, size_t size) override;
+
+    bool    seek(int64_t position) override;
+
+  private:
+    std::unique_ptr<std::istream> m_istr;
+    int64_t m_length;
+  };
+
+
+  class StreamReader_memory : public StreamReader
+  {
+  public:
+    StreamReader_memory(const uint8_t* data, int64_t size, bool copy);
+    ~StreamReader_memory();
+
+    int64_t get_position() const override;
+
+    grow_status wait_for_file_size(int64_t target_size) override;
+
+    bool    read(void* data, size_t size) override;
+
+    bool    seek(int64_t position) override;
+
+  private:
+    const uint8_t* m_data;
+    int64_t m_length;
+    int64_t m_position;
+
+    // if we made a copy of the data, we store a pointer to the owned memory area here
+    uint8_t* m_owned_data = nullptr;
+  };
+
+
+  class StreamReader_CApi : public StreamReader
+  {
+  public:
+    StreamReader_CApi(const heif_reader* func_table, void* userdata);
+
+    int64_t get_position() const override { return m_func_table->get_position(m_userdata); }
+
+    StreamReader::grow_status wait_for_file_size(int64_t target_size) override;
+
+    bool    read(void* data, size_t size) override { return !m_func_table->read(data,size,m_userdata); }
+    bool    seek(int64_t position) override { return !m_func_table->seek(position,m_userdata); }
+
+  private:
+    const heif_reader* m_func_table;
+    void* m_userdata;
+  };
+
+
+  // This class simplifies safely reading part of a file (e.g. a box).
+  // It makes sure that we do not read past the boundaries of a box.
   class BitstreamRange
   {
   public:
-    BitstreamRange(std::istream* istr, uint64_t length, BitstreamRange* parent = nullptr) {
-      construct(istr, length, parent);
-    }
+    BitstreamRange(std::shared_ptr<StreamReader> istr,
+                   uint64_t length,
+                   BitstreamRange* parent = nullptr);
+
+    // This function tries to make sure that the full data of this range is
+    // available. You should call this before starting reading the range.
+    // If you don't, you have to make sure that you do not read past the available data.
+    StreamReader::grow_status wait_until_range_is_available();
 
     uint8_t read8();
     uint16_t read16();
     uint32_t read32();
     std::string read_string();
 
-    bool read(int n) {
-      if (n<0) {
-        return false;
-      }
-      return read(static_cast<uint64_t>(n));
-    }
+    bool prepare_read(int64_t nBytes);
 
-    bool read(uint64_t n) {
-      if (m_remaining >= n) {
-        if (m_parent_range) {
-          m_parent_range->read(n);
-        }
-
-        m_remaining -= n;
-        m_end_reached = (m_remaining==0);
-
-        return true;
-      }
-      else if (m_remaining==0) {
-        m_error = true;
-        return false;
-      }
-      else {
-        if (m_parent_range) {
-          m_parent_range->read(m_remaining);
-        }
-
-        m_istr->seekg(m_remaining, std::ios::cur);
-        m_remaining = 0;
-        m_end_reached = true;
-        m_error = true;
-        return false;
-      }
-    }
+    StreamReader::grow_status wait_for_available_bytes(int64_t nBytes);
 
     void skip_to_end_of_file() {
-      m_istr->seekg(0, std::ios_base::end);
+      // we do not actually move the file position here (because the stream may still be incomplete),
+      // but we set all m_remaining to zero
       m_remaining = 0;
-      m_end_reached = true;
+
+      if (m_parent_range) {
+        m_parent_range->skip_to_end_of_file();
+      }
     }
 
     void skip_to_end_of_box() {
-      if (m_remaining) {
+      if (m_remaining>0) {
         if (m_parent_range) {
-          m_parent_range->read(m_remaining);
+          // also advance position in parent range
+          m_parent_range->skip_without_advancing_file_pos(m_remaining);
         }
 
-        m_istr->seekg(m_remaining, std::ios_base::cur);
+        m_istr->seek_cur(m_remaining);
         m_remaining = 0;
       }
-
-      m_end_reached = true;
     }
 
-    void set_eof_reached() {
+    void set_eof_while_reading() {
       m_remaining = 0;
-      m_end_reached = true;
 
       if (m_parent_range) {
-        m_parent_range->set_eof_reached();
+        m_parent_range->set_eof_while_reading();
       }
+
+      m_error = true;
     }
 
     bool eof() const {
-      return m_end_reached;
+      return m_remaining == 0;
     }
 
     bool error() const {
@@ -136,31 +204,20 @@ namespace heif {
       }
     }
 
-    std::istream* get_istream() { return m_istr; }
+    std::shared_ptr<StreamReader> get_istream() { return m_istr; }
 
     int get_nesting_level() const { return m_nesting_level; }
 
-  protected:
-    void construct(std::istream* istr, uint64_t length, BitstreamRange* parent) {
-      m_remaining = length;
-      m_end_reached = (length==0);
-
-      m_istr = istr;
-      m_parent_range = parent;
-
-      if (parent) {
-        m_nesting_level = parent->m_nesting_level + 1;
-      }
-    }
-
   private:
-    std::istream* m_istr = nullptr;
+    std::shared_ptr<StreamReader> m_istr;
     BitstreamRange* m_parent_range = nullptr;
     int m_nesting_level = 0;
 
-    uint64_t m_remaining;
-    bool m_end_reached = false;
+    int64_t m_remaining;
     bool m_error = false;
+
+    // Note: 'nBytes' may not be larger than the number of remaining bytes
+    void skip_without_advancing_file_pos(int64_t nBytes);
   };
 
 

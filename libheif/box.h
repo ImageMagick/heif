@@ -51,7 +51,6 @@
 namespace heif {
 
 #define fourcc(id) (((uint32_t)(id[0])<<24) | (id[1]<<16) | (id[2]<<8) | (id[3]))
-#define fourcc_const(a,b,c,d) ((a<<24) | (b<<16) | (c<<8) | (d))
 
   /*
   constexpr uint32_t fourcc(const char* string)
@@ -87,7 +86,7 @@ namespace heif {
     BoxHeader();
     ~BoxHeader() { }
 
-    const static uint64_t size_until_end_of_file = 0;
+    constexpr static uint64_t size_until_end_of_file = 0;
 
     uint64_t get_box_size() const { return m_size; }
 
@@ -300,7 +299,8 @@ namespace heif {
 
     const std::vector<Item>& get_items() const { return m_items; }
 
-    Error read_data(const Item& item, std::istream& istr,
+    Error read_data(const Item& item,
+                    std::shared_ptr<StreamReader> istr,
                     const std::shared_ptr<class Box_idat>&,
                     std::vector<uint8_t>* dest) const;
 
@@ -366,6 +366,8 @@ namespace heif {
     void set_item_name(std::string name) { m_item_name = name; }
 
     std::string get_content_type() const { return m_content_type; }
+
+    void set_content_type(std::string content_type) { m_content_type = content_type; }
 
     void derive_box_version() override;
 
@@ -683,7 +685,8 @@ namespace heif {
 
     std::string dump(Indent&) const override;
 
-    Error read_data(std::istream& istr, uint64_t start, uint64_t length,
+    Error read_data(std::shared_ptr<StreamReader> istr,
+                    uint64_t start, uint64_t length,
                     std::vector<uint8_t>& out_data) const;
 
   protected:

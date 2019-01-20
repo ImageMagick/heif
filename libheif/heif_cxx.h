@@ -80,8 +80,25 @@ namespace heif {
     // throws Error
     void read_from_file(std::string filename, const ReadingOptions& opts = ReadingOptions());
 
+    // DEPRECATED. Use read_from_memory_without_copy() instead.
     // throws Error
     void read_from_memory(const void* mem, size_t size, const ReadingOptions& opts = ReadingOptions());
+
+    // throws Error
+    void read_from_memory_without_copy(const void* mem, size_t size, const ReadingOptions& opts = ReadingOptions());
+
+    class Reader {
+    public:
+      virtual ~Reader() { }
+
+      virtual int64_t get_position() const = 0;
+      virtual int read(void* data, size_t size) = 0;
+      virtual int seek(int64_t position) = 0;
+      virtual heif_reader_grow_status wait_for_file_size(int64_t target_size) = 0;
+    };
+
+    // throws Error
+    void read_from_reader(Reader&, const ReadingOptions& opts = ReadingOptions());
 
     int get_number_of_top_level_images() const noexcept;
 
@@ -99,11 +116,36 @@ namespace heif {
 
 
 
-    class EncodingOptions { };
+    class EncodingOptions : public heif_encoding_options {
+    public:
+      EncodingOptions();
+    };
 
     // throws Error
     ImageHandle encode_image(const Image& img, Encoder& encoder,
                              const EncodingOptions& options = EncodingOptions());
+
+    // throws Error
+    void set_primary_image(ImageHandle& new_primary_image_handle);
+
+    // throws Error
+    ImageHandle encode_thumbnail(const Image& image,
+                                 const ImageHandle& master_image,
+                                 Encoder& encoder,
+                                 const EncodingOptions&,
+                                 int bbox_size);
+
+    // throws Error
+    void assign_thumbnail(const ImageHandle& thumbnail_image,
+                          const ImageHandle& master_image);
+
+    // throws Error
+    void add_exif_metadata(const ImageHandle& master_image,
+                           const void* data, int size);
+
+    // throws Error
+    void add_XMP_metadata(const ImageHandle& master_image,
+                          const void* data, int size);
 
     class Writer {
     public:
@@ -137,6 +179,8 @@ namespace heif {
     ImageHandle() { }
 
     ImageHandle(heif_image_handle* handle);
+
+    bool empty() const noexcept { return !m_image_handle; }
 
     bool is_primary_image() const noexcept;
 
@@ -348,6 +392,52 @@ namespace heif {
     }
   }
 
+  inline void Context::read_from_memory_without_copy(const void* mem, size_t size, const ReadingOptions& /*opts*/) {
+    Error err = Error(heif_context_read_from_memory_without_copy(m_context.get(), mem, size, NULL));
+    if (err) {
+      throw err;
+    }
+  }
+
+
+  inline int64_t heif_reader_trampoline_get_position(void* userdata) {
+    Context::Reader* reader = (Context::Reader*)userdata;
+    return reader->get_position();
+  }
+
+  inline int heif_reader_trampoline_read(void* data, size_t size, void* userdata) {
+    Context::Reader* reader = (Context::Reader*)userdata;
+    return reader->read(data,size);
+  }
+
+  inline int heif_reader_trampoline_seek(int64_t position, void* userdata) {
+    Context::Reader* reader = (Context::Reader*)userdata;
+    return reader->seek(position);
+  }
+
+  inline heif_reader_grow_status heif_reader_trampoline_wait_for_file_size(int64_t target_size, void* userdata) {
+    Context::Reader* reader = (Context::Reader*)userdata;
+    return reader->wait_for_file_size(target_size);
+  }
+
+
+  static struct heif_reader heif_reader_trampoline =
+    {
+      1,
+      heif_reader_trampoline_get_position,
+      heif_reader_trampoline_read,
+      heif_reader_trampoline_seek,
+      heif_reader_trampoline_wait_for_file_size
+    };
+
+  inline void Context::read_from_reader(Reader& reader, const ReadingOptions& /*opts*/) {
+    Error err = Error(heif_context_read_from_reader(m_context.get(), &heif_reader_trampoline,
+                                                    &reader, NULL));
+    if (err) {
+      throw err;
+    }
+  }
+
 
   inline int Context::get_number_of_top_level_images() const noexcept {
     return heif_context_get_number_of_top_level_images(m_context.get());
@@ -437,8 +527,10 @@ namespace heif {
 
 
   inline ImageHandle::ImageHandle(heif_image_handle* handle) {
-    m_image_handle = std::shared_ptr<heif_image_handle>(handle,
-                                                        [] (heif_image_handle* h) { heif_image_handle_release(h); });
+    if (handle != nullptr) {
+      m_image_handle = std::shared_ptr<heif_image_handle>(handle,
+                                                          [] (heif_image_handle* h) { heif_image_handle_release(h); });
+    }
   }
 
   inline bool ImageHandle::is_primary_image() const noexcept {
@@ -843,20 +935,93 @@ namespace heif {
     return value;
   }
 
+  inline void Context::set_primary_image(ImageHandle& new_primary_image_handle) {
+    Error err = Error(heif_context_set_primary_image(m_context.get(),
+                                                     new_primary_image_handle.get_raw_image_handle()));
+    if (err) {
+      throw err;
+    }
+  }
+
+
+  inline Context::EncodingOptions::EncodingOptions() {
+    // TODO: this is a bit hacky. It would be better to have an API function to set
+    // the options to default values. But I do not see any reason for that apart from
+    // this use-case.
+
+    struct heif_encoding_options* default_options = heif_encoding_options_alloc();
+    *static_cast<heif_encoding_options*>(this) = *default_options; // copy over all options
+    heif_encoding_options_free(default_options);
+  }
+
+
   inline ImageHandle Context::encode_image(const Image& img, Encoder& encoder,
-                                           const EncodingOptions&) {
+                                           const EncodingOptions& options) {
     struct heif_image_handle* image_handle;
 
     Error err = Error(heif_context_encode_image(m_context.get(),
                                                 img.m_image.get(),
                                                 encoder.m_encoder.get(),
-                                                nullptr,
+                                                &options,
                                                 &image_handle));
     if (err) {
       throw err;
     }
 
     return ImageHandle(image_handle);
+  }
+
+
+  inline ImageHandle Context::encode_thumbnail(const Image& image,
+                                               const ImageHandle& master_image_handle,
+                                               Encoder& encoder,
+                                               const EncodingOptions& options,
+                                               int bbox_size) {
+    struct heif_image_handle* thumb_image_handle;
+
+    Error err = Error(heif_context_encode_thumbnail(m_context.get(),
+                                                    image.m_image.get(),
+                                                    master_image_handle.get_raw_image_handle(),
+                                                    encoder.m_encoder.get(),
+                                                    &options,
+                                                    bbox_size,
+                                                    &thumb_image_handle));
+    if (err) {
+      throw err;
+    }
+
+    return ImageHandle(thumb_image_handle);
+  }
+
+
+  inline void Context::assign_thumbnail(const ImageHandle& thumbnail_image,
+                                        const ImageHandle& master_image) {
+    Error err = Error(heif_context_assign_thumbnail(m_context.get(),
+                                                    thumbnail_image.get_raw_image_handle(),
+                                                    master_image.get_raw_image_handle()));
+    if (err) {
+      throw err;
+    }
+  }
+
+  inline void Context::add_exif_metadata(const ImageHandle& master_image,
+                                         const void* data, int size) {
+    Error err = Error(heif_context_add_exif_metadata(m_context.get(),
+                                                     master_image.get_raw_image_handle(),
+                                                     data, size));
+    if (err) {
+      throw err;
+    }
+  }
+
+  inline void Context::add_XMP_metadata(const ImageHandle& master_image,
+                                        const void* data, int size) {
+    Error err = Error(heif_context_add_XMP_metadata(m_context.get(),
+                                                    master_image.get_raw_image_handle(),
+                                                    data, size));
+    if (err) {
+      throw err;
+    }
   }
 }
 

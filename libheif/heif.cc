@@ -49,9 +49,6 @@
 #if defined(_MSC_VER)
 // for _write
 #include <io.h>
-#if _MSC_VER < 1900
-#define snprintf _snprintf
-#endif
 #endif
 
 using namespace heif;
@@ -107,7 +104,25 @@ heif_error heif_context_read_from_file(heif_context* ctx, const char* filename,
 heif_error heif_context_read_from_memory(heif_context* ctx, const void* mem, size_t size,
                                          const struct heif_reading_options*)
 {
-  Error err = ctx->context->read_from_memory(mem, size);
+  Error err = ctx->context->read_from_memory(mem, size, true);
+  return err.error_struct(ctx->context.get());
+}
+
+heif_error heif_context_read_from_memory_without_copy(heif_context* ctx, const void* mem, size_t size,
+                                                      const struct heif_reading_options*)
+{
+  Error err = ctx->context->read_from_memory(mem, size, false);
+  return err.error_struct(ctx->context.get());
+}
+
+heif_error heif_context_read_from_reader(struct heif_context* ctx,
+                                         const struct heif_reader* reader_func_table,
+                                         void* userdata,
+                                         const struct heif_reading_options*)
+{
+  auto reader = std::make_shared<StreamReader_CApi>(reader_func_table, userdata);
+
+  Error err = ctx->context->read(reader);
   return err.error_struct(ctx->context.get());
 }
 
@@ -858,6 +873,20 @@ struct heif_error heif_context_get_encoder(struct heif_context* context,
 }
 
 
+int heif_have_decoder_for_format(enum heif_compression_format format)
+{
+  auto plugin = heif::get_decoder(format);
+  return plugin != nullptr;
+}
+
+
+int heif_have_encoder_for_format(enum heif_compression_format format)
+{
+  auto plugin = heif::get_encoder(format);
+  return plugin != nullptr;
+}
+
+
 struct heif_error heif_context_get_encoder_for_format(struct heif_context* context,
                                                       enum heif_compression_format format,
                                                       struct heif_encoder** encoder)
@@ -1189,6 +1218,29 @@ struct heif_error heif_encoder_get_parameter(struct heif_encoder* encoder,
 }
 
 
+static void set_default_options(heif_encoding_options& options)
+{
+  options.version = 1;
+
+  options.save_alpha_channel = true;
+}
+
+
+heif_encoding_options* heif_encoding_options_alloc()
+{
+  auto options = new heif_encoding_options;
+
+  set_default_options(*options);
+
+  return options;
+}
+
+
+void heif_encoding_options_free(heif_encoding_options* options)
+{
+  delete options;
+}
+
 struct heif_error heif_context_encode_image(struct heif_context* ctx,
                                             const struct heif_image* input_image,
                                             struct heif_encoder* encoder,
@@ -1200,30 +1252,126 @@ struct heif_error heif_context_encode_image(struct heif_context* ctx,
                  heif_suberror_Null_pointer_argument).error_struct(ctx->context.get());
   }
 
-  std::shared_ptr<HeifContext::Image> image;
-  Error error(heif_error_Encoder_plugin_error, heif_suberror_Unsupported_codec);
-
-  switch (encoder->plugin->compression_format) {
-    case heif_compression_HEVC:
-      image = ctx->context->add_new_hvc1_image();
-      error = image->encode_image_as_hevc(input_image->image, encoder,
-                                          heif_image_input_class_normal);
-      break;
-
-    default:
-      // Will return "heif_suberror_Unsupported_codec" from above.
-      break;
+  heif_encoding_options default_options;
+  if (options==nullptr) {
+    set_default_options(default_options);
+    options = &default_options;
   }
+
+  std::shared_ptr<HeifContext::Image> image;
+  Error error;
+
+  error = ctx->context->encode_image(input_image->image,
+                                     encoder,
+                                     options,
+                                     heif_image_input_class_normal,
+                                     image);
   if (error != Error::Ok) {
     return error.error_struct(ctx->context.get());
   }
-  ctx->context->set_primary_image(image);
+
+  // mark the new image as primary image
+
+  if (ctx->context->is_primary_image_set() == false) {
+    ctx->context->set_primary_image(image);
+  }
 
   if (out_image_handle) {
     *out_image_handle = new heif_image_handle;
     (*out_image_handle)->image = image;
   }
 
-  struct heif_error err = { heif_error_Ok, heif_suberror_Unspecified, kSuccess };
-  return err;
+  return error_Ok;
+}
+
+
+struct heif_error heif_context_assign_thumbnail(struct heif_context* ctx,
+                                                const struct heif_image_handle* thumbnail_image,
+                                                const struct heif_image_handle* master_image)
+{
+  Error error = ctx->context->assign_thumbnail(thumbnail_image->image, master_image->image);
+  return error.error_struct(ctx->context.get());
+}
+
+
+struct heif_error heif_context_encode_thumbnail(struct heif_context* ctx,
+                                                const struct heif_image* image,
+                                                const struct heif_image_handle* image_handle,
+                                                struct heif_encoder* encoder,
+                                                const struct heif_encoding_options* options,
+                                                int bbox_size,
+                                                struct heif_image_handle** out_image_handle)
+{
+  std::shared_ptr<HeifContext::Image> thumbnail_image;
+
+  heif_encoding_options default_options;
+  if (options==nullptr) {
+    set_default_options(default_options);
+    options = &default_options;
+  }
+
+  Error error = ctx->context->encode_thumbnail(image->image,
+                                               encoder,
+                                               options,
+                                               bbox_size,
+                                               thumbnail_image);
+  if (error != Error::Ok) {
+    return error.error_struct(ctx->context.get());
+  }
+
+
+  error = ctx->context->assign_thumbnail(image_handle->image, thumbnail_image);
+  if (error != Error::Ok) {
+    return error.error_struct(ctx->context.get());
+  }
+
+
+  if (out_image_handle) {
+    if (thumbnail_image) {
+      *out_image_handle = new heif_image_handle;
+      (*out_image_handle)->image = thumbnail_image;
+    }
+    else {
+      *out_image_handle = nullptr;
+    }
+  }
+
+  return error_Ok;
+}
+
+
+struct heif_error heif_context_set_primary_image(struct heif_context* ctx,
+                                                 struct heif_image_handle* image_handle)
+{
+  ctx->context->set_primary_image(image_handle->image);
+
+  return error_Ok;
+}
+
+
+struct heif_error heif_context_add_exif_metadata(struct heif_context* ctx,
+                                                 const struct heif_image_handle* image_handle,
+                                                 const void* data, int size)
+{
+  Error error = ctx->context->add_exif_metadata(image_handle->image, data, size);
+  if (error != Error::Ok) {
+    return error.error_struct(ctx->context.get());
+  }
+  else {
+    return error_Ok;
+  }
+}
+
+
+struct heif_error heif_context_add_XMP_metadata(struct heif_context* ctx,
+                                                const struct heif_image_handle* image_handle,
+                                                const void* data, int size)
+{
+  Error error = ctx->context->add_XMP_metadata(image_handle->image, data, size);
+  if (error != Error::Ok) {
+    return error.error_struct(ctx->context.get());
+  }
+  else {
+    return error_Ok;
+  }
 }

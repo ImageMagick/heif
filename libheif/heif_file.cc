@@ -56,27 +56,28 @@ std::vector<heif_item_id> HeifFile::get_item_IDs() const
 
 Error HeifFile::read_from_file(const char* input_filename)
 {
-  m_input_stream = std::unique_ptr<std::istream>(new std::ifstream(input_filename));
+  auto input_stream_istr = std::unique_ptr<std::istream>(new std::ifstream(input_filename));
+  auto input_stream = std::make_shared<StreamReader_istream>(std::move(input_stream_istr));
 
-  uint64_t maxSize = std::numeric_limits<uint64_t>::max();
-  heif::BitstreamRange range(m_input_stream.get(), maxSize);
-
-
-  Error error = parse_heif_file(range);
-  return error;
+  return read(input_stream);
 }
 
 
 
-Error HeifFile::read_from_memory(const void* data, size_t size)
+Error HeifFile::read_from_memory(const void* data, size_t size, bool copy)
 {
-  // TODO: Work on passed memory directly instead of creating a copy here.
-  // Note: we cannot use basic_streambuf for this, because it does not support seeking
-  std::string s(static_cast<const char*>(data), size);
+  auto input_stream = std::make_shared<StreamReader_memory>((const uint8_t*)data, size, copy);
 
-  m_input_stream = std::unique_ptr<std::istream>(new std::istringstream(std::move(s)));
+  return read(input_stream);
+}
 
-  heif::BitstreamRange range(m_input_stream.get(), size);
+
+Error HeifFile::read(std::shared_ptr<StreamReader> reader)
+{
+  m_input_stream = reader;
+
+  uint64_t maxSize = std::numeric_limits<int64_t>::max();
+  heif::BitstreamRange range(m_input_stream, maxSize);
 
   Error error = parse_heif_file(range);
   return error;
@@ -410,12 +411,12 @@ Error HeifFile::get_compressed_image_data(heif_item_id ID, std::vector<uint8_t>*
                    heif_suberror_No_item_data);
     }
 
-    error = m_iloc_box->read_data(*item, *m_input_stream.get(), m_idat_box, data);
+    error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, data);
   } else if (item_type == "grid" ||
              item_type == "iovl" ||
              item_type == "Exif" ||
              (item_type == "mime" && content_type=="application/rdf+xml")) {
-    error = m_iloc_box->read_data(*item, *m_input_stream.get(), m_idat_box, data);
+    error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, data);
   }
 
   if (error != Error::Ok) {
@@ -453,18 +454,24 @@ heif_item_id HeifFile::get_unused_item_id() const
 
 heif_item_id HeifFile::add_new_image(const char* item_type)
 {
+  auto box = add_new_infe_box(item_type);
+  return box->get_item_ID();
+}
+
+
+std::shared_ptr<Box_infe> HeifFile::add_new_infe_box(const char* item_type)
+{
   heif_item_id id = get_unused_item_id();
 
   auto infe = std::make_shared<Box_infe>();
   infe->set_item_ID(id);
   infe->set_hidden_item(false);
   infe->set_item_type(item_type);
-  //infe->set_item_name("Nice image");
 
   m_infe_boxes[id] = infe;
   m_iinf_box->append_child_box(infe);
 
-  return id;
+  return infe;
 }
 
 

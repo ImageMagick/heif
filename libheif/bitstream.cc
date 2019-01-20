@@ -20,6 +20,7 @@
 
 #include "bitstream.h"
 
+#include <utility>
 #include <string.h>
 #include <assert.h>
 
@@ -28,19 +29,157 @@
 using namespace heif;
 
 
+StreamReader_istream::StreamReader_istream(std::unique_ptr<std::istream>&& istr)
+  : m_istr(std::move(istr))
+{
+  m_istr->seekg(0, std::ios_base::end);
+  m_length = m_istr->tellg();
+  m_istr->seekg(0, std::ios_base::beg);
+}
+
+int64_t StreamReader_istream::get_position() const
+{
+  return m_istr->tellg();
+}
+
+StreamReader::grow_status StreamReader_istream::wait_for_file_size(int64_t target_size)
+{
+  return (target_size > m_length) ? size_beyond_eof : size_reached;
+}
+
+bool    StreamReader_istream::read(void* data, size_t size)
+{
+  int64_t end_pos = get_position() + size;
+  if (end_pos > m_length) {
+    return false;
+  }
+
+  m_istr->read((char*)data, size);
+  return true;
+}
+
+bool    StreamReader_istream::seek(int64_t position)
+{
+  if (position>m_length)
+    return false;
+
+  m_istr->seekg(position, std::ios_base::beg);
+  return true;
+}
+
+
+
+StreamReader_memory::StreamReader_memory(const uint8_t* data, int64_t size, bool copy)
+  : m_length(size),
+    m_position(0)
+{
+  if (copy) {
+    m_owned_data = new uint8_t[m_length];
+    memcpy(m_owned_data, data, m_length);
+
+    m_data = m_owned_data;
+  }
+  else {
+    m_data = data;
+  }
+}
+
+StreamReader_memory::~StreamReader_memory()
+{
+  if (m_owned_data) {
+    delete[] m_owned_data;
+  }
+}
+
+int64_t StreamReader_memory::get_position() const
+{
+  return m_position;
+}
+
+StreamReader::grow_status StreamReader_memory::wait_for_file_size(int64_t target_size)
+{
+  return (target_size > m_length) ? size_beyond_eof : size_reached;
+}
+
+bool    StreamReader_memory::read(void* data, size_t size)
+{
+  int64_t end_pos = m_position + size;
+  if (end_pos > m_length) {
+    return false;
+  }
+
+  memcpy(data, &m_data[m_position], size);
+  m_position += size;
+
+  return true;
+}
+
+bool    StreamReader_memory::seek(int64_t position)
+{
+  if (position>m_length || position<0)
+    return false;
+
+  m_position = position;
+  return true;
+}
+
+
+
+StreamReader_CApi::StreamReader_CApi(const heif_reader* func_table, void* userdata)
+  : m_func_table(func_table), m_userdata(userdata)
+{
+}
+
+StreamReader::grow_status StreamReader_CApi::wait_for_file_size(int64_t target_size)
+{
+  heif_reader_grow_status status = m_func_table->wait_for_file_size(target_size, m_userdata);
+  switch (status) {
+  case heif_reader_grow_status_size_reached: return size_reached;
+  case heif_reader_grow_status_timeout: return timeout;
+  case heif_reader_grow_status_size_beyond_eof: return size_beyond_eof;
+  default:
+    assert(0);
+    return size_beyond_eof;
+  }
+}
+
+
+
+
+BitstreamRange::BitstreamRange(std::shared_ptr<StreamReader> istr,
+                               uint64_t length,
+                               BitstreamRange* parent)
+{
+  m_remaining = length;
+
+  m_istr = istr;
+  m_parent_range = parent;
+
+  if (parent) {
+    m_nesting_level = parent->m_nesting_level + 1;
+  }
+}
+
+
+StreamReader::grow_status BitstreamRange::wait_until_range_is_available()
+{
+  return m_istr->wait_for_file_size( m_istr->get_position() + m_remaining );
+}
+
+
 uint8_t BitstreamRange::read8()
 {
-  if (!read(1)) {
+  if (!prepare_read(1)) {
     return 0;
   }
 
   uint8_t buf;
 
-  std::istream* istr = get_istream();
-  istr->read((char*)&buf,1);
+  auto istr = get_istream();
+  bool success = istr->read((char*)&buf,1);
 
-  if (istr->fail()) {
-    set_eof_reached();
+  if (!success) {
+    set_eof_while_reading();
     return 0;
   }
 
@@ -50,17 +189,17 @@ uint8_t BitstreamRange::read8()
 
 uint16_t BitstreamRange::read16()
 {
-  if (!read(2)) {
+  if (!prepare_read(2)) {
     return 0;
   }
 
   uint8_t buf[2];
 
-  std::istream* istr = get_istream();
-  istr->read((char*)buf,2);
+  auto istr = get_istream();
+  bool success = istr->read((char*)buf,2);
 
-  if (istr->fail()) {
-    set_eof_reached();
+  if (!success) {
+    set_eof_while_reading();
     return 0;
   }
 
@@ -70,17 +209,17 @@ uint16_t BitstreamRange::read16()
 
 uint32_t BitstreamRange::read32()
 {
-  if (!read(4)) {
+  if (!prepare_read(4)) {
     return 0;
   }
 
   uint8_t buf[4];
 
-  std::istream* istr = get_istream();
-  istr->read((char*)buf,4);
+  auto istr = get_istream();
+  bool success = istr->read((char*)buf,4);
 
-  if (istr->fail()) {
-    set_eof_reached();
+  if (!success) {
+    set_eof_while_reading();
     return 0;
   }
 
@@ -95,20 +234,23 @@ std::string BitstreamRange::read_string()
 {
   std::string str;
 
+  // Reading a string when no more data is available, returns an empty string.
+  // Such a case happens, for example, when reading a 'url' box without content.
   if (eof()) {
-    return "";
+    return std::string();
   }
 
   for (;;) {
-    if (!read(1)) {
+    if (!prepare_read(1)) {
       return std::string();
     }
 
-    std::istream* istr = get_istream();
-    int c = istr->get();
+    auto istr = get_istream();
+    char c;
+    bool success = istr->read(&c,1);
 
-    if (istr->fail()) {
-      set_eof_reached();
+    if (!success) {
+      set_eof_while_reading();
       return std::string();
     }
 
@@ -121,6 +263,56 @@ std::string BitstreamRange::read_string()
   }
 
   return str;
+}
+
+
+bool BitstreamRange::prepare_read(int64_t nBytes)
+{
+  if (nBytes<0) {
+    // --- we cannot read negative amounts of bytes
+
+    assert(false);
+    return false;
+  }
+  else if (m_remaining < nBytes) {
+    // --- not enough data left in box -> move to end of box and set error flag
+
+    skip_to_end_of_box();
+
+    m_error = true;
+    return false;
+  }
+  else {
+    // --- this is the normal case (m_remaining >= nBytes)
+
+    if (m_parent_range) {
+      m_parent_range->prepare_read(nBytes);
+    }
+
+    m_remaining -= nBytes;
+
+    return true;
+  }
+}
+
+
+StreamReader::grow_status BitstreamRange::wait_for_available_bytes(int64_t nBytes)
+{
+  int64_t target_size = m_istr->get_position() + nBytes;
+
+  return m_istr->wait_for_file_size(target_size);
+}
+
+
+void BitstreamRange::skip_without_advancing_file_pos(int64_t n)
+{
+  assert(n<=m_remaining);
+
+  m_remaining -= n;
+
+  if (m_parent_range) {
+    m_parent_range->skip_without_advancing_file_pos(n);
+  }
 }
 
 

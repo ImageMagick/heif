@@ -28,16 +28,16 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-#include "heif_version.h"
+#include <libheif/heif_version.h>
 
 
 // API versions table
 //
-// release    depth.rep   dec.options   heif_writer
-// ------------------------------------------------
-//  1.0          1             1           N/A
-//  1.1          1             1            1
-
+// release    depth.rep   dec.options   enc.options   heif_reader   heif_writer
+// ------------------------------------------------------------------------------
+//  1.0          1             1           N/A           N/A           N/A
+//  1.1          1             1           N/A           N/A            1
+//  1.3          1             1            1             1             1
 
 
 #if defined(_MSC_VER) && !defined(LIBHEIF_STATIC_BUILD)
@@ -273,6 +273,39 @@ void heif_context_free(struct heif_context*);
 
 struct heif_reading_options;
 
+enum heif_reader_grow_status {
+  heif_reader_grow_status_size_reached,   // requested size has been reached, we can read until this point
+  heif_reader_grow_status_timeout,        // size has not been reached yet, but it may still grow further
+  heif_reader_grow_status_size_beyond_eof // size has not been reached and never will. The file has grown to its full size
+};
+
+struct heif_reader {
+  // API version supported by this reader
+  int reader_api_version;
+
+  // --- version 1 functions ---
+  int64_t (*get_position)(void* userdata);
+
+  // The functions read(), and seek() return 0 on success.
+  // Generally, libheif will make sure that we do not read past the file size.
+  int (*read)(void* data,
+              size_t size,
+              void* userdata);
+  int (*seek)(int64_t position,
+              void* userdata);
+
+  // When calling this function, libheif wants to make sure that it can read the file
+  // up to 'target_size'. This is useful when the file is currently downloaded and may
+  // grow with time. You may, for example, extract the image sizes even before the actual
+  // compressed image data has been completely downloaded.
+  //
+  // Even if your input files will not grow, you will have to implement at least
+  // detection whether the target_size is above the (fixed) file length
+  // (in this case, return 'size_beyond_eof').
+  enum heif_reader_grow_status (*wait_for_file_size)(int64_t target_size, void* userdata);
+};
+
+
 // Read a HEIF file from a named disk file.
 // The heif_reading_options should currently be set to NULL.
 LIBHEIF_API
@@ -281,9 +314,23 @@ struct heif_error heif_context_read_from_file(struct heif_context*, const char* 
 
 // Read a HEIF file stored completely in memory.
 // The heif_reading_options should currently be set to NULL.
+// DEPRECATED: use heif_context_read_from_memory_without_copy() instead.
 LIBHEIF_API
 struct heif_error heif_context_read_from_memory(struct heif_context*,
                                                 const void* mem, size_t size,
+                                                const struct heif_reading_options*);
+
+// Same as heif_context_read_from_memory() except that the provided memory is not copied.
+// That means, you will have to keep the memory area alive as long as you use the heif_context.
+LIBHEIF_API
+struct heif_error heif_context_read_from_memory_without_copy(struct heif_context*,
+                                                             const void* mem, size_t size,
+                                                             const struct heif_reading_options*);
+
+LIBHEIF_API
+struct heif_error heif_context_read_from_reader(struct heif_context*,
+                                                const struct heif_reader* reader,
+                                                void* userdata,
                                                 const struct heif_reading_options*);
 
 // Number of top-level images in the HEIF file. This does not include the thumbnails or the
@@ -701,6 +748,18 @@ struct heif_error heif_context_get_encoder(struct heif_context* context,
                                            const struct heif_encoder_descriptor*,
                                            struct heif_encoder** out_encoder);
 
+// Quick check whether there is a decoder available for the given format.
+// Note that the decoder still may not be able to decode all variants of that format.
+// You will have to query that further (todo) or just try to decode and check the returned error.
+LIBHEIF_API
+int heif_have_decoder_for_format(enum heif_compression_format format);
+
+// Quick check whether there is an enoder available for the given format.
+// Note that the encoder may be limited to a certain subset of features (e.g. only 8 bit, only lossy).
+// You will have to query the specific capabilities further.
+LIBHEIF_API
+int heif_have_encoder_for_format(enum heif_compression_format format);
+
 // Get an encoder for the given compression format. If there are several encoder plugins
 // for this format, the encoder with the highest plugin priority will be returned.
 // TODO: why do we need the context here? I think we should remove this. You may pass a NULL context.
@@ -830,17 +889,70 @@ struct heif_error heif_encoder_get_parameter(struct heif_encoder*,
                                              char* value_ptr, int value_size);
 
 
-struct heif_encoding_options;
+struct heif_encoding_options {
+  uint8_t version;
+
+  // version 1 options
+
+  uint8_t save_alpha_channel; // default: true
+};
+
+LIBHEIF_API
+struct heif_encoding_options* heif_encoding_options_alloc();
+
+LIBHEIF_API
+void heif_encoding_options_free(struct heif_encoding_options*);
+
 
 // Compress the input image.
 // Returns a handle to the coded image in 'out_image_handle' unless out_image_handle = NULL.
 // 'options' should be NULL for now.
+// The first image added to the context is also automatically set the primary image, but
+// you can change the primary image later with heif_context_set_primary_image().
 LIBHEIF_API
 struct heif_error heif_context_encode_image(struct heif_context*,
                                             const struct heif_image* image,
                                             struct heif_encoder* encoder,
                                             const struct heif_encoding_options* options,
                                             struct heif_image_handle** out_image_handle);
+
+LIBHEIF_API
+struct heif_error heif_context_set_primary_image(struct heif_context*,
+                                                 struct heif_image_handle* image_handle);
+
+// Encode the 'image' as a scaled down thumbnail image.
+// The image is scaled down to fit into a square area of width 'bbox_size'.
+// If the input image is already so small that it fits into this bounding box, no thumbnail
+// image is encoded and NULL is returned in 'out_thumb_image_handle'.
+// No error is returned in this case.
+// The encoded thumbnail is automatically assigned to the 'master_image_handle'. Hence, you
+// do not have to call heif_context_assign_thumbnail().
+LIBHEIF_API
+struct heif_error heif_context_encode_thumbnail(struct heif_context*,
+                                                const struct heif_image* image,
+                                                const struct heif_image_handle* master_image_handle,
+                                                struct heif_encoder* encoder,
+                                                const struct heif_encoding_options* options,
+                                                int bbox_size,
+                                                struct heif_image_handle** out_thumb_image_handle);
+
+// Assign 'thumbnail_image' as the thumbnail image of 'master_image'.
+LIBHEIF_API
+struct heif_error heif_context_assign_thumbnail(struct heif_context*,
+                                                const struct heif_image_handle* thumbnail_image,
+                                                const struct heif_image_handle* master_image);
+
+// Add EXIF metadata to an image. The raw EXIF metadata shall begin with the TIFF header.
+LIBHEIF_API
+struct heif_error heif_context_add_exif_metadata(struct heif_context*,
+                                                 const struct heif_image_handle* image_handle,
+                                                 const void* data, int size);
+
+// Add XMP metadata to an image.
+LIBHEIF_API
+struct heif_error heif_context_add_XMP_metadata(struct heif_context*,
+                                                const struct heif_image_handle* image_handle,
+                                                const void* data, int size);
 
 
 // --- heif_image allocation

@@ -49,8 +49,9 @@ namespace heif {
     HeifFile();
     ~HeifFile();
 
+    Error read(std::shared_ptr<StreamReader> reader);
     Error read_from_file(const char* input_filename);
-    Error read_from_memory(const void* data, size_t size);
+    Error read_from_memory(const void* data, size_t size, bool copy);
 
     void new_empty_file();
 
@@ -98,6 +99,7 @@ namespace heif {
     heif_item_id get_unused_item_id() const;
 
     heif_item_id add_new_image(const char* item_type);
+    std::shared_ptr<Box_infe> add_new_infe_box(const char* item_type);
 
     void add_hvcC_property(heif_item_id id);
     Error append_hvcC_nal_data(heif_item_id id, const std::vector<uint8_t>& data);
@@ -121,7 +123,7 @@ namespace heif {
     mutable std::mutex m_read_mutex;
 #endif
 
-    std::unique_ptr<std::istream> m_input_stream;
+    std::shared_ptr<StreamReader> m_input_stream;
 
     std::vector<std::shared_ptr<Box> > m_top_level_boxes;
 

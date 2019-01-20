@@ -157,12 +157,27 @@ std::string heif::BoxHeader::get_type_string() const
 
 heif::Error heif::BoxHeader::parse(BitstreamRange& range)
 {
+  StreamReader::grow_status status;
+  status = range.wait_for_available_bytes(8);
+  if (status != StreamReader::size_reached) {
+    // TODO: return recoverable error at timeout
+    return Error(heif_error_Invalid_input,
+                 heif_suberror_End_of_data);
+  }
+
   m_size = range.read32();
   m_type = range.read32();
 
   m_header_size = 8;
 
   if (m_size==1) {
+    status = range.wait_for_available_bytes(8);
+    if (status != StreamReader::size_reached) {
+      // TODO: return recoverable error at timeout
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_End_of_data);
+    }
+
     uint64_t high = range.read32();
     uint64_t low  = range.read32();
 
@@ -171,7 +186,14 @@ heif::Error heif::BoxHeader::parse(BitstreamRange& range)
   }
 
   if (m_type==fourcc("uuid")) {
-    if (range.read(16)) {
+    status = range.wait_for_available_bytes(16);
+    if (status != StreamReader::size_reached) {
+      // TODO: return recoverable error at timeout
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_End_of_data);
+    }
+
+    if (range.prepare_read(16)) {
       m_uuid_type.resize(16);
       range.get_istream()->read((char*)m_uuid_type.data(), 16);
     }
@@ -287,13 +309,13 @@ Error Box::parse(BitstreamRange& range)
   }
   else {
     uint64_t content_size = get_box_size() - get_header_size();
-    if (range.read(content_size)) {
+    if (range.prepare_read(content_size)) {
       if (content_size > MAX_BOX_SIZE) {
         return Error(heif_error_Invalid_input,
                      heif_suberror_Invalid_box_size);
       }
 
-      range.get_istream()->seekg(get_box_size() - get_header_size(), std::ios_base::cur);
+      range.get_istream()->seek_cur(get_box_size() - get_header_size());
     }
   }
 
@@ -328,91 +350,91 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
   std::shared_ptr<Box> box;
 
   switch (hdr.get_short_type()) {
-  case fourcc_const('f','t','y','p'):
+  case fourcc("ftyp"):
     box = std::make_shared<Box_ftyp>(hdr);
     break;
 
-  case fourcc_const('m','e','t','a'):
+  case fourcc("meta"):
     box = std::make_shared<Box_meta>(hdr);
     break;
 
-  case fourcc_const('h','d','l','r'):
+  case fourcc("hdlr"):
     box = std::make_shared<Box_hdlr>(hdr);
     break;
 
-  case fourcc_const('p','i','t','m'):
+  case fourcc("pitm"):
     box = std::make_shared<Box_pitm>(hdr);
     break;
 
-  case fourcc_const('i','l','o','c'):
+  case fourcc("iloc"):
     box = std::make_shared<Box_iloc>(hdr);
     break;
 
-  case fourcc_const('i','i','n','f'):
+  case fourcc("iinf"):
     box = std::make_shared<Box_iinf>(hdr);
     break;
 
-  case fourcc_const('i','n','f','e'):
+  case fourcc("infe"):
     box = std::make_shared<Box_infe>(hdr);
     break;
 
-  case fourcc_const('i','p','r','p'):
+  case fourcc("iprp"):
     box = std::make_shared<Box_iprp>(hdr);
     break;
 
-  case fourcc_const('i','p','c','o'):
+  case fourcc("ipco"):
     box = std::make_shared<Box_ipco>(hdr);
     break;
 
-  case fourcc_const('i','p','m','a'):
+  case fourcc("ipma"):
     box = std::make_shared<Box_ipma>(hdr);
     break;
 
-  case fourcc_const('i','s','p','e'):
+  case fourcc("ispe"):
     box = std::make_shared<Box_ispe>(hdr);
     break;
 
-  case fourcc_const('a','u','x','C'):
+  case fourcc("auxC"):
     box = std::make_shared<Box_auxC>(hdr);
     break;
 
-  case fourcc_const('i','r','o','t'):
+  case fourcc("irot"):
     box = std::make_shared<Box_irot>(hdr);
     break;
 
-  case fourcc_const('i','m','i','r'):
+  case fourcc("imir"):
     box = std::make_shared<Box_imir>(hdr);
     break;
 
-  case fourcc_const('c','l','a','p'):
+  case fourcc("clap"):
     box = std::make_shared<Box_clap>(hdr);
     break;
 
-  case fourcc_const('i','r','e','f'):
+  case fourcc("iref"):
     box = std::make_shared<Box_iref>(hdr);
     break;
 
-  case fourcc_const('h','v','c','C'):
+  case fourcc("hvcC"):
     box = std::make_shared<Box_hvcC>(hdr);
     break;
 
-  case fourcc_const('i','d','a','t'):
+  case fourcc("idat"):
     box = std::make_shared<Box_idat>(hdr);
     break;
 
-  case fourcc_const('g','r','p','l'):
+  case fourcc("grpl"):
     box = std::make_shared<Box_grpl>(hdr);
     break;
 
-  case fourcc_const('d','i','n','f'):
+  case fourcc("dinf"):
     box = std::make_shared<Box_dinf>(hdr);
     break;
 
-  case fourcc_const('d','r','e','f'):
+  case fourcc("dref"):
     box = std::make_shared<Box_dref>(hdr);
     break;
 
-  case fourcc_const('u','r','l',' '):
+  case fourcc("url "):
     box = std::make_shared<Box_url>(hdr);
     break;
 
@@ -439,6 +461,13 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
                  "Security limit for maximum nesting of boxes has been exceeded");
   }
 
+
+  auto status = range.wait_for_available_bytes( hdr.get_box_size() - hdr.get_header_size() );
+  if (status != StreamReader::size_reached) {
+    // TODO: return recoverable error at timeout
+    return Error(heif_error_Invalid_input,
+                 heif_suberror_End_of_data);
+  }
 
   BitstreamRange boxrange(range.get_istream(),
                           hdr.get_box_size() - hdr.get_header_size(),
@@ -950,27 +979,17 @@ std::string Box_iloc::dump(Indent& indent) const
 }
 
 
-Error Box_iloc::read_data(const Item& item, std::istream& istr,
+Error Box_iloc::read_data(const Item& item,
+                          std::shared_ptr<StreamReader> istr,
                           const std::shared_ptr<Box_idat>& idat,
                           std::vector<uint8_t>* dest) const
 {
-  istr.clear();
+  //istr.clear();
 
   for (const auto& extent : item.extents) {
     if (item.construction_method == 0) {
-      istr.seekg(extent.offset + item.base_offset, std::ios::beg);
-      if (istr.eof()) {
-        // Out-of-bounds
-        dest->clear();
 
-        std::stringstream sstr;
-        sstr << "Extent in iloc box references data outside of file bounds "
-             << "(points to file position " << extent.offset + item.base_offset << ")\n";
-
-        return Error(heif_error_Invalid_input,
-                     heif_suberror_End_of_data,
-                     sstr.str());
-      }
+      // --- security check that we do not allocate too much memory
 
       size_t old_size = dest->size();
       if (MAX_MEMORY_BLOCK_SIZE - old_size < extent.length) {
@@ -984,12 +1003,41 @@ Error Box_iloc::read_data(const Item& item, std::istream& istr,
                      sstr.str());
       }
 
-      dest->resize(static_cast<size_t>(old_size + extent.length));
-      istr.read((char*)dest->data() + old_size, static_cast<size_t>(extent.length));
-      if (istr.eof()) {
-          return Error(heif_error_Invalid_input,
-                       heif_suberror_End_of_data);
+
+      // --- make sure that all data is available
+
+      StreamReader::grow_status status = istr->wait_for_file_size(extent.offset + item.base_offset + extent.length);
+      if (status == StreamReader::size_beyond_eof) {
+        // Out-of-bounds
+        // TODO: I think we should not clear this. Maybe we want to try reading again later and
+        // hence should not lose the data already read.
+        dest->clear();
+
+        std::stringstream sstr;
+        sstr << "Extent in iloc box references data outside of file bounds "
+             << "(points to file position " << extent.offset + item.base_offset << ")\n";
+
+        return Error(heif_error_Invalid_input,
+                     heif_suberror_End_of_data,
+                     sstr.str());
       }
+      else if (status == StreamReader::timeout) {
+        // TODO: maybe we should introduce some 'Recoverable error' instead of 'Invalid input'
+        return Error(heif_error_Invalid_input,
+                     heif_suberror_End_of_data);
+      }
+
+      // --- move file pointer to start of data
+
+      bool success = istr->seek(extent.offset + item.base_offset);
+      assert(success);
+
+
+      // --- read data
+
+      dest->resize(static_cast<size_t>(old_size + extent.length));
+      success = istr->read((char*)dest->data() + old_size, static_cast<size_t>(extent.length));
+      assert(success);
     }
     else if (item.construction_method==1) {
       if (!idat) {
@@ -2154,7 +2202,7 @@ Error Box_hvcC::parse(BitstreamRange& range)
           continue;
         }
 
-        if (range.read(size)) {
+        if (range.prepare_read(size)) {
           nal_unit.resize(size);
           range.get_istream()->read((char*)nal_unit.data(), size);
         }
@@ -2318,7 +2366,7 @@ Error Box_hvcC::write(StreamWriter& writer) const
     }
 
   writer.write8(c.general_level_idc);
-  writer.write16(c.min_spatial_segmentation_idc & 0x0FFF);
+  writer.write16((c.min_spatial_segmentation_idc & 0x0FFF) | 0xF000);
   writer.write8(c.parallelism_type | 0xFC);
   writer.write8(c.chroma_format | 0xFC);
   writer.write8((uint8_t)((c.bit_depth_luma - 8) | 0xF8));
@@ -2365,7 +2413,7 @@ Error Box_idat::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
 
-  m_data_start_pos = range.get_istream()->tellg();
+  m_data_start_pos = range.get_istream()->get_position();
 
   return range.get_error();
 }
@@ -2382,13 +2430,12 @@ std::string Box_idat::dump(Indent& indent) const
 }
 
 
-Error Box_idat::read_data(std::istream& istr, uint64_t start, uint64_t length,
+Error Box_idat::read_data(std::shared_ptr<StreamReader> istr,
+                          uint64_t start, uint64_t length,
                           std::vector<uint8_t>& out_data) const
 {
-  // move to start of data
-  istr.seekg(m_data_start_pos + (std::streampos)start, std::ios_base::beg);
+  // --- security check that we do not allocate too much data
 
-  // reserve space for the data in the output array
   auto curr_size = out_data.size();
 
   if (MAX_MEMORY_BLOCK_SIZE - curr_size < length) {
@@ -2402,10 +2449,28 @@ Error Box_idat::read_data(std::istream& istr, uint64_t start, uint64_t length,
                  sstr.str());
   }
 
+
+  // move to start of data
+
+  StreamReader::grow_status status = istr->wait_for_file_size((int64_t)m_data_start_pos + start + length);
+  if (status == StreamReader::size_beyond_eof ||
+      status == StreamReader::timeout) {
+    // TODO: maybe we should introduce some 'Recoverable error' instead of 'Invalid input'
+    return Error(heif_error_Invalid_input,
+                 heif_suberror_End_of_data);
+  }
+
+  bool success;
+  success = istr->seek(m_data_start_pos + (std::streampos)start);
+  assert(success);
+
+  // reserve space for the data in the output array
+
   out_data.resize(static_cast<size_t>(curr_size + length));
   uint8_t* data = &out_data[curr_size];
 
-  istr.read((char*)data, static_cast<size_t>(length));
+  success = istr->read((char*)data, static_cast<size_t>(length));
+  assert(success);
 
   return Error::Ok;
 }
