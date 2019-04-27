@@ -1,22 +1,32 @@
 /*
- * libheif example application "convert".
- * Copyright (c) 2017 struktur AG, Joachim Bauch <bauch@struktur.de>
- *
- * This file is part of convert, an example application using libheif.
- *
- * convert is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * convert is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with convert.  If not, see <http://www.gnu.org/licenses/>.
- */
+  libheif example application "convert".
+
+  MIT License
+
+  Copyright (c) 2017 struktur AG, Joachim Bauch <bauch@struktur.de>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+*/
+#if defined(HAVE_CONFIG_H)
+#include "config.h"
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
@@ -43,6 +53,78 @@ void JpegEncoder::OnJpegError(j_common_ptr cinfo) {
   ErrorHandler* handler = reinterpret_cast<ErrorHandler*>(cinfo->err);
   longjmp(handler->setjmp_buffer, 1);
 }
+
+#if !defined(HAVE_JPEG_WRITE_ICC_PROFILE)
+
+#define ICC_MARKER  (JPEG_APP0 + 2)     /* JPEG marker code for ICC */
+#define ICC_OVERHEAD_LEN  14            /* size of non-profile data in APP2 */
+#define MAX_BYTES_IN_MARKER  65533      /* maximum data len of a JPEG marker */
+#define MAX_DATA_BYTES_IN_MARKER (MAX_BYTES_IN_MARKER - ICC_OVERHEAD_LEN)
+
+ /*
+ * This routine writes the given ICC profile data into a JPEG file.  It *must*
+ * be called AFTER calling jpeg_start_compress() and BEFORE the first call to
+ * jpeg_write_scanlines().  (This ordering ensures that the APP2 marker(s) will
+ * appear after the SOI and JFIF or Adobe markers, but before all else.)
+ */
+
+ /* This function is copied almost as is from libjpeg-turbo */
+
+static
+void jpeg_write_icc_profile(j_compress_ptr cinfo, const JOCTET *icc_data_ptr,
+                            unsigned int icc_data_len)
+{
+  unsigned int num_markers;     /* total number of markers we'll write */
+  int cur_marker = 1;           /* per spec, counting starts at 1 */
+  unsigned int length;          /* number of bytes to write in this marker */
+
+  /* Calculate the number of markers we'll need, rounding up of course */
+  num_markers = icc_data_len / MAX_DATA_BYTES_IN_MARKER;
+  if (num_markers * MAX_DATA_BYTES_IN_MARKER != icc_data_len)
+    num_markers++;
+
+  while (icc_data_len > 0) {
+    /* length of profile to put in this marker */
+    length = icc_data_len;
+    if (length > MAX_DATA_BYTES_IN_MARKER)
+      length = MAX_DATA_BYTES_IN_MARKER;
+    icc_data_len -= length;
+
+    /* Write the JPEG marker header (APP2 code and marker length) */
+    jpeg_write_m_header(cinfo, ICC_MARKER,
+                        (unsigned int)(length + ICC_OVERHEAD_LEN));
+
+    /* Write the marker identifying string "ICC_PROFILE" (null-terminated).  We
+     * code it in this less-than-transparent way so that the code works even if
+     * the local character set is not ASCII.
+     */
+    jpeg_write_m_byte(cinfo, 0x49);
+    jpeg_write_m_byte(cinfo, 0x43);
+    jpeg_write_m_byte(cinfo, 0x43);
+    jpeg_write_m_byte(cinfo, 0x5F);
+    jpeg_write_m_byte(cinfo, 0x50);
+    jpeg_write_m_byte(cinfo, 0x52);
+    jpeg_write_m_byte(cinfo, 0x4F);
+    jpeg_write_m_byte(cinfo, 0x46);
+    jpeg_write_m_byte(cinfo, 0x49);
+    jpeg_write_m_byte(cinfo, 0x4C);
+    jpeg_write_m_byte(cinfo, 0x45);
+    jpeg_write_m_byte(cinfo, 0x0);
+
+    /* Add the sequencing info */
+    jpeg_write_m_byte(cinfo, cur_marker);
+    jpeg_write_m_byte(cinfo, (int)num_markers);
+
+    /* Add the profile data */
+    while (length--) {
+      jpeg_write_m_byte(cinfo, *icc_data_ptr);
+      icc_data_ptr++;
+    }
+    cur_marker++;
+  }
+}
+
+#endif  // !defined(HAVE_JPEG_WRITE_ICC_PROFILE)
 
 bool JpegEncoder::Encode(const struct heif_image_handle* handle,
     const struct heif_image* image, const std::string& filename) {
@@ -84,6 +166,22 @@ bool JpegEncoder::Encode(const struct heif_image_handle* handle,
         static_cast<unsigned int>(exifsize - 4));
     free(exifdata);
   }
+
+  size_t profile_size = heif_image_handle_get_raw_color_profile_size(handle);
+  if (profile_size > 0){
+    uint8_t* profile_data = static_cast<uint8_t*>(malloc(profile_size));
+    heif_image_handle_get_raw_color_profile(handle, profile_data);
+    jpeg_write_icc_profile(&cinfo, profile_data, (unsigned int)profile_size);
+    free(profile_data);
+  }
+
+
+  if (heif_image_handle_get_luma_bits_per_pixel(handle) != 8 ||
+      heif_image_handle_get_chroma_bits_per_pixel(handle) != 8) {
+    fprintf(stderr, "JPEG writer cannot handle image with >8 bpp.\n");
+    return false;
+  }
+
 
   int stride_y;
   const uint8_t* row_y = heif_image_get_plane_readonly(image, heif_channel_Y,

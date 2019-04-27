@@ -244,7 +244,7 @@ Error ImageOverlay::parse(size_t num_images, const std::vector<uint8_t>& data)
 
   if (m_version != 0) {
     std::stringstream sstr;
-    sstr << "Overlay image data version " << m_version << " is not implemented yet";
+    sstr << "Overlay image data version " << ((int)m_version) << " is not implemented yet";
 
     return Error(heif_error_Unsupported_feature,
                  heif_suberror_Unsupported_data_version,
@@ -454,6 +454,7 @@ Error HeifContext::interpret_heif_file()
 
   std::vector<heif_item_id> image_IDs = m_heif_file->get_item_IDs();
 
+  bool primary_is_grid = false;
   for (heif_item_id id : image_IDs) {
     auto infe_box = m_heif_file->get_infe_box(id);
     if (!infe_box) {
@@ -469,6 +470,7 @@ Error HeifContext::interpret_heif_file()
         if (id==m_heif_file->get_primary_image_ID()) {
           image->set_primary(true);
           m_primary_image = image;
+          primary_is_grid = infe_box->get_item_type() == "grid";
         }
 
         m_top_level_images.push_back(image);
@@ -493,108 +495,132 @@ Error HeifContext::interpret_heif_file()
     for (auto& pair : m_all_images) {
       auto& image = pair.second;
 
-      uint32_t type = iref_box->get_reference_type(image->get_id());
+      std::vector<Box_iref::Reference> references = iref_box->get_references_from(image->get_id());
 
-      if (type==fourcc("thmb")) {
-        // --- this is a thumbnail image, attach to the main image
+      for (const Box_iref::Reference& ref : references) {
+        uint32_t type = ref.header.get_short_type();
 
-        std::vector<heif_item_id> refs = iref_box->get_references(image->get_id());
-        if (refs.size() != 1) {
-          return Error(heif_error_Invalid_input,
-                       heif_suberror_Unspecified,
-                       "Too many thumbnail references");
-        }
+        if (type==fourcc("thmb")) {
+          // --- this is a thumbnail image, attach to the main image
 
-        image->set_is_thumbnail_of(refs[0]);
-
-        auto master_iter = m_all_images.find(refs[0]);
-        if (master_iter == m_all_images.end()) {
-          return Error(heif_error_Invalid_input,
-                       heif_suberror_Nonexisting_item_referenced,
-                       "Thumbnail references a non-existing image");
-        }
-
-        if (master_iter->second->is_thumbnail()) {
-          return Error(heif_error_Invalid_input,
-                       heif_suberror_Nonexisting_item_referenced,
-                       "Thumbnail references another thumbnail");
-        }
-
-        master_iter->second->add_thumbnail(image);
-
-        remove_top_level_image(image);
-      }
-      else if (type==fourcc("auxl")) {
-
-        // --- this is an auxiliary image
-        //     check whether it is an alpha channel and attach to the main image if yes
-
-        std::vector<Box_ipco::Property> properties;
-        Error err = m_heif_file->get_properties(image->get_id(), properties);
-        if (err) {
-          return err;
-        }
-
-        std::shared_ptr<Box_auxC> auxC_property;
-        for (const auto& property : properties) {
-          auto auxC = std::dynamic_pointer_cast<Box_auxC>(property.property);
-          if (auxC) {
-            auxC_property = auxC;
+          std::vector<heif_item_id> refs = ref.to_item_ID;
+          if (refs.size() != 1) {
+            return Error(heif_error_Invalid_input,
+                         heif_suberror_Unspecified,
+                         "Too many thumbnail references");
           }
-        }
 
-        if (!auxC_property) {
-          std::stringstream sstr;
-          sstr << "No auxC property for image " << image->get_id();
-          return Error(heif_error_Invalid_input,
-                       heif_suberror_Auxiliary_image_type_unspecified,
-                       sstr.str());
-        }
-
-        std::vector<heif_item_id> refs = iref_box->get_references(image->get_id());
-        if (refs.size() != 1) {
-          return Error(heif_error_Invalid_input,
-                       heif_suberror_Unspecified,
-                       "Too many auxiliary image references");
-        }
-
-
-        // alpha channel
-
-        if (auxC_property->get_aux_type() == "urn:mpeg:avc:2015:auxid:1" ||
-            auxC_property->get_aux_type() == "urn:mpeg:hevc:2015:auxid:1") {
-          image->set_is_alpha_channel_of(refs[0]);
+          image->set_is_thumbnail_of(refs[0]);
 
           auto master_iter = m_all_images.find(refs[0]);
-          master_iter->second->set_alpha_channel(image);
+          if (master_iter == m_all_images.end()) {
+            return Error(heif_error_Invalid_input,
+                         heif_suberror_Nonexisting_item_referenced,
+                         "Thumbnail references a non-existing image");
+          }
+
+          if (master_iter->second->is_thumbnail()) {
+            return Error(heif_error_Invalid_input,
+                         heif_suberror_Nonexisting_item_referenced,
+                         "Thumbnail references another thumbnail");
+          }
+
+          master_iter->second->add_thumbnail(image);
+
+          remove_top_level_image(image);
         }
+        else if (type==fourcc("auxl")) {
 
+          // --- this is an auxiliary image
+          //     check whether it is an alpha channel and attach to the main image if yes
 
-        // depth channel
+          std::vector<Box_ipco::Property> properties;
+          Error err = m_heif_file->get_properties(image->get_id(), properties);
+          if (err) {
+            return err;
+          }
 
-        if (auxC_property->get_aux_type() == "urn:mpeg:hevc:2015:auxid:2") {
-          image->set_is_depth_channel_of(refs[0]);
-
-          auto master_iter = m_all_images.find(refs[0]);
-          master_iter->second->set_depth_channel(image);
-
-          auto subtypes = auxC_property->get_subtypes();
-
-          std::vector<std::shared_ptr<SEIMessage>> sei_messages;
-          Error err = decode_hevc_aux_sei_messages(subtypes, sei_messages);
-
-          for (auto& msg : sei_messages) {
-            auto depth_msg = std::dynamic_pointer_cast<SEIMessage_depth_representation_info>(msg);
-            if (depth_msg) {
-              image->set_depth_representation_info(*depth_msg);
+          std::shared_ptr<Box_auxC> auxC_property;
+          for (const auto& property : properties) {
+            auto auxC = std::dynamic_pointer_cast<Box_auxC>(property.property);
+            if (auxC) {
+              auxC_property = auxC;
             }
           }
-        }
 
-        remove_top_level_image(image);
+          if (!auxC_property) {
+            std::stringstream sstr;
+            sstr << "No auxC property for image " << image->get_id();
+            return Error(heif_error_Invalid_input,
+                         heif_suberror_Auxiliary_image_type_unspecified,
+                         sstr.str());
+          }
+
+          std::vector<heif_item_id> refs = ref.to_item_ID;
+          if (refs.size() != 1) {
+            return Error(heif_error_Invalid_input,
+                         heif_suberror_Unspecified,
+                         "Too many auxiliary image references");
+          }
+
+
+          // alpha channel
+
+          if (auxC_property->get_aux_type() == "urn:mpeg:avc:2015:auxid:1" ||
+              auxC_property->get_aux_type() == "urn:mpeg:hevc:2015:auxid:1") {
+            image->set_is_alpha_channel_of(refs[0]);
+
+            auto master_iter = m_all_images.find(refs[0]);
+            master_iter->second->set_alpha_channel(image);
+          }
+
+
+          // depth channel
+
+          if (auxC_property->get_aux_type() == "urn:mpeg:hevc:2015:auxid:2") {
+            image->set_is_depth_channel_of(refs[0]);
+
+            auto master_iter = m_all_images.find(refs[0]);
+            master_iter->second->set_depth_channel(image);
+
+            auto subtypes = auxC_property->get_subtypes();
+
+            std::vector<std::shared_ptr<SEIMessage>> sei_messages;
+            Error err = decode_hevc_aux_sei_messages(subtypes, sei_messages);
+
+            for (auto& msg : sei_messages) {
+              auto depth_msg = std::dynamic_pointer_cast<SEIMessage_depth_representation_info>(msg);
+              if (depth_msg) {
+                image->set_depth_representation_info(*depth_msg);
+              }
+            }
+          }
+
+          remove_top_level_image(image);
+        }
+        else {
+          // 'image' is a normal image, keep it as a top-level image
+        }
       }
-      else {
-        // 'image' is a normal image, keep it as a top-level image
+    }
+  }
+
+
+  // --- check that HEVC images have an hvcC property
+
+  for (auto& pair : m_all_images) {
+    auto& image = pair.second;
+
+    std::shared_ptr<Box_infe> infe = m_heif_file->get_infe_box(image->get_id());
+    if (infe->get_item_type() == "hvc1") {
+
+      auto ipma = m_heif_file->get_ipma_box();
+      auto ipco = m_heif_file->get_ipco_box();
+
+      if (!ipco->get_property_for_item_ID(image->get_id(), ipma, fourcc("hvcC"))) {
+        return Error(heif_error_Invalid_input,
+                     heif_suberror_No_hvcC_box,
+                     "No hvcC property in hvc1 type image");
       }
     }
   }
@@ -613,6 +639,7 @@ Error HeifContext::interpret_heif_file()
     }
 
     bool ispe_read = false;
+    bool primary_colr_set = false;
     for (const auto& prop : properties) {
       auto ispe = std::dynamic_pointer_cast<Box_ispe>(prop.property);
       if (ispe) {
@@ -634,6 +661,7 @@ Error HeifContext::interpret_heif_file()
         }
 
         image->set_resolution(width, height);
+        image->set_ispe_resolution(width, height);
         ispe_read = true;
       }
 
@@ -654,9 +682,29 @@ Error HeifContext::interpret_heif_file()
           }
         }
       }
+
+      auto colr = std::dynamic_pointer_cast<Box_colr>(prop.property);
+      if (colr) {
+        auto profile = colr->get_color_profile();
+
+        image->set_color_profile(profile);
+
+        // if this is a grid item we assign the first one's color profile
+        // to the main image which is supposed to be a grid
+
+        // TODO: this condition is not correct. It would also classify a secondary image as a 'grid item'.
+        // We have to set the grid-image color profile in another way...
+        const bool is_grid_item = !image->is_primary() && !image->is_alpha_channel() && !image->is_depth_channel();
+
+        if (primary_is_grid &&
+            !primary_colr_set &&
+            is_grid_item) {
+          m_primary_image->set_color_profile(profile);
+          primary_colr_set = true;
+        }
+      }
     }
   }
-
 
 
   // --- read metadata and assign to image
@@ -664,7 +712,6 @@ Error HeifContext::interpret_heif_file()
   for (heif_item_id id : image_IDs) {
     std::string item_type    = m_heif_file->get_item_type(id);
     std::string content_type = m_heif_file->get_content_type(id);
-
     if (item_type == "Exif" ||
         (item_type=="mime" && content_type=="application/rdf+xml")) {
       std::shared_ptr<ImageMetadata> metadata = std::make_shared<ImageMetadata>();
@@ -683,24 +730,26 @@ Error HeifContext::interpret_heif_file()
       // --- assign metadata to the image
 
       if (iref_box) {
-        uint32_t type = iref_box->get_reference_type(id);
-        if (type == fourcc("cdsc")) {
-          std::vector<uint32_t> refs = iref_box->get_references(id);
-          if (refs.size() != 1) {
-            return Error(heif_error_Invalid_input,
-                         heif_suberror_Unspecified,
-                         "Exif data not correctly assigned to image");
-          }
+        std::vector<Box_iref::Reference> references = iref_box->get_references_from(id);
+        for (const auto& ref : references) {
+          if (ref.header.get_short_type() == fourcc("cdsc")) {
+            std::vector<uint32_t> refs = ref.to_item_ID;
+            if (refs.size() != 1) {
+              return Error(heif_error_Invalid_input,
+                           heif_suberror_Unspecified,
+                           "Exif data not correctly assigned to image");
+            }
 
-          uint32_t exif_image_id = refs[0];
-          auto img_iter = m_all_images.find(exif_image_id);
-          if (img_iter == m_all_images.end()) {
-            return Error(heif_error_Invalid_input,
-                         heif_suberror_Nonexisting_item_referenced,
-                         "Exif data assigned to non-existing image");
-          }
+            uint32_t exif_image_id = refs[0];
+            auto img_iter = m_all_images.find(exif_image_id);
+            if (img_iter == m_all_images.end()) {
+              return Error(heif_error_Invalid_input,
+                           heif_suberror_Nonexisting_item_referenced,
+                           "Exif data assigned to non-existing image");
+            }
 
-          img_iter->second->add_metadata(metadata);
+            img_iter->second->add_metadata(metadata);
+          }
         }
       }
     }
@@ -714,11 +763,55 @@ HeifContext::Image::Image(HeifContext* context, heif_item_id id)
   : m_heif_context(context),
     m_id(id)
 {
+  memset(&m_depth_representation_info, 0, sizeof(m_depth_representation_info));
 }
 
 HeifContext::Image::~Image()
 {
 }
+
+bool HeifContext::is_image(heif_item_id ID) const
+{
+  for (const auto& img : m_all_images) {
+    if (img.first == ID)
+      return true;
+  }
+
+  return false;
+}
+
+
+heif_item_id HeifContext::get_id_of_non_virtual_child_image(heif_item_id id) const
+{
+  std::string image_type = m_heif_file->get_item_type(id);
+  if (image_type=="grid" ||
+      image_type=="iden" ||
+      image_type=="iovl") {
+    auto iref_box = m_heif_file->get_iref_box();
+    std::vector<heif_item_id> image_references = iref_box->get_references(id, fourcc("dimg"));
+
+    // TODO: check whether this really can be recursive (e.g. overlay of grid images)
+    return get_id_of_non_virtual_child_image(image_references[0]);
+  }
+  else {
+    return id;
+  }
+}
+
+
+int HeifContext::Image::get_luma_bits_per_pixel() const
+{
+  heif_item_id id = m_heif_context->get_id_of_non_virtual_child_image(m_id);
+  return m_heif_context->m_heif_file->get_luma_bits_per_pixel_from_configuration(id);
+}
+
+
+int HeifContext::Image::get_chroma_bits_per_pixel() const
+{
+  heif_item_id id = m_heif_context->get_id_of_non_virtual_child_image(m_id);
+  return m_heif_context->m_heif_file->get_chroma_bits_per_pixel_from_configuration(id);
+}
+
 
 Error HeifContext::Image::decode_image(std::shared_ptr<HeifPixelImage>& img,
                                        heif_colorspace colorspace,
@@ -953,7 +1046,10 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
                                           const std::vector<uint8_t>& grid_data) const
 {
   ImageGrid grid;
-  grid.parse(grid_data);
+  Error err = grid.parse(grid_data);
+  if (err) {
+    return err;
+  }
   // std::cout << grid.dump();
 
 
@@ -965,7 +1061,7 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
                  "No iref box available, but needed for grid image");
   }
 
-  std::vector<heif_item_id> image_references = iref_box->get_references(ID);
+  std::vector<heif_item_id> image_references = iref_box->get_references(ID, fourcc("dimg"));
 
   if ((int)image_references.size() != grid.get_rows() * grid.get_columns()) {
     std::stringstream sstr;
@@ -978,11 +1074,45 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
                  sstr.str());
   }
 
-  // --- generate image of full output size
 
-  int w = grid.get_width();
-  int h = grid.get_height();
-  int bpp = 8; // TODO: how do we know ?
+  // --- check that all image IDs are valid images
+
+  for (heif_item_id tile_id : image_references) {
+    if (!is_image(tile_id)) {
+      std::stringstream sstr;
+      sstr << "Tile image ID=" << tile_id << " is not a proper image.";
+
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_Missing_grid_images,
+                   sstr.str());
+    }
+  }
+
+
+  const int w = grid.get_width();
+  const int h = grid.get_height();
+  const int bpp = 8; // TODO: how do we know ?
+
+
+  // --- determine output image chroma size and make sure all tiles have same chroma
+
+  assert(!image_references.empty());
+  heif_item_id some_tile_id = image_references[0];
+  heif_chroma tile_chroma = m_heif_file->get_image_chroma_from_configuration(some_tile_id);
+
+  const int cw = w/chroma_h_subsampling(tile_chroma);
+  const int ch = h/chroma_v_subsampling(tile_chroma);
+
+  for (heif_item_id tile_id : image_references) {
+    if (m_heif_file->get_image_chroma_from_configuration(tile_id) != tile_chroma) {
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_Invalid_grid_data,
+                   "Images in grid do not all have the same chroma format.");
+    }
+  }
+
+
+  // --- generate image of full output size
 
   if (w >= MAX_IMAGE_WIDTH || h >= MAX_IMAGE_HEIGHT) {
     std::stringstream sstr;
@@ -994,18 +1124,22 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
                  sstr.str());
   }
 
+
   img = std::make_shared<HeifPixelImage>();
   img->create(w,h,
               heif_colorspace_YCbCr, // TODO: how do we know ?
-              heif_chroma_420); // TODO: how do we know ?
+              tile_chroma);
 
   img->add_plane(heif_channel_Y,  w,h, bpp);
-  img->add_plane(heif_channel_Cb, w/2,h/2, bpp);
-  img->add_plane(heif_channel_Cr, w/2,h/2, bpp);
+
+  if (tile_chroma != heif_chroma_monochrome) {
+    img->add_plane(heif_channel_Cb, cw,ch, bpp);
+    img->add_plane(heif_channel_Cr, cw,ch, bpp);
+  }
+
 
   int y0=0;
   int reference_idx = 0;
-
 
 #if ENABLE_PARALLEL_TILE_DECODING
   // remember which tile to put where into the image
@@ -1028,7 +1162,14 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
 
       heif_item_id tileID = image_references[reference_idx];
 
-      const std::shared_ptr<Image> tileImg = m_all_images.find(tileID)->second;
+      auto iter = m_all_images.find(tileID);
+      if (iter == m_all_images.end()) {
+        return Error(heif_error_Invalid_input,
+                     heif_suberror_Missing_grid_images,
+                     "Unexisting grid image referenced");
+      }
+
+      const std::shared_ptr<Image> tileImg = iter->second;
       int src_width = tileImg->get_width();
       int src_height = tileImg->get_height();
 
@@ -1117,12 +1258,26 @@ Error HeifContext::decode_and_paste_tile_image(heif_item_id tileID,
   assert(src_width >= 0);
   assert(src_height >= 0);
 
-  for (heif_channel channel : { heif_channel_Y, heif_channel_Cb, heif_channel_Cr }) {
+  heif_chroma chroma = img->get_chroma_format();
+  std::set<enum heif_channel> channels = img->get_channel_set();
+
+  if (chroma != tile_img->get_chroma_format()) {
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_Wrong_tile_image_chroma_format,
+                   "Image tile has different chroma format than combined image");
+  }
+
+  for (heif_channel channel : channels) {
     int tile_stride;
     uint8_t* tile_data = tile_img->get_plane(channel, &tile_stride);
 
     int out_stride;
     uint8_t* out_data = img->get_plane(channel, &out_stride);
+
+    if (w <= x0 || h <= y0) {
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_Invalid_grid_data);
+    }
 
     int copy_width  = std::min(src_width, w - x0);
     int copy_height = std::min(src_height, h - y0);
@@ -1130,10 +1285,12 @@ Error HeifContext::decode_and_paste_tile_image(heif_item_id tileID,
     int xs=x0, ys=y0;
 
     if (channel != heif_channel_Y) {
-      copy_width /= 2;
-      copy_height /= 2;
-      xs /= 2;
-      ys /= 2;
+      int subH = chroma_h_subsampling(chroma);
+      int subV = chroma_v_subsampling(chroma);
+      copy_width /= subH;
+      copy_height /= subV;
+      xs /= subH;
+      ys /= subV;
     }
 
     for (int py=0;py<copy_height;py++) {
@@ -1160,7 +1317,7 @@ Error HeifContext::decode_derived_image(heif_item_id ID,
                  "No iref box available, but needed for iden image");
   }
 
-  std::vector<heif_item_id> image_references = iref_box->get_references(ID);
+  std::vector<heif_item_id> image_references = iref_box->get_references(ID, fourcc("dimg"));
 
   if ((int)image_references.size() != 1) {
     return Error(heif_error_Invalid_input,
@@ -1191,7 +1348,7 @@ Error HeifContext::decode_overlay_image(heif_item_id ID,
                  "No iref box available, but needed for iovl image");
   }
 
-  std::vector<heif_item_id> image_references = iref_box->get_references(ID);
+  std::vector<heif_item_id> image_references = iref_box->get_references(ID, fourcc("dimg"));
 
   /* TODO: probably, it is valid that an iovl image has no references ?
 
@@ -1204,8 +1361,10 @@ Error HeifContext::decode_overlay_image(heif_item_id ID,
 
 
   ImageOverlay overlay;
-  overlay.parse(image_references.size(), overlay_data);
-  //std::cout << overlay.dump();
+  Error err = overlay.parse(image_references.size(), overlay_data);
+  if (err) {
+    return err;
+  }
 
   if (image_references.size() != overlay.get_num_offsets()) {
     return Error(heif_error_Invalid_input,
@@ -1238,7 +1397,7 @@ Error HeifContext::decode_overlay_image(heif_item_id ID,
   uint16_t bkg_color[4];
   overlay.get_background_color(bkg_color);
 
-  Error err = img->fill_RGB_16bit(bkg_color[0], bkg_color[1], bkg_color[2], bkg_color[3]);
+  err = img->fill_RGB_16bit(bkg_color[0], bkg_color[1], bkg_color[2], bkg_color[3]);
   if (err) {
     return err;
   }
@@ -1449,11 +1608,13 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
 
   heif_colorspace colorspace = image->get_colorspace();
   heif_chroma chroma = image->get_chroma_format();
+  auto color_profile = image->get_color_profile();
+
   encoder->plugin->query_input_colorspace(&colorspace, &chroma);
 
   if (colorspace != image->get_colorspace() ||
       chroma != image->get_chroma_format()) {
-
+    // @TODO: use color profile when converting
     image = image->convert_colorspace(colorspace, chroma);
   }
 
@@ -1461,6 +1622,9 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
   m_width  = image->get_width(heif_channel_Y);
   m_height = image->get_height(heif_channel_Y);
 
+  if (color_profile) {
+    m_heif_context->m_heif_file->set_color_profile(m_id, color_profile);
+  }
 
   // --- if there is an alpha channel, add it as an additional image
 
@@ -1492,14 +1656,19 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
   }
 
 
-
   m_heif_context->m_heif_file->add_hvcC_property(m_id);
+
 
 
   heif_image c_api_image;
   c_api_image.image = image;
 
-  encoder->plugin->encode_image(encoder->encoder, &c_api_image, input_class);
+  struct heif_error err = encoder->plugin->encode_image(encoder->encoder, &c_api_image, input_class);
+  if (err.code) {
+    return Error(err.code,
+                 err.subcode,
+                 err.message);
+  }
 
   for (;;) {
     uint8_t* data;
@@ -1535,7 +1704,6 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
       m_heif_context->m_heif_file->append_iloc_data_with_4byte_size(m_id, data, size);
     }
   }
-
 
   return Error::Ok;
 }
@@ -1639,6 +1807,21 @@ Error HeifContext::encode_thumbnail(std::shared_ptr<HeifPixelImage> image,
 
 Error HeifContext::add_exif_metadata(std::shared_ptr<Image> master_image, const void* data, int size)
 {
+  // find location of TIFF header
+  uint32_t offset = 0;
+  const char * tiffmagic1 = "MM\0*";
+  const char * tiffmagic2 = "II*\0";
+  while (offset+4 < (unsigned int)size) {
+        if (!memcmp( (uint8_t *) data + offset, tiffmagic1, 4 )) break;
+        if (!memcmp( (uint8_t *) data + offset, tiffmagic2, 4 )) break;
+        offset++;
+  }
+  if (offset >= (unsigned int)size) {
+    return Error(heif_error_Usage_error,
+                  heif_suberror_Invalid_parameter_value,
+                 "Could not find location of TIFF header in Exif metadata.");
+  }
+
   // create an infe box describing what kind of data we are storing (this also creates a new ID)
 
   auto metadata_infe_box = m_heif_file->add_new_infe_box("Exif");
@@ -1655,12 +1838,14 @@ Error HeifContext::add_exif_metadata(std::shared_ptr<Image> master_image, const 
 
   // copy the Exif data into the file, store the pointer to it in an iloc box entry
 
+
+
   std::vector<uint8_t> data_array;
   data_array.resize(size+4);
-  data_array[0] = 0;
-  data_array[1] = 0;
-  data_array[2] = 0;
-  data_array[3] = 0;
+  data_array[0] = (uint8_t) ((offset >> 24) & 0xFF);
+  data_array[1] = (uint8_t) ((offset >> 16) & 0xFF);
+  data_array[2] = (uint8_t) ((offset >> 8) & 0xFF);
+  data_array[3] = (uint8_t) ((offset) & 0xFF);
   memcpy(data_array.data()+4, data, size);
 
   m_heif_file->append_iloc_data(metadata_id, data_array);

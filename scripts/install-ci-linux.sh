@@ -74,6 +74,7 @@ fi
 
 if [ ! -z "$WITH_GRAPHICS" ]; then
     INSTALL_PACKAGES="$INSTALL_PACKAGES \
+        libgdk-pixbuf2.0-dev \
         libjpeg-dev \
         libpng-dev \
         "
@@ -97,14 +98,20 @@ elif [ ! -z "$MINGW64" ]; then
         "
 fi
 
+if [ ! -z "$GO" ]; then
+    INSTALL_PACKAGES="$INSTALL_PACKAGES \
+        golang \
+        "
+fi
+
 if [ ! -z "$UPDATE_APT" ]; then
     echo "Updating package lists ..."
-    sudo apt-get update -qq
+    sudo apt-get update
 fi
 
 if [ ! -z "$INSTALL_PACKAGES" ]; then
     echo "Installing packages $INSTALL_PACKAGES ..."
-    sudo apt-get install -qq $INSTALL_PACKAGES
+    sudo apt-get install $INSTALL_PACKAGES
 fi
 
 if [ ! -z "$REMOVE_PACKAGES" ]; then
@@ -116,4 +123,13 @@ if [ ! -z "$EMSCRIPTEN_VERSION" ]; then
     echo "Installing emscripten $EMSCRIPTEN_VERSION to $BUILD_ROOT/emscripten ..."
     mkdir -p $BUILD_ROOT/emscripten
     ./scripts/install-emscripten.sh $EMSCRIPTEN_VERSION $BUILD_ROOT/emscripten
+fi
+
+if [ ! -z "$FUZZER" ]; then
+    ./scripts/install-clang.sh "$BUILD_ROOT/clang"
+fi
+
+if [ "$TRAVIS_BRANCH" = "coverity" ]; then
+    echo "Installing coverity build tool ..."
+    echo -n | openssl s_client -connect scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-certificates.crt
 fi

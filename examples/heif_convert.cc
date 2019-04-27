@@ -1,22 +1,28 @@
 /*
- * libheif example application "convert".
- * Copyright (c) 2017 struktur AG, Joachim Bauch <bauch@struktur.de>
- *
- * This file is part of convert, an example application using libheif.
- *
- * convert is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * convert is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with convert.  If not, see <http://www.gnu.org/licenses/>.
- */
+  libheif example application "convert".
+
+  MIT License
+
+  Copyright (c) 2017 struktur AG, Joachim Bauch <bauch@struktur.de>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+*/
 #if defined(HAVE_CONFIG_H)
 #include "config.h"
 #endif
@@ -40,6 +46,7 @@
 #if HAVE_LIBPNG
 #include "encoder_png.h"
 #endif
+#include "encoder_y4m.h"
 
 #if defined(_MSC_VER)
 #include "getopt.h"
@@ -85,29 +92,66 @@ int main(int argc, char** argv)
 
   std::string input_filename(argv[optind++]);
   std::string output_filename(argv[optind++]);
-  std::ifstream istr(input_filename.c_str());
 
   std::unique_ptr<Encoder> encoder;
-#if HAVE_LIBJPEG
   if (output_filename.size() > 4 &&
       output_filename.find(".jpg") == output_filename.size() - 4) {
+#if HAVE_LIBJPEG
     static const int kDefaultJpegQuality = 90;
     if (quality == -1) {
       quality = kDefaultJpegQuality;
     }
     encoder.reset(new JpegEncoder(quality));
-  }
+#else
+    fprintf(stderr, "JPEG support has not been compiled in.\n");
+    return 1;
 #endif  // HAVE_LIBJPEG
-#if HAVE_LIBPNG
+  }
+
   if (output_filename.size() > 4 &&
       output_filename.find(".png") == output_filename.size() - 4) {
+#if HAVE_LIBPNG
     encoder.reset(new PngEncoder());
-  }
+#else
+    fprintf(stderr, "PNG support has not been compiled in.\n");
+    return 1;
 #endif  // HAVE_LIBPNG
+  }
+
+  if (output_filename.size() > 4 &&
+      output_filename.find(".y4m") == output_filename.size() - 4) {
+    encoder.reset(new Y4MEncoder());
+  }
+
   if (!encoder) {
     fprintf(stderr, "Unknown file type in %s\n", output_filename.c_str());
     return 1;
   }
+
+
+  // --- check whether input is a supported HEIF file
+
+  // TODO: when we are reading from named pipes, we probably should not consume any bytes
+  // just for file-type checking.
+  // TODO: check, whether reading from named pipes works at all.
+
+  std::ifstream istr(input_filename.c_str(), std::ios_base::binary);
+  uint8_t magic[12];
+  istr.read((char*)magic,12);
+  enum heif_filetype_result filetype_check = heif_check_filetype(magic,12);
+  if (filetype_check == heif_filetype_no) {
+    fprintf(stderr, "Input file is not an HEIF file\n");
+    return 1;
+  }
+
+  if (filetype_check == heif_filetype_yes_unsupported) {
+    fprintf(stderr, "Input file is an unsupported HEIF file type\n");
+    return 1;
+  }
+
+
+
+  // --- read the HEIF file
 
   struct heif_context* ctx = heif_context_alloc();
   if (!ctx) {
@@ -142,9 +186,9 @@ int main(int argc, char** argv)
 
     if (num_images>1) {
       std::ostringstream s;
-      s << output_filename.substr(0, output_filename.find('.'));
+      s << output_filename.substr(0, output_filename.find_last_of('.'));
       s << "-" << image_index;
-      s << output_filename.substr(output_filename.find('.'));
+      s << output_filename.substr(output_filename.find_last_of('.'));
       filename.assign(s.str());
     } else {
       filename.assign(output_filename);
@@ -162,11 +206,13 @@ int main(int argc, char** argv)
     struct heif_decoding_options* decode_options = heif_decoding_options_alloc();
     encoder->UpdateDecodingOptions(handle, decode_options);
 
+    int bit_depth = heif_image_handle_get_luma_bits_per_pixel(handle);
+
     struct heif_image* image;
     err = heif_decode_image(handle,
                             &image,
                             encoder->colorspace(has_alpha),
-                            encoder->chroma(has_alpha),
+                            encoder->chroma(has_alpha, bit_depth),
                             decode_options);
     heif_decoding_options_free(decode_options);
     if (err.code) {
@@ -191,6 +237,7 @@ int main(int argc, char** argv)
         heif_item_id depth_id;
         int nDepthImages = heif_image_handle_get_list_of_depth_image_IDs(handle, &depth_id, 1);
         assert(nDepthImages==1);
+        (void)nDepthImages;
 
         struct heif_image_handle* depth_handle;
         err = heif_image_handle_get_depth_image_handle(handle, depth_id, &depth_handle);
@@ -200,11 +247,13 @@ int main(int argc, char** argv)
           return 1;
         }
 
+        int bit_depth = 10; // TODO
+
         struct heif_image* depth_image;
         err = heif_decode_image(depth_handle,
                                 &depth_image,
                                 encoder->colorspace(false),
-                                encoder->chroma(false),
+                                encoder->chroma(false, bit_depth),
                                 nullptr);
         if (err.code) {
           heif_image_handle_release(depth_handle);

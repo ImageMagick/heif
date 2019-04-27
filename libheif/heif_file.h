@@ -91,6 +91,12 @@ namespace heif {
     Error get_properties(heif_item_id imageID,
                          std::vector<Box_ipco::Property>& properties) const;
 
+    heif_chroma get_image_chroma_from_configuration(heif_item_id imageID) const;
+
+    int get_luma_bits_per_pixel_from_configuration(heif_item_id imageID) const;
+
+    int get_chroma_bits_per_pixel_from_configuration(heif_item_id imageID) const;
+
     std::string debug_dump_boxes() const;
 
 
@@ -117,6 +123,8 @@ namespace heif {
                             std::vector<heif_item_id> to);
 
     void set_auxC_property(heif_item_id id, std::string type);
+
+    void set_color_profile(heif_item_id id, const std::shared_ptr<const color_profile> profile);
 
   private:
 #if ENABLE_PARALLEL_TILE_DECODING

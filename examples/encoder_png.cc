@@ -1,22 +1,28 @@
 /*
- * libheif example application "convert".
- * Copyright (c) 2017 struktur AG, Joachim Bauch <bauch@struktur.de>
- *
- * This file is part of convert, an example application using libheif.
- *
- * convert is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * convert is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with convert.  If not, see <http://www.gnu.org/licenses/>.
- */
+  libheif example application "convert".
+
+  MIT License
+
+  Copyright (c) 2017 struktur AG, Joachim Bauch <bauch@struktur.de>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+*/
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
@@ -47,7 +53,7 @@ bool PngEncoder::Encode(const struct heif_image_handle* handle,
   }
 
   png_infop info_ptr = png_create_info_struct(png_ptr);
-  if (!png_ptr) {
+  if (!info_ptr) {
     png_destroy_write_struct(&png_ptr, nullptr);
     fprintf(stderr, "libpng initialization failed (2)\n");
     return false;
@@ -69,15 +75,39 @@ bool PngEncoder::Encode(const struct heif_image_handle* handle,
 
   png_init_io(png_ptr, fp);
 
-  bool withAlpha = (heif_image_get_chroma_format(image) == heif_chroma_interleaved_32bit);
+  bool withAlpha = (heif_image_get_chroma_format(image) == heif_chroma_interleaved_RGBA ||
+                    heif_image_get_chroma_format(image) == heif_chroma_interleaved_RRGGBBAA_BE);
 
   int width = heif_image_get_width(image, heif_channel_interleaved);
   int height = heif_image_get_height(image, heif_channel_interleaved);
-  const int bitDepth = 8;
+
+  int bitDepth;
+  if (heif_image_get_bits_per_pixel(image, heif_channel_interleaved)>32) {
+    bitDepth = 16;
+  }
+  else {
+    bitDepth = 8;
+  }
+
   const int colorType = withAlpha ? PNG_COLOR_TYPE_RGBA : PNG_COLOR_TYPE_RGB;
 
   png_set_IHDR(png_ptr, info_ptr, width, height, bitDepth, colorType,
       PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+
+  size_t profile_size = heif_image_handle_get_raw_color_profile_size(handle);
+  if (profile_size > 0){
+    uint8_t* profile_data = static_cast<uint8_t*>(malloc(profile_size));
+    heif_image_handle_get_raw_color_profile(handle, profile_data);
+    char profile_name[] = "unknown";
+    png_set_iCCP(png_ptr, info_ptr, profile_name, PNG_COMPRESSION_TYPE_BASE,
+#if PNG_LIBPNG_VER < 10500
+                 (png_charp)profile_data,
+#else
+                 (png_const_bytep)profile_data,
+#endif
+                 (png_uint_32)profile_size);
+    free(profile_data);
+  }
   png_write_info(png_ptr, info_ptr);
 
   uint8_t** row_pointers = new uint8_t*[height];

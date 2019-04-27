@@ -1,6 +1,7 @@
 # libheif
 
-[![Build Status](https://travis-ci.org/strukturag/libheif.svg?branch=master)](https://travis-ci.org/strukturag/libheif) [![Build Status](https://ci.appveyor.com/api/projects/status/github/strukturag/libheif?svg=true)](https://ci.appveyor.com/project/strukturag/libheif)
+[![Build Status](https://travis-ci.org/strukturag/libheif.svg?branch=master)](https://travis-ci.org/strukturag/libheif) [![Build Status](https://ci.appveyor.com/api/projects/status/github/strukturag/libheif?svg=true)](https://ci.appveyor.com/project/strukturag/libheif) [![Coverity Scan Build Status](https://scan.coverity.com/projects/16641/badge.svg)](https://scan.coverity.com/projects/strukturag-libheif)
+
 
 libheif is an ISO/IEC 23008-12:2017 HEIF file format decoder and encoder.
 
@@ -9,7 +10,7 @@ best compression ratios currently possible.
 
 libheif makes use of [libde265](https://github.com/strukturag/libde265) for
 the actual image decoding and x265 for encoding. Alternative codecs for, e.g., AVC and JPEG can be
-provided as plugins.
+provided as plugins. There is experimental code for an AV1 plugin (for AVIF format support) in the 'avif' branch.
 
 
 ## Supported features
@@ -23,8 +24,10 @@ libheif has support for decoding
 * multiple images in an HEIF file
 * image transformations (crop, mirror, rotate)
 * overlay images
-* plugin interface to add decoders for additional formats (AVC, JPEG)
+* plugin interface to add decoders for additional formats (AV1, AVC, JPEG)
 * decoding of files while downloading (e.g. extract image size before file has been completely downloaded)
+* reading color profiles
+* 10 and 12 bit images
 
 The encoder supports:
 * lossy compression with adjustable quality
@@ -33,6 +36,8 @@ The encoder supports:
 * thumbnails
 * save multiple images to an HEIF file
 * save EXIF and XMP metadata
+* writing color profiles
+* 10 and 12 bit images
 
 ## API
 
@@ -133,8 +138,8 @@ You may have to run `update-mime-database /usr/share/mime` to update the list of
 ## License
 
 The libheif is distributed under the terms of the GNU Lesser General Public License.
-The sample applications are distributed under the terms of the GNU General Public License.
+The sample applications are distributed under the terms of the MIT License.
 
 See COPYING for more details.
 
-Copyright (c) 2017-2018 Struktur AG Contact: Dirk Farin farin@struktur.de
+Copyright (c) 2017-2019 Struktur AG Contact: Dirk Farin farin@struktur.de

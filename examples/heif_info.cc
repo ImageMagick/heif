@@ -1,22 +1,28 @@
 /*
- * libheif example application "heif".
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
- *
- * This file is part of heif, an example application using libheif.
- *
- * heif is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * heif is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with heif.  If not, see <http://www.gnu.org/licenses/>.
- */
+  libheif example application "heif-info".
+
+  MIT License
+
+  Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+*/
 #if defined(HAVE_CONFIG_H)
 #include "config.h"
 #endif
@@ -60,6 +66,16 @@ static struct option long_options[] = {
   {"help",       no_argument,      0, 'h' },
   {0,         0,                 0,  0 }
 };
+
+const char* fourcc_to_string(uint32_t fourcc) {
+  static char fcc[5];
+  fcc[0] = (char)((fourcc>>24) & 0xFF);
+  fcc[1] = (char)((fourcc>>16) & 0xFF);
+  fcc[2] = (char)((fourcc>> 8) & 0xFF);
+  fcc[3] = (char)((fourcc>> 0) & 0xFF);
+  fcc[4] = 0;
+  return fcc;
+}
 
 void show_help(const char* argv0)
 {
@@ -161,13 +177,16 @@ int main(int argc, char** argv)
 
     printf("image: %dx%d (id=%d)%s\n",width,height,IDs[i], primary ? ", primary" : "");
 
+
+    // --- thumbnails
+
     int nThumbnails = heif_image_handle_get_number_of_thumbnails(handle);
     heif_item_id* thumbnailIDs = (heif_item_id*)alloca(nThumbnails*sizeof(heif_item_id));
 
-    heif_image_handle* thumbnail_handle;
     nThumbnails = heif_image_handle_get_list_of_thumbnail_IDs(handle,thumbnailIDs, nThumbnails);
 
     for (int thumbnailIdx=0 ; thumbnailIdx<nThumbnails ; thumbnailIdx++) {
+      heif_image_handle* thumbnail_handle;
       err = heif_image_handle_get_thumbnail(handle, thumbnailIDs[thumbnailIdx], &thumbnail_handle);
       if (err.code) {
         std::cerr << err.message << "\n";
@@ -182,15 +201,25 @@ int main(int argc, char** argv)
       heif_image_handle_release(thumbnail_handle);
     }
 
+
+    // --- color profile
+
+    uint32_t profileType = heif_image_handle_get_color_profile_type(handle);
+    printf("  color profile: %s\n", profileType ? fourcc_to_string(profileType) : "no");
+
+
+    // --- depth information
+
     bool has_depth = heif_image_handle_has_depth_image(handle);
 
     printf("  alpha channel: %s\n", heif_image_handle_has_alpha_channel(handle) ? "yes":"no");
-    printf("  depth channel: %s", has_depth ? "yes":"no\n");
+    printf("  depth channel: %s\n", has_depth ? "yes":"no");
 
     heif_item_id depth_id;
     int nDepthImages = heif_image_handle_get_list_of_depth_image_IDs(handle, &depth_id, 1);
     if (has_depth) { assert(nDepthImages==1); }
     else { assert(nDepthImages==0); }
+    (void)nDepthImages;
 
     if (has_depth) {
       struct heif_image_handle* depth_handle;

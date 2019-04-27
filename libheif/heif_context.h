@@ -33,6 +33,8 @@
 #include "heif_plugin.h"
 #include "bitstream.h"
 
+#include "box.h" // only for color_profile, TODO: maybe move the color_profiles to its own header
+
 namespace heif {
 class HeifContext;
 }
@@ -75,6 +77,7 @@ namespace heif {
       ~Image();
 
       void set_resolution(int w,int h) { m_width=w; m_height=h; }
+      void set_ispe_resolution(int w,int h) { m_ispe_width=w; m_ispe_height=h; }
 
       void set_primary(bool flag=true) { m_is_primary=flag; }
 
@@ -84,6 +87,12 @@ namespace heif {
 
       int get_width() const { return m_width; }
       int get_height() const { return m_height; }
+
+      int get_ispe_width() const { return m_ispe_width; }
+      int get_ispe_height() const { return m_ispe_height; }
+
+      int get_luma_bits_per_pixel() const;
+      int get_chroma_bits_per_pixel() const;
 
       bool is_primary() const { return m_is_primary; }
 
@@ -152,38 +161,46 @@ namespace heif {
                                  const struct heif_encoding_options* options,
                                  enum heif_image_input_class input_class);
 
+      std::shared_ptr<const color_profile> get_color_profile() const { return m_color_profile; }
+
+      void set_color_profile(std::shared_ptr<const color_profile> profile) { m_color_profile = profile; };
+
     private:
       HeifContext* m_heif_context;
 
-      heif_item_id m_id;
+      heif_item_id m_id = 0;
       uint32_t m_width=0, m_height=0;
+      uint32_t m_ispe_width=0, m_ispe_height=0; // original image resolution
       bool     m_is_primary = false;
 
       bool     m_is_thumbnail = false;
-      heif_item_id m_thumbnail_ref_id;
+      heif_item_id m_thumbnail_ref_id = 0;
 
       std::vector<std::shared_ptr<Image>> m_thumbnails;
 
       bool m_is_alpha_channel = false;
-      heif_item_id m_alpha_channel_ref_id;
+      heif_item_id m_alpha_channel_ref_id = 0;
       std::shared_ptr<Image> m_alpha_channel;
 
       bool m_is_depth_channel = false;
-      heif_item_id m_depth_channel_ref_id;
+      heif_item_id m_depth_channel_ref_id = 0;
       std::shared_ptr<Image> m_depth_channel;
 
       bool m_has_depth_representation_info = false;
       struct heif_depth_representation_info m_depth_representation_info;
 
       std::vector<std::shared_ptr<ImageMetadata>> m_metadata;
-    };
 
+      std::shared_ptr<const color_profile> m_color_profile;
+    };
 
     std::vector<std::shared_ptr<Image>> get_top_level_images() { return m_top_level_images; }
 
     std::shared_ptr<Image> get_primary_image() { return m_primary_image; }
 
     void register_decoder(const heif_decoder_plugin* decoder_plugin);
+
+    bool is_image(heif_item_id ID) const;
 
     Error decode_image(heif_item_id ID, std::shared_ptr<HeifPixelImage>& img,
                        const struct heif_decoding_options* options = nullptr) const;
@@ -260,6 +277,8 @@ namespace heif {
     Error decode_overlay_image(heif_item_id ID,
                                std::shared_ptr<HeifPixelImage>& img,
                                const std::vector<uint8_t>& overlay_data) const;
+
+    heif_item_id get_id_of_non_virtual_child_image(heif_item_id) const;
   };
 }
 

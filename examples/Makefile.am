@@ -13,7 +13,7 @@ heif_convert_DEPENDENCIES = ../libheif/libheif.la
 heif_convert_CXXFLAGS = -I$(top_srcdir) -I$(top_builddir)/.
 heif_convert_LDFLAGS =
 heif_convert_LDADD = ../libheif/libheif.la
-heif_convert_SOURCES = encoder.cc encoder.h heif_convert.cc
+heif_convert_SOURCES = encoder.cc encoder.h heif_convert.cc encoder_y4m.cc encoder_y4m.h
 
 
 if HAVE_LIBPNG
@@ -72,5 +72,29 @@ test_c_api_LDADD = ../libheif/libheif.la
 test_c_api_SOURCES = test_c_api.c
 
 EXTRA_DIST = \
+    CMakeLists.txt \
+    COPYING \
     demo.html \
     example.heic
+
+if HAVE_GO
+noinst_PROGRAMS += \
+	heif-test-go
+
+heif_test_go_SOURCES = heif-test.go
+
+gopath:
+	mkdir -p ${CURDIR}/src/github.com/strukturag/libheif
+	ln -sf ${CURDIR}/../go ${CURDIR}/src/github.com/strukturag/libheif/
+
+heif-test-go: gopath $(top_builddir)/libheif/libheif.la $(top_builddir)/libheif.pc heif-test.go
+	GOPATH=${CURDIR} PKG_CONFIG_PATH=$(abs_top_builddir) CGO_CFLAGS="-I$(abs_top_builddir)" CGO_LDFLAGS="-L$(abs_top_builddir)/libheif/.libs" LD_LIBRARY_PATH=$(abs_top_builddir)/libheif/.libs $(GO) build -o heif-test-go ${heif_test_go_SOURCES}
+
+format-go: ${heif_test_go_SOURCES}
+	$(GO) fmt ${heif_test_go_SOURCES}
+else
+format-go:
+	echo ""go" not present in "${PATH}", skipping formatting"
+endif
+
+format-local: format-go

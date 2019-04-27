@@ -56,9 +56,14 @@ std::vector<heif_item_id> HeifFile::get_item_IDs() const
 
 Error HeifFile::read_from_file(const char* input_filename)
 {
-  auto input_stream_istr = std::unique_ptr<std::istream>(new std::ifstream(input_filename));
-  auto input_stream = std::make_shared<StreamReader_istream>(std::move(input_stream_istr));
+  auto input_stream_istr = std::unique_ptr<std::istream>(new std::ifstream(input_filename, std::ios_base::binary));
+  if (!input_stream_istr->good()) {
+    std::stringstream sstr;
+    sstr << "Error opening file: " << strerror(errno) << " (" << errno << ")\n";
+    return Error(heif_error_Input_does_not_exist, heif_suberror_Unspecified, sstr.str());
+  }
 
+  auto input_stream = std::make_shared<StreamReader_istream>(std::move(input_stream_istr));
   return read(input_stream);
 }
 
@@ -164,6 +169,9 @@ Error HeifFile::parse_heif_file(BitstreamRange& range)
   for (;;) {
     std::shared_ptr<Box> box;
     Error error = Box::read(range, &box);
+
+    // When an EOF error is returned, this is not really a fatal exception,
+    // but simply the indication that we reached the end of the file.
     if (error != Error::Ok || range.error() || range.eof()) {
       break;
     }
@@ -337,6 +345,44 @@ Error HeifFile::get_properties(heif_item_id imageID,
 }
 
 
+heif_chroma HeifFile::get_image_chroma_from_configuration(heif_item_id imageID) const
+{
+  auto box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("hvcC"));
+  std::shared_ptr<Box_hvcC> hvcC_box = std::dynamic_pointer_cast<Box_hvcC>(box);
+  if (hvcC_box) {
+    return (heif_chroma)(hvcC_box->get_configuration().chroma_format);
+  }
+
+  assert(false);
+  return heif_chroma_420;
+}
+
+
+int HeifFile::get_luma_bits_per_pixel_from_configuration(heif_item_id imageID) const
+{
+  auto box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("hvcC"));
+  std::shared_ptr<Box_hvcC> hvcC_box = std::dynamic_pointer_cast<Box_hvcC>(box);
+  if (hvcC_box) {
+    return hvcC_box->get_configuration().bit_depth_luma;
+  }
+
+  assert(false);
+  return 8;
+}
+
+
+int HeifFile::get_chroma_bits_per_pixel_from_configuration(heif_item_id imageID) const
+{
+  auto box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("hvcC"));
+  std::shared_ptr<Box_hvcC> hvcC_box = std::dynamic_pointer_cast<Box_hvcC>(box);
+  if (hvcC_box) {
+    return hvcC_box->get_configuration().bit_depth_chroma;
+  }
+
+  assert(false);
+  return 8;
+}
+
 
 Error HeifFile::get_compressed_image_data(heif_item_id ID, std::vector<uint8_t>* data) const
 {
@@ -404,6 +450,9 @@ Error HeifFile::get_compressed_image_data(heif_item_id ID, std::vector<uint8_t>*
     }
 
     if (!hvcC_box) {
+      // Should always have an hvcC box, because we are checking this in
+      // heif_context::interpret_heif_file()
+      assert(false);
       return Error(heif_error_Invalid_input,
                    heif_suberror_No_hvcC_box);
     } else if (!hvcC_box->get_headers(data)) {
@@ -505,6 +554,9 @@ Error HeifFile::append_hvcC_nal_data(heif_item_id id, const std::vector<uint8_t>
     return Error::Ok;
   }
   else {
+    // Should always have an hvcC box, because we are checking this in
+    // heif_context::interpret_heif_file()
+    assert(false);
     return Error(heif_error_Usage_error,
                  heif_suberror_No_hvcC_box);
   }
@@ -557,10 +609,10 @@ void HeifFile::append_iloc_data_with_4byte_size(heif_item_id id, const uint8_t* 
   std::vector<uint8_t> nal;
   nal.resize(size + 4);
 
-  nal[0] = (size>>24) & 0xFF;
-  nal[1] = (size>>16) & 0xFF;
-  nal[2] = (size>> 8) & 0xFF;
-  nal[3] = (size>> 0) & 0xFF;
+  nal[0] = (uint8_t)((size>>24) & 0xFF);
+  nal[1] = (uint8_t)((size>>16) & 0xFF);
+  nal[2] = (uint8_t)((size>> 8) & 0xFF);
+  nal[3] = (uint8_t)((size>> 0) & 0xFF);
 
   memcpy(nal.data()+4, data, size);
 
@@ -590,5 +642,14 @@ void HeifFile::set_auxC_property(heif_item_id id, std::string type)
 
   int index = m_ipco_box->append_child_box(auxC);
 
+  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation { true, uint16_t(index+1) });
+}
+
+void HeifFile::set_color_profile(heif_item_id id, const std::shared_ptr<const color_profile> profile)
+{
+  auto colr = std::make_shared<Box_colr>();
+  colr->set_color_profile(profile);
+
+  int index = m_ipco_box->append_child_box(colr);
   m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation { true, uint16_t(index+1) });
 }

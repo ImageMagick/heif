@@ -1,9 +1,10 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.3.2], [opensource@struktur.de])
+AC_INIT([libheif], [1.4.0], [opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
-NUMERIC_VERSION=0x01030200 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
+# Note: do not forget to set the version in the CMakeLists.txt file accordingly
+NUMERIC_VERSION=0x01040000 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
 AC_SUBST(NUMERIC_VERSION)
 
 # From https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html:
@@ -12,9 +13,9 @@ AC_SUBST(NUMERIC_VERSION)
 # If any interfaces have been added since the last public release, then increment age.
 # If any interfaces have been removed or changed since the last public release, then set age to 0.
 
-LIBHEIF_CURRENT=4
-LIBHEIF_REVISION=2
-LIBHEIF_AGE=3
+LIBHEIF_CURRENT=5
+LIBHEIF_REVISION=0
+LIBHEIF_AGE=4
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
 AC_SUBST(LIBHEIF_AGE)
@@ -31,13 +32,23 @@ AC_PROG_CC
 AC_PROG_INSTALL
 AC_PROG_LN_S
 AC_PROG_GREP
+AC_ARG_ENABLE([go], AS_HELP_STRING([--disable-go],
+    [Disable building Go code / examples.]))
+if eval "test x$enable_go = x" ; then
+    AC_PATH_PROG([GO], [go], [no], [$PATH$PATH_SEPARATOR/usr/lib/go-1.10$PATH_SEPARATOR/usr/lib/go-1.9$PATH_SEPARATOR/usr/lib/go-1.8$PATH_SEPARATOR/usr/lib/go-1.7$PATH_SEPARATOR/usr/lib/go-1.6])
+    AC_SUBST(GO)
+fi
+AM_CONDITIONAL([HAVE_GO], [test "x$GO" != "xno" && test "x$GO" != "x"])
+AC_SUBST(HAVE_GO)
+
 AM_CONDITIONAL(MINGW, expr $host : '.*-mingw' >/dev/null 2>&1)
 
 AM_INIT_AUTOMAKE([foreign])
+AM_EXTRA_RECURSIVE_TARGETS([format test])
 
 AX_CXX_COMPILE_STDCXX_11()
 
-AC_CHECK_HEADER_STDBOOL
+AC_HEADER_STDBOOL
 AC_CHECK_HEADERS([inttypes.h stddef.h unistd.h])
 AC_C_INLINE
 AC_FUNC_ERROR_AT_LINE
@@ -95,6 +106,22 @@ AC_CHECK_LIB([jpeg], [jpeg_destroy_compress], [
 ], [have_libjpeg="no"])
 fi
 AM_CONDITIONAL([HAVE_LIBJPEG], [test "x$have_libjpeg" = "xyes"])
+if eval "test x$have_libjpeg = xyes"; then
+AC_MSG_CHECKING([for jpeg_write_icc_profile])
+AC_LANG_PUSH(C++)
+AC_TRY_COMPILE([
+    #include <stddef.h>
+    #include <stdio.h>
+    #include <jpeglib.h>
+],[
+    jpeg_write_icc_profile(NULL, NULL, 0);
+],[has_jpeg_write_icc_profile=yes],[has_jpeg_write_icc_profile=no]);
+AC_LANG_POP(C++)
+AC_MSG_RESULT([$has_jpeg_write_icc_profile])
+if eval "test x$has_jpeg_write_icc_profile = xyes"; then
+    AC_DEFINE(HAVE_JPEG_WRITE_ICC_PROFILE, 1, [Define to 1 if jpeg_write_icc_profile is available in libjpeg.])
+fi
+fi
 
 PKG_CHECK_MODULES([libpng], [libpng], [
     AC_DEFINE([HAVE_LIBPNG], [1], [Whether libpng was found.])
@@ -103,6 +130,33 @@ PKG_CHECK_MODULES([libpng], [libpng], [
     have_libpng="yes"
 ], [have_libpng="no"])
 AM_CONDITIONAL([HAVE_LIBPNG], [test "x$have_libpng" = "xyes"])
+
+AC_ARG_ENABLE([gdk-pixbuf], AS_HELP_STRING([--disable-gdk-pixbuf],
+    [Disable building of gdk-pixbuf plugin.]))
+if eval "test x$enable_gdk_pixbuf = x" ; then enable_gdk_pixbuf=yes ; fi
+if eval "test x$enable_gdk_pixbuf != xno"; then
+    PKG_CHECK_MODULES([gdkpixbuf], [gdk-pixbuf-2.0], [
+        AC_DEFINE([HAVE_GDKPIXBUF2], [1], [Whether gdk-pixbuf-2.0 was found.])
+        AC_SUBST(gdkpixbuf_CFLAGS)
+        AC_SUBST(gdkpixbuf_LIBS)
+        have_gdkpixbuf2="yes"
+    ], [have_gdkpixbuf2="no"])
+else
+    have_gdkpixbuf2="no"
+fi
+AM_CONDITIONAL([HAVE_GDKPIXBUF2], [test "x$have_gdkpixbuf2" = "xyes"])
+
+if eval "test x$have_gdkpixbuf2 = xyes"; then
+    gdk_pixbuf_binary_version="`$PKG_CONFIG --variable=gdk_pixbuf_binary_version gdk-pixbuf-2.0`"
+    gdk_pixbuf_binarydir="`$PKG_CONFIG --variable=gdk_pixbuf_binarydir gdk-pixbuf-2.0`"
+    gdk_pixbuf_moduledir=`$PKG_CONFIG --variable gdk_pixbuf_moduledir gdk-pixbuf-2.0`
+    gdk_pixbuf_cache_file=`$PKG_CONFIG --variable gdk_pixbuf_cache_file gdk-pixbuf-2.0`
+
+    AC_SUBST([gdk_pixbuf_binary_version])
+    AC_SUBST([gdk_pixbuf_binarydir])
+    AC_SUBST([gdk_pixbuf_moduledir])
+    AC_SUBST([gdk_pixbuf_cache_file])
+fi
 
 AC_ARG_ENABLE([libfuzzer], AS_HELP_STRING([--enable-libfuzzer],
     [Enable fuzzing with libFuzzer.]))
@@ -125,8 +179,8 @@ if eval "test x$enable_multithreading != xno"; then
 fi
 AC_SUBST(ENABLE_PARALLEL_TILE_DECODING)
 
-CXXFLAGS="$CXXFLAGS -Wall -Werror -Wsign-compare -Wconversion -Wno-sign-conversion -Wno-error=conversion"
-CFLAGS="$CFLAGS -Wall -Werror -Wsign-compare -Wconversion -Wno-sign-conversion -Wno-error=conversion"
+CXXFLAGS="$CXXFLAGS -Wall -Werror -Wsign-compare -Wconversion -Wno-sign-conversion -Wno-error=conversion -Wno-error=unused-parameter"
+CFLAGS="$CFLAGS -Wall -Werror -Wsign-compare -Wconversion -Wno-sign-conversion -Wno-error=conversion -Wno-error=unused-parameter"
 
 AC_MSG_NOTICE([---------------------------------------])
 AC_MSG_NOTICE([Multithreading: $enable_multithreading])
@@ -135,11 +189,14 @@ AC_MSG_NOTICE([libde265 decoder: $have_libde265])
 AC_MSG_NOTICE([libx265 encoder: $have_x265])
 AC_MSG_NOTICE([JPEG output: $have_libjpeg])
 AC_MSG_NOTICE([PNG output: $have_libpng])
+AC_MSG_NOTICE([GdkPixbuf2 loader: $have_gdkpixbuf2])
 AC_MSG_NOTICE([---------------------------------------])
 
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([examples/Makefile])
 AC_CONFIG_FILES([extra/Makefile])
+AC_CONFIG_FILES([fuzzing/Makefile])
+AC_CONFIG_FILES([gdk-pixbuf/Makefile])
 AC_CONFIG_FILES([go/Makefile])
 AC_CONFIG_FILES([gnome/Makefile])
 AC_CONFIG_FILES([scripts/Makefile])

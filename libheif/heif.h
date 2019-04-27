@@ -28,16 +28,17 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-#include "heif_version.h"
+#include <libheif/heif_version.h>
 
 
 // API versions table
 //
-// release    depth.rep   dec.options   enc.options   heif_reader   heif_writer
-// ------------------------------------------------------------------------------
-//  1.0          1             1           N/A           N/A           N/A
-//  1.1          1             1           N/A           N/A            1
-//  1.3          1             1            1             1             1
+// release    depth.rep   dec.options   enc.options   heif_reader   heif_writer  col.profile
+// -----------------------------------------------------------------------------------------
+//  1.0          1             1           N/A           N/A           N/A          N/A
+//  1.1          1             1           N/A           N/A            1           N/A
+//  1.3          1             1            1             1             1           N/A
+//  1.4          1             1            1             1             1            1
 
 
 #if defined(_MSC_VER) && !defined(LIBHEIF_STATIC_BUILD)
@@ -55,6 +56,9 @@ extern "C" {
 #else
   #define LIBHEIF_API
 #endif
+
+#define heif_fourcc(a,b,c,d) ((a<<24) | (b<<16) | (c<<8) | d)
+
 
 /* === version numbers === */
 
@@ -104,7 +108,7 @@ enum heif_error_code {
   // The decoder plugin generated an error
   heif_error_Decoder_plugin_error = 7,
 
-  // The decoder plugin generated an error
+  // The encoder plugin generated an error
   heif_error_Encoder_plugin_error = 8,
 
   // Error during encoding or when writing to the output
@@ -180,6 +184,10 @@ enum heif_suberror_code {
 
   heif_suberror_No_infe_box = 125,
 
+  heif_suberror_Unknown_color_profile_type = 126,
+
+  heif_suberror_Wrong_tile_image_chroma_format = 127,
+
 
   // --- Memory_allocation_error ---
 
@@ -231,6 +239,8 @@ enum heif_suberror_code {
 
   // --- Encoder_plugin_error ---
 
+  heif_suberror_Unsupported_bit_depth = 4000,
+
 
   // --- Encoding_error ---
 
@@ -253,6 +263,39 @@ struct heif_error
 
 
 typedef uint32_t heif_item_id;
+
+
+
+// ========================= file type check ======================
+
+enum heif_filetype_result {
+  heif_filetype_no,
+  heif_filetype_yes_supported,   // it is heif and can be read by libheif
+  heif_filetype_yes_unsupported, // it is heif, but cannot be read by libheif
+  heif_filetype_maybe // not sure whether it is an heif, try detection with more input data
+};
+
+// input data should be at least 12 bytes
+LIBHEIF_API
+enum heif_filetype_result heif_check_filetype(const uint8_t* data, int len);
+
+
+enum heif_brand {
+  heif_unknown_brand,
+  heif_heic, // the usual HEIF images
+  heif_heix, // 10bit images, or anything that uses h265 with range extension
+  heif_hevc, heif_hevx, // brands for image sequences
+  heif_heim, // multiview
+  heif_heis, // scalable
+  heif_hevm, // multiview sequence
+  heif_hevs, // scalable sequence
+  heif_mif1
+};
+
+// input data should be at least 12 bytes
+LIBHEIF_API
+enum heif_brand heif_main_brand(const uint8_t* data, int len);
+
 
 
 // ========================= heif_context =========================
@@ -399,6 +442,21 @@ int heif_image_handle_get_height(const struct heif_image_handle* handle);
 LIBHEIF_API
 int heif_image_handle_has_alpha_channel(const struct heif_image_handle*);
 
+LIBHEIF_API
+int heif_image_handle_get_luma_bits_per_pixel(const struct heif_image_handle*);
+
+LIBHEIF_API
+int heif_image_handle_get_chroma_bits_per_pixel(const struct heif_image_handle*);
+
+// Get the image width from the 'ispe' box. This is the original image size without
+// any transformations applied to it. Do not use this unless you know exactly what
+// you are doing.
+LIBHEIF_API
+int heif_image_handle_get_ispe_width(const struct heif_image_handle* handle);
+
+LIBHEIF_API
+int heif_image_handle_get_ispe_height(const struct heif_image_handle* handle);
+
 
 // ------------------------- depth images -------------------------
 
@@ -519,6 +577,81 @@ struct heif_error heif_image_handle_get_metadata(const struct heif_image_handle*
                                                  heif_item_id metadata_id,
                                                  void* out_data);
 
+enum heif_color_profile_type {
+  heif_color_profile_type_not_present = 0,
+  heif_color_profile_type_nclx = heif_fourcc('n','c','l','x'),
+  heif_color_profile_type_rICC = heif_fourcc('r','I','C','C'),
+  heif_color_profile_type_prof = heif_fourcc('p','r','o','f')
+};
+
+
+// Returns 'heif_color_profile_type_not_present' if there is no color profile.
+LIBHEIF_API
+enum heif_color_profile_type heif_image_handle_get_color_profile_type(const struct heif_image_handle* handle);
+
+LIBHEIF_API
+size_t heif_image_handle_get_raw_color_profile_size(const struct heif_image_handle* handle);
+
+LIBHEIF_API
+struct heif_error heif_image_handle_get_raw_color_profile(const struct heif_image_handle* handle,
+                                                          void* out_data);
+
+
+enum heif_color_primaries {
+  heif_color_primaries_ITU_R_BT_709_5 = 1, // g=0.3;0.6, b=0.15;0.06, r=0.64;0.33, w=0.3127,0.3290
+  heif_color_primaries_unspecified = 2,
+  heif_color_primaries_ITU_R_BT_470_6_System_M = 4,
+  heif_color_primaries_ITU_R_BT_470_6_System_B_G = 5,
+  heif_color_primaries_ITU_R_BT_601_6 = 6,
+  heif_color_primaries_SMPTE_240M = 7
+};
+
+enum heif_transfer_characteristics {
+  heif_transfer_characteristic_ITU_R_BT_709_5 = 1,
+  heif_transfer_characteristic_unspecified = 2,
+  heif_transfer_characteristic_ITU_R_BT_470_6_System_M = 4,
+  heif_transfer_characteristic_ITU_R_BT_470_6_System_B_G = 5,
+  heif_transfer_characteristic_ITU_R_BT_601_6 = 6,
+  heif_transfer_characteristic_SMPTE_240M = 7,
+  heif_transfer_characteristic_linear = 8,
+  heif_transfer_characteristic_IEC_61966_2_4 = 11,
+  heif_transfer_characteristic_ITU_R_BT_1361 = 12,
+  heif_transfer_characteristic_IEC_61966_2_1 = 13
+};
+
+enum heif_matrix_coefficients {
+  heif_matrix_coefficients_RGB_GBR = 0,
+  heif_matrix_coefficients_ITU_R_BT_709_5 = 1,
+  heif_matrix_coefficients_unspecified = 2,
+  heif_matrix_coefficients_US_FCC_T47 = 4,
+  heif_matrix_coefficients_ITU_R_BT_470_6_System_B_G = 5,
+  heif_matrix_coefficients_ITU_R_BT_601_6 = 6,
+  heif_matrix_coefficients_SMPTE_240M = 7,
+  heif_matrix_coefficients_YCgCo = 8
+};
+
+struct heif_color_profile_nclx {
+  // version 1 fields
+
+  uint8_t version;
+
+  enum heif_color_primaries color_primaries;
+  enum heif_transfer_characteristics transfer_characteristics;
+  enum heif_matrix_coefficients matrix_coefficients;
+  uint8_t full_range_flag;
+
+  // --- decoded values (not used when saving nclx)
+
+  float color_primary_red_x, color_primary_red_y;
+  float color_primary_green_x, color_primary_green_y;
+  float color_primary_blue_x, color_primary_blue_y;
+  float color_primary_white_x, color_primary_white_y;
+};
+
+LIBHEIF_API
+struct heif_error heif_image_handle_get_nclx_color_profile(const struct heif_image_handle* handle,
+                                                           struct heif_color_profile_nclx** out_data);
+
 
 // ========================= heif_image =========================
 
@@ -543,10 +676,14 @@ enum heif_chroma {
   heif_chroma_422=2,
   heif_chroma_444=3,
   heif_chroma_interleaved_RGB =10,
-  heif_chroma_interleaved_RGBA=11
+  heif_chroma_interleaved_RGBA=11,
+  heif_chroma_interleaved_RRGGBB_BE  =12,
+  heif_chroma_interleaved_RRGGBBAA_BE=13,
+  heif_chroma_interleaved_RRGGBB_LE  =14,
+  heif_chroma_interleaved_RRGGBBAA_LE=15
 };
 
-// DEPRECTATED ENUM NAMES
+// DEPRECATED ENUM NAMES
 #define heif_chroma_interleaved_24bit  heif_chroma_interleaved_RGB
 #define heif_chroma_interleaved_32bit  heif_chroma_interleaved_RGBA
 
@@ -666,6 +803,18 @@ struct heif_error heif_image_scale_image(const struct heif_image* input,
                                          struct heif_image** output,
                                          int width, int height,
                                          const struct heif_scaling_options* options);
+
+// The color profile is not attached to the image handle because we might need it
+// for color space transform and encoding.
+LIBHEIF_API
+struct heif_error heif_image_set_raw_color_profile(struct heif_image* image,
+                                                   const char* profile_type_fourcc_string,
+                                                   const void* profile_data,
+                                                   const size_t profile_size);
+
+LIBHEIF_API
+struct heif_error heif_image_set_nclx_color_profile(struct heif_image* image,
+                                                    const struct heif_color_profile_nclx* color_profile);
 
 // Release heif_image.
 LIBHEIF_API
@@ -876,6 +1025,12 @@ struct heif_error heif_encoder_parameter_string_valid_values(struct heif_encoder
 // Set a parameter of any type to the string value.
 // Integer values are parsed from the string.
 // Boolean values can be "true"/"false"/"1"/"0"
+//
+// x265 encoder specific note:
+// When using the x265 encoder, you may pass any of its parameters by
+// prefixing the parameter name with 'x265:'. Hence, to set the 'ctu' parameter,
+// you will have to set 'x265:ctu' in libheif.
+// Note that there is no checking for valid parameters when using the prefix.
 LIBHEIF_API
 struct heif_error heif_encoder_set_parameter(struct heif_encoder*,
                                              const char* parameter_name,
@@ -887,6 +1042,12 @@ LIBHEIF_API
 struct heif_error heif_encoder_get_parameter(struct heif_encoder*,
                                              const char* parameter_name,
                                              char* value_ptr, int value_size);
+
+// Query whether a specific parameter has a default value.
+LIBHEIF_API
+int heif_encoder_has_default(struct heif_encoder*,
+                             const char* parameter_name);
+
 
 
 struct heif_encoding_options {
@@ -939,10 +1100,10 @@ struct heif_error heif_context_encode_thumbnail(struct heif_context*,
 // Assign 'thumbnail_image' as the thumbnail image of 'master_image'.
 LIBHEIF_API
 struct heif_error heif_context_assign_thumbnail(struct heif_context*,
-                                                const struct heif_image_handle* thumbnail_image,
-                                                const struct heif_image_handle* master_image);
+                                                const struct heif_image_handle* master_image,
+                                                const struct heif_image_handle* thumbnail_image);
 
-// Add EXIF metadata to an image. The raw EXIF metadata shall begin with the TIFF header.
+// Add EXIF metadata to an image.
 LIBHEIF_API
 struct heif_error heif_context_add_exif_metadata(struct heif_context*,
                                                  const struct heif_image_handle* image_handle,
@@ -953,7 +1114,6 @@ LIBHEIF_API
 struct heif_error heif_context_add_XMP_metadata(struct heif_context*,
                                                 const struct heif_image_handle* image_handle,
                                                 const void* data, int size);
-
 
 // --- heif_image allocation
 
