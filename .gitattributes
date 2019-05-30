@@ -1,13 +1,15 @@
+* linguist-vendored
+
 # Sources
-*.c     text diff=c
-*.cc    text diff=cpp
-*.cxx   text diff=cpp
-*.cpp   text diff=cpp
-*.c++   text diff=cpp
-*.hpp   text diff=cpp
-*.h     text diff=c
-*.h++   text diff=cpp
-*.hh    text diff=cpp
+*.c     text diff=c linguist-vendored=false
+*.cc    text diff=cpp linguist-vendored=false
+*.cxx   text diff=cpp linguist-vendored=false
+*.cpp   text diff=cpp linguist-vendored=false
+*.c++   text diff=cpp linguist-vendored=false
+*.hpp   text diff=cpp linguist-vendored=false
+*.h     text diff=c linguist-vendored=false
+*.h++   text diff=cpp linguist-vendored=false
+*.hh    text diff=cpp linguist-vendored=false
 
 # Compiled Object files
 *.slo   binary
