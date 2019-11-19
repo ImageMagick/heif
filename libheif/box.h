@@ -51,6 +51,7 @@
 namespace heif {
 
 #define fourcc(id) (((uint32_t)(id[0])<<24) | (id[1]<<16) | (id[2]<<8) | (id[3]))
+#define fourcc_const(a,b,c,d) ((a<<24) | (b<<16) | (c<<8) | (d))
 
   /*
     constexpr uint32_t fourcc(const char* string)
@@ -89,7 +90,7 @@ namespace heif {
     BoxHeader();
     virtual ~BoxHeader() { }
 
-    constexpr static uint64_t size_until_end_of_file = 0;
+    const static uint64_t size_until_end_of_file = 0;
 
     uint64_t get_box_size() const { return m_size; }
 
@@ -230,7 +231,7 @@ namespace heif {
 
   class Box_hdlr : public Box {
   public:
-    Box_hdlr() { set_short_type(fourcc("hdlr")); set_is_full_box(true); }
+    Box_hdlr() { set_short_type(fourcc("hdlr")); set_is_full_box(true); m_reserved[0] = m_reserved[1] = m_reserved[2] = 0; }
   Box_hdlr(const BoxHeader& hdr) : Box(hdr) { }
 
     std::string dump(Indent&) const override;
@@ -247,7 +248,7 @@ namespace heif {
   private:
     uint32_t m_pre_defined = 0;
     uint32_t m_handler_type = fourcc("pict");
-    uint32_t m_reserved[3] = {0, };
+    uint32_t m_reserved[3];
     std::string m_name;
   };
 
