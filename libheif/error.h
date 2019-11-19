@@ -44,7 +44,7 @@
 
 
 
-const char kSuccess[] = "Success";
+static constexpr char kSuccess[] = "Success";
 
 
 namespace heif {
@@ -68,7 +68,7 @@ namespace heif {
     }
 
   private:
-    const char* c_success = "Success";
+    constexpr static const char* c_success = "Success";
     std::string m_buffer;
     const char* m_error_message = c_success;
   };

@@ -40,7 +40,10 @@ if [ -z "$CHECK_LICENSES" ] && [ -z "$CPPLINT" ] && [ -z "$CMAKE" ]; then
         if [ ! -z "$FUZZER" ]; then
             export CC="$BUILD_ROOT/clang/bin/clang"
             export CXX="$BUILD_ROOT/clang/bin/clang++"
-            CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libfuzzer"
+            FUZZER_FLAGS="-fsanitize=fuzzer-no-link,address,shift,integer -fno-sanitize-recover=shift,integer"
+            export CFLAGS="$CFLAGS $FUZZER_FLAGS"
+            export CXXFLAGS="$CXXFLAGS $FUZZER_FLAGS"
+            CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libfuzzer=-fsanitize=fuzzer"
         fi
     else
         # Make sure the correct compiler will be used.
@@ -52,6 +55,9 @@ if [ -z "$CHECK_LICENSES" ] && [ -z "$CPPLINT" ] && [ -z "$CMAKE" ]; then
         CONFIGURE_ARGS="$CONFIGURE_ARGS --prefix=$BUILD_ROOT/dist --disable-gdk-pixbuf"
     else
         CONFIGURE_ARGS="$CONFIGURE_ARGS --disable-go"
+    fi
+    if [ ! -z "$TESTS" ]; then
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-tests"
     fi
     ./configure $CONFIGURE_ARGS
 fi

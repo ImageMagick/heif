@@ -1,10 +1,10 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.4.0], [opensource@struktur.de])
+AC_INIT([libheif], [1.6.0], [opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
 # Note: do not forget to set the version in the CMakeLists.txt file accordingly
-NUMERIC_VERSION=0x01040000 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
+NUMERIC_VERSION=0x01060000 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
 AC_SUBST(NUMERIC_VERSION)
 
 # From https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html:
@@ -13,9 +13,9 @@ AC_SUBST(NUMERIC_VERSION)
 # If any interfaces have been added since the last public release, then increment age.
 # If any interfaces have been removed or changed since the last public release, then set age to 0.
 
-LIBHEIF_CURRENT=5
+LIBHEIF_CURRENT=7
 LIBHEIF_REVISION=0
-LIBHEIF_AGE=4
+LIBHEIF_AGE=6
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
 AC_SUBST(LIBHEIF_AGE)
@@ -41,9 +41,14 @@ fi
 AM_CONDITIONAL([HAVE_GO], [test "x$GO" != "xno" && test "x$GO" != "x"])
 AC_SUBST(HAVE_GO)
 
+AC_ARG_ENABLE([examples], AS_HELP_STRING([--disable-examples],
+    [Disable building examples.]), [], [enable_examples=yes])
+AM_CONDITIONAL([WITH_EXAMPLES], [test "x$enable_examples" = "xyes"])
+AC_SUBST(WITH_EXAMPLES)
+
 AM_CONDITIONAL(MINGW, expr $host : '.*-mingw' >/dev/null 2>&1)
 
-AM_INIT_AUTOMAKE([foreign])
+AM_INIT_AUTOMAKE([1.13 foreign])
 AM_EXTRA_RECURSIVE_TARGETS([format test])
 
 AX_CXX_COMPILE_STDCXX_11()
@@ -65,6 +70,17 @@ AC_ARG_ENABLE([visibility], AS_HELP_STRING([--disable-visibility],
     [Disable visibility definitions.]),
     [HAVE_VISIBILITY=0],
     [gl_VISIBILITY])
+
+AC_ARG_ENABLE([tests], AS_HELP_STRING([--enable-tests],
+    [Enable compiling tests ('visibility' will be disabled).]))
+AS_IF([test "x$enable_tests" = "xyes"], [
+    HAVE_TESTS=1
+    enable_visibility=no
+    HAVE_VISIBILITY=0
+    CFLAG_VISIBILITY=
+])
+AM_CONDITIONAL([HAVE_TESTS], [test "x$HAVE_TESTS" == "x1"])
+
 AM_CONDITIONAL([HAVE_VISIBILITY], [test "x$HAVE_VISIBILITY" != "x0"])
 if eval "test x$enable_visibility = x" ; then enable_visibility=yes ; fi
 
@@ -159,15 +175,19 @@ if eval "test x$have_gdkpixbuf2 = xyes"; then
 fi
 
 AC_ARG_ENABLE([libfuzzer], AS_HELP_STRING([--enable-libfuzzer],
-    [Enable fuzzing with libFuzzer.]))
-if eval "test x$enable_libfuzzer = xyes"; then
+    [Enable fuzzing with libFuzzer.]), [], [enable_libfuzzer=no])
+if eval "test x$enable_libfuzzer != xno"; then
     AC_MSG_NOTICE([Enable libFuzzer])
     AC_DEFINE([HAVE_LIBFUZZER], [1], [Whether building with libFuzzer.])
-    LIBFUZZER_FLAGS="-fsanitize=fuzzer-no-link,address,shift,integer -fno-sanitize-recover=shift,integer"
-    CFLAGS="$CFLAGS $LIBFUZZER_FLAGS"
-    CXXFLAGS="$CXXFLAGS $LIBFUZZER_FLAGS"
+
+    FUZZING_ENGINE="-lFuzzingEngine"
+    if eval "test x$enable_libfuzzer != xyes"; then
+        FUZZING_ENGINE="$enable_libfuzzer"
+    fi
+    AC_MSG_NOTICE([Fuzzing engine flags: $FUZZING_ENGINE])
+    AC_SUBST([FUZZING_ENGINE])
 fi
-AM_CONDITIONAL([ENABLE_LIBFUZZER], [test "x$enable_libfuzzer" = "xyes"])
+AM_CONDITIONAL([ENABLE_LIBFUZZER], [test "x$enable_libfuzzer" != "xno"])
 AC_SUBST(ENABLE_LIBFUZZER)
 
 AC_ARG_ENABLE([multithreading], AS_HELP_STRING([--disable-multithreading],
@@ -179,8 +199,12 @@ if eval "test x$enable_multithreading != xno"; then
 fi
 AC_SUBST(ENABLE_PARALLEL_TILE_DECODING)
 
-CXXFLAGS="$CXXFLAGS -Wall -Werror -Wsign-compare -Wconversion -Wno-sign-conversion -Wno-error=conversion -Wno-error=unused-parameter"
-CFLAGS="$CFLAGS -Wall -Werror -Wsign-compare -Wconversion -Wno-sign-conversion -Wno-error=conversion -Wno-error=unused-parameter"
+WARNING_FLAGS="-Wall -Werror -Wsign-compare -Wconversion -Wno-sign-conversion -Wno-error=conversion -Wno-error=unused-parameter -Wno-error=deprecated-declarations"
+
+CXXFLAGS="$CXXFLAGS $WARNING_FLAGS"
+CFLAGS="$CFLAGS $WARNING_FLAGS"
+
+AC_C_CXX_COMPILE_FLAGS([-Wno-error=potentially-evaluated-expression])
 
 AC_MSG_NOTICE([---------------------------------------])
 AC_MSG_NOTICE([Multithreading: $enable_multithreading])
@@ -190,6 +214,8 @@ AC_MSG_NOTICE([libx265 encoder: $have_x265])
 AC_MSG_NOTICE([JPEG output: $have_libjpeg])
 AC_MSG_NOTICE([PNG output: $have_libpng])
 AC_MSG_NOTICE([GdkPixbuf2 loader: $have_gdkpixbuf2])
+AC_MSG_NOTICE([Examples: $enable_examples])
+AC_MSG_NOTICE([Tests: $enable_tests (tests will cause 'visibility' to be turned off)])
 AC_MSG_NOTICE([---------------------------------------])
 
 AC_CONFIG_FILES([Makefile])
@@ -200,6 +226,7 @@ AC_CONFIG_FILES([gdk-pixbuf/Makefile])
 AC_CONFIG_FILES([go/Makefile])
 AC_CONFIG_FILES([gnome/Makefile])
 AC_CONFIG_FILES([scripts/Makefile])
+AC_CONFIG_FILES([tests/Makefile])
 AC_CONFIG_FILES([libheif/Makefile])
 AC_CONFIG_FILES([libheif/heif_version.h])
 AC_CONFIG_FILES([libheif.pc])

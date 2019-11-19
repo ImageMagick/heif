@@ -133,6 +133,27 @@ int main(int argc, char** argv)
   const char* input_filename = argv[optind];
 
   // ==============================================================================
+  //   show MIME type
+
+  {
+    uint8_t buf[20];
+    FILE* fh = fopen(input_filename,"rb");
+    if (fh) {
+      std::cout << "MIME type: ";
+      int n = (int)fread(buf,1,20,fh);
+      const char* mime_type = heif_get_file_mime_type(buf,n);
+      if (*mime_type==0) {
+        std::cout << "unknown\n";
+      }
+      else {
+        std::cout << mime_type << "\n";
+      }
+
+      fclose(fh);
+    }
+  }
+
+  // ==============================================================================
 
   std::shared_ptr<heif_context> ctx(heif_context_alloc(),
                                     [] (heif_context* c) { heif_context_free(c); });
@@ -181,7 +202,7 @@ int main(int argc, char** argv)
     // --- thumbnails
 
     int nThumbnails = heif_image_handle_get_number_of_thumbnails(handle);
-    heif_item_id* thumbnailIDs = (heif_item_id*)alloca(nThumbnails*sizeof(heif_item_id));
+    heif_item_id* thumbnailIDs = (heif_item_id*)calloc(nThumbnails,sizeof(heif_item_id));
 
     nThumbnails = heif_image_handle_get_list_of_thumbnail_IDs(handle,thumbnailIDs, nThumbnails);
 
@@ -190,6 +211,7 @@ int main(int argc, char** argv)
       err = heif_image_handle_get_thumbnail(handle, thumbnailIDs[thumbnailIdx], &thumbnail_handle);
       if (err.code) {
         std::cerr << err.message << "\n";
+        free(thumbnailIDs);
         return 10;
       }
 
@@ -200,6 +222,8 @@ int main(int argc, char** argv)
 
       heif_image_handle_release(thumbnail_handle);
     }
+
+    free(thumbnailIDs);
 
 
     // --- color profile
