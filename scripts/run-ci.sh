@@ -134,8 +134,8 @@ fi
 
 if [ ! -z "$EMSCRIPTEN_VERSION" ]; then
     echo "Building with emscripten $EMSCRIPTEN_VERSION ..."
-    source ./emscripten/emsdk-portable/emsdk_env.sh && ./build-emscripten.sh
-    source ./emscripten/emsdk-portable/emsdk_env.sh && node scripts/test-javascript.js
+    source ./emscripten/emsdk/emsdk_env.sh && ./build-emscripten.sh
+    source ./emscripten/emsdk/emsdk_env.sh && node scripts/test-javascript.js
 fi
 
 if [ ! -z "$TARBALL" ]; then
@@ -155,6 +155,8 @@ if [ ! -z "$FUZZER" ] && [ "$TRAVIS_OS_NAME" = "linux" ]; then
     export ASAN_SYMBOLIZER="$BUILD_ROOT/clang/bin/llvm-symbolizer"
     ./libheif/file-fuzzer ./fuzzing/corpus/*
 
+    echo "Running color conversion fuzzer ..."
+    ./libheif/color-conversion-fuzzer -max_total_time=120
     echo "Running encoder fuzzer ..."
     ./libheif/encoder-fuzzer -max_total_time=120
     echo "Running file fuzzer ..."

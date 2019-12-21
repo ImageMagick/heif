@@ -106,7 +106,9 @@ bin_PROGRAMS = $(am__EXEEXT_1) $(am__EXEEXT_2) $(am__EXEEXT_3)
 
 @HAVE_VISIBILITY_TRUE@am__append_6 = -DHAVE_VISIBILITY
 @HAVE_VISIBILITY_TRUE@am__append_7 = -DHAVE_VISIBILITY
-@ENABLE_LIBFUZZER_TRUE@am__append_8 = box-fuzzer
+@ENABLE_LIBFUZZER_TRUE@am__append_8 = box-fuzzer \
+@ENABLE_LIBFUZZER_TRUE@  color-conversion-fuzzer
+
 @ENABLE_LIBFUZZER_TRUE@@HAVE_LIBDE265_TRUE@am__append_9 = file-fuzzer
 @ENABLE_LIBFUZZER_TRUE@@HAVE_X265_TRUE@am__append_10 = encoder-fuzzer
 subdir = libheif
@@ -133,10 +135,11 @@ am__v_AR_0 = @echo "  AR      " $@;
 am__v_AR_1 = 
 libfuzzers_a_AR = $(AR) $(ARFLAGS)
 libfuzzers_a_LIBADD =
-am__libfuzzers_a_SOURCES_DIST = box_fuzzer.cc encoder_fuzzer.cc \
-	file_fuzzer.cc
+am__libfuzzers_a_SOURCES_DIST = box_fuzzer.cc \
+	color_conversion_fuzzer.cc encoder_fuzzer.cc file_fuzzer.cc
 @ENABLE_LIBFUZZER_FALSE@am_libfuzzers_a_OBJECTS =  \
 @ENABLE_LIBFUZZER_FALSE@	box_fuzzer.$(OBJEXT) \
+@ENABLE_LIBFUZZER_FALSE@	color_conversion_fuzzer.$(OBJEXT) \
 @ENABLE_LIBFUZZER_FALSE@	encoder_fuzzer.$(OBJEXT) \
 @ENABLE_LIBFUZZER_FALSE@	file_fuzzer.$(OBJEXT)
 libfuzzers_a_OBJECTS = $(am_libfuzzers_a_OBJECTS)
@@ -201,7 +204,8 @@ am__v_lt_1 =
 libheif_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CXXLD) $(libheif_la_CXXFLAGS) \
 	$(CXXFLAGS) $(libheif_la_LDFLAGS) $(LDFLAGS) -o $@
-@ENABLE_LIBFUZZER_TRUE@am__EXEEXT_1 = box-fuzzer$(EXEEXT)
+@ENABLE_LIBFUZZER_TRUE@am__EXEEXT_1 = box-fuzzer$(EXEEXT) \
+@ENABLE_LIBFUZZER_TRUE@	color-conversion-fuzzer$(EXEEXT)
 @ENABLE_LIBFUZZER_TRUE@@HAVE_LIBDE265_TRUE@am__EXEEXT_2 = file-fuzzer$(EXEEXT)
 @ENABLE_LIBFUZZER_TRUE@@HAVE_X265_TRUE@am__EXEEXT_3 = encoder-fuzzer$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS)
@@ -231,6 +235,37 @@ box_fuzzer_OBJECTS = $(am_box_fuzzer_OBJECTS)
 box_fuzzer_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CXXLD) $(box_fuzzer_CXXFLAGS) \
 	$(CXXFLAGS) $(box_fuzzer_LDFLAGS) $(LDFLAGS) -o $@
+am__color_conversion_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc \
+	box.h box.cc error.h error.cc heif_api_structs.h heif_file.h \
+	heif_file.cc heif_image.h heif_image.cc heif_limits.h heif.h \
+	heif.cc heif_context.h heif_context.cc heif_hevc.h \
+	heif_hevc.cc heif_plugin_registry.h heif_plugin_registry.cc \
+	heif_plugin.h heif_plugin.cc heif_colorconversion.h \
+	heif_colorconversion.cc logging.h heif_decoder_libde265.cc \
+	heif_decoder_libde265.h heif_encoder_x265.cc \
+	heif_encoder_x265.h color_conversion_fuzzer.cc
+@HAVE_LIBDE265_TRUE@am__objects_6 = color_conversion_fuzzer-heif_decoder_libde265.$(OBJEXT)
+@HAVE_X265_TRUE@am__objects_7 = color_conversion_fuzzer-heif_encoder_x265.$(OBJEXT)
+am__objects_8 = color_conversion_fuzzer-bitstream.$(OBJEXT) \
+	color_conversion_fuzzer-box.$(OBJEXT) \
+	color_conversion_fuzzer-error.$(OBJEXT) \
+	color_conversion_fuzzer-heif_file.$(OBJEXT) \
+	color_conversion_fuzzer-heif_image.$(OBJEXT) \
+	color_conversion_fuzzer-heif.$(OBJEXT) \
+	color_conversion_fuzzer-heif_context.$(OBJEXT) \
+	color_conversion_fuzzer-heif_hevc.$(OBJEXT) \
+	color_conversion_fuzzer-heif_plugin_registry.$(OBJEXT) \
+	color_conversion_fuzzer-heif_plugin.$(OBJEXT) \
+	color_conversion_fuzzer-heif_colorconversion.$(OBJEXT) \
+	$(am__objects_6) $(am__objects_7)
+am_color_conversion_fuzzer_OBJECTS = $(am__objects_8) \
+	color_conversion_fuzzer-color_conversion_fuzzer.$(OBJEXT)
+color_conversion_fuzzer_OBJECTS =  \
+	$(am_color_conversion_fuzzer_OBJECTS)
+color_conversion_fuzzer_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CXXLD) \
+	$(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) \
+	$(color_conversion_fuzzer_LDFLAGS) $(LDFLAGS) -o $@
 am__encoder_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h \
 	box.cc error.h error.cc heif_api_structs.h heif_file.h \
 	heif_file.cc heif_image.h heif_image.cc heif_limits.h heif.h \
@@ -240,10 +275,10 @@ am__encoder_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h \
 	heif_colorconversion.cc logging.h heif_decoder_libde265.cc \
 	heif_decoder_libde265.h heif_encoder_x265.cc \
 	heif_encoder_x265.h encoder_fuzzer.cc
-@HAVE_LIBDE265_TRUE@am__objects_6 = encoder_fuzzer-heif_decoder_libde265.$(OBJEXT)
-@HAVE_X265_TRUE@am__objects_7 =  \
+@HAVE_LIBDE265_TRUE@am__objects_9 = encoder_fuzzer-heif_decoder_libde265.$(OBJEXT)
+@HAVE_X265_TRUE@am__objects_10 =  \
 @HAVE_X265_TRUE@	encoder_fuzzer-heif_encoder_x265.$(OBJEXT)
-am__objects_8 = encoder_fuzzer-bitstream.$(OBJEXT) \
+am__objects_11 = encoder_fuzzer-bitstream.$(OBJEXT) \
 	encoder_fuzzer-box.$(OBJEXT) encoder_fuzzer-error.$(OBJEXT) \
 	encoder_fuzzer-heif_file.$(OBJEXT) \
 	encoder_fuzzer-heif_image.$(OBJEXT) \
@@ -252,9 +287,9 @@ am__objects_8 = encoder_fuzzer-bitstream.$(OBJEXT) \
 	encoder_fuzzer-heif_hevc.$(OBJEXT) \
 	encoder_fuzzer-heif_plugin_registry.$(OBJEXT) \
 	encoder_fuzzer-heif_plugin.$(OBJEXT) \
-	encoder_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_6) \
-	$(am__objects_7)
-am_encoder_fuzzer_OBJECTS = $(am__objects_8) \
+	encoder_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_9) \
+	$(am__objects_10)
+am_encoder_fuzzer_OBJECTS = $(am__objects_11) \
 	encoder_fuzzer-encoder_fuzzer.$(OBJEXT)
 encoder_fuzzer_OBJECTS = $(am_encoder_fuzzer_OBJECTS)
 encoder_fuzzer_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX \
@@ -269,10 +304,10 @@ am__file_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h box.cc \
 	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
 	logging.h heif_decoder_libde265.cc heif_decoder_libde265.h \
 	heif_encoder_x265.cc heif_encoder_x265.h file_fuzzer.cc
-@HAVE_LIBDE265_TRUE@am__objects_9 = file_fuzzer-heif_decoder_libde265.$(OBJEXT)
-@HAVE_X265_TRUE@am__objects_10 =  \
+@HAVE_LIBDE265_TRUE@am__objects_12 = file_fuzzer-heif_decoder_libde265.$(OBJEXT)
+@HAVE_X265_TRUE@am__objects_13 =  \
 @HAVE_X265_TRUE@	file_fuzzer-heif_encoder_x265.$(OBJEXT)
-am__objects_11 = file_fuzzer-bitstream.$(OBJEXT) \
+am__objects_14 = file_fuzzer-bitstream.$(OBJEXT) \
 	file_fuzzer-box.$(OBJEXT) file_fuzzer-error.$(OBJEXT) \
 	file_fuzzer-heif_file.$(OBJEXT) \
 	file_fuzzer-heif_image.$(OBJEXT) file_fuzzer-heif.$(OBJEXT) \
@@ -280,9 +315,9 @@ am__objects_11 = file_fuzzer-bitstream.$(OBJEXT) \
 	file_fuzzer-heif_hevc.$(OBJEXT) \
 	file_fuzzer-heif_plugin_registry.$(OBJEXT) \
 	file_fuzzer-heif_plugin.$(OBJEXT) \
-	file_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_9) \
-	$(am__objects_10)
-am_file_fuzzer_OBJECTS = $(am__objects_11) \
+	file_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_12) \
+	$(am__objects_13)
+am_file_fuzzer_OBJECTS = $(am__objects_14) \
 	file_fuzzer-file_fuzzer.$(OBJEXT)
 file_fuzzer_OBJECTS = $(am_file_fuzzer_OBJECTS)
 file_fuzzer_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) \
@@ -341,10 +376,11 @@ am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
 SOURCES = $(libfuzzers_a_SOURCES) $(libheif_la_SOURCES) \
-	$(box_fuzzer_SOURCES) $(encoder_fuzzer_SOURCES) \
-	$(file_fuzzer_SOURCES)
+	$(box_fuzzer_SOURCES) $(color_conversion_fuzzer_SOURCES) \
+	$(encoder_fuzzer_SOURCES) $(file_fuzzer_SOURCES)
 DIST_SOURCES = $(am__libfuzzers_a_SOURCES_DIST) \
 	$(am__libheif_la_SOURCES_DIST) $(am__box_fuzzer_SOURCES_DIST) \
+	$(am__color_conversion_fuzzer_SOURCES_DIST) \
 	$(am__encoder_fuzzer_SOURCES_DIST) \
 	$(am__file_fuzzer_SOURCES_DIST)
 am__can_run_installinfo = \
@@ -439,7 +475,6 @@ MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
 NM = @NM@
 NMEDIT = @NMEDIT@
-NUMERIC_VERSION = @NUMERIC_VERSION@
 OBJDUMP = @OBJDUMP@
 OBJEXT = @OBJEXT@
 OTOOL = @OTOOL@
@@ -455,6 +490,10 @@ PATH_SEPARATOR = @PATH_SEPARATOR@
 PKG_CONFIG = @PKG_CONFIG@
 PKG_CONFIG_LIBDIR = @PKG_CONFIG_LIBDIR@
 PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
+PROJECT_VERSION_MAJOR = @PROJECT_VERSION_MAJOR@
+PROJECT_VERSION_MINOR = @PROJECT_VERSION_MINOR@
+PROJECT_VERSION_PATCH = @PROJECT_VERSION_PATCH@
+PROJECT_VERSION_TWEAK = @PROJECT_VERSION_TWEAK@
 RANLIB = @RANLIB@
 SED = @SED@
 SET_MAKE = @SET_MAKE@
@@ -571,6 +610,7 @@ noinst_HEADERS = \
 @ENABLE_LIBFUZZER_FALSE@noinst_LIBRARIES = libfuzzers.a
 @ENABLE_LIBFUZZER_FALSE@libfuzzers_a_SOURCES = \
 @ENABLE_LIBFUZZER_FALSE@  box_fuzzer.cc \
+@ENABLE_LIBFUZZER_FALSE@  color_conversion_fuzzer.cc \
 @ENABLE_LIBFUZZER_FALSE@  encoder_fuzzer.cc \
 @ENABLE_LIBFUZZER_FALSE@  file_fuzzer.cc
 
@@ -579,6 +619,11 @@ box_fuzzer_CXXFLAGS = $(libde265_CFLAGS)
 box_fuzzer_LDFLAGS = $(FUZZING_ENGINE)
 box_fuzzer_LDADD = $(ADDITIONAL_LIBS)
 box_fuzzer_SOURCES = $(libheif_la_SOURCES) box_fuzzer.cc
+color_conversion_fuzzer_DEPENDENCIES = 
+color_conversion_fuzzer_CXXFLAGS = $(libde265_CFLAGS)
+color_conversion_fuzzer_LDFLAGS = $(FUZZING_ENGINE)
+color_conversion_fuzzer_LDADD = $(ADDITIONAL_LIBS)
+color_conversion_fuzzer_SOURCES = $(libheif_la_SOURCES) color_conversion_fuzzer.cc
 encoder_fuzzer_DEPENDENCIES = 
 encoder_fuzzer_CXXFLAGS = $(libde265_CFLAGS)
 encoder_fuzzer_LDFLAGS = $(FUZZING_ENGINE)
@@ -727,6 +772,10 @@ box-fuzzer$(EXEEXT): $(box_fuzzer_OBJECTS) $(box_fuzzer_DEPENDENCIES) $(EXTRA_bo
 	@rm -f box-fuzzer$(EXEEXT)
 	$(AM_V_CXXLD)$(box_fuzzer_LINK) $(box_fuzzer_OBJECTS) $(box_fuzzer_LDADD) $(LIBS)
 
+color-conversion-fuzzer$(EXEEXT): $(color_conversion_fuzzer_OBJECTS) $(color_conversion_fuzzer_DEPENDENCIES) $(EXTRA_color_conversion_fuzzer_DEPENDENCIES) 
+	@rm -f color-conversion-fuzzer$(EXEEXT)
+	$(AM_V_CXXLD)$(color_conversion_fuzzer_LINK) $(color_conversion_fuzzer_OBJECTS) $(color_conversion_fuzzer_LDADD) $(LIBS)
+
 encoder-fuzzer$(EXEEXT): $(encoder_fuzzer_OBJECTS) $(encoder_fuzzer_DEPENDENCIES) $(EXTRA_encoder_fuzzer_DEPENDENCIES) 
 	@rm -f encoder-fuzzer$(EXEEXT)
 	$(AM_V_CXXLD)$(encoder_fuzzer_LINK) $(encoder_fuzzer_OBJECTS) $(encoder_fuzzer_LDADD) $(LIBS)
@@ -756,6 +805,21 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_plugin.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_plugin_registry.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-bitstream.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-box.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-error.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_colorconversion.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_context.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_encoder_x265.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_file.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_hevc.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_image.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_plugin.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-bitstream.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-box.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-encoder_fuzzer.Po@am__quote@
@@ -1110,6 +1174,202 @@ box_fuzzer-box_fuzzer.obj: box_fuzzer.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='box_fuzzer.cc' object='box_fuzzer-box_fuzzer.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-box_fuzzer.obj `if test -f 'box_fuzzer.cc'; then $(CYGPATH_W) 'box_fuzzer.cc'; else $(CYGPATH_W) '$(srcdir)/box_fuzzer.cc'; fi`
+
+color_conversion_fuzzer-bitstream.o: bitstream.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-bitstream.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-bitstream.Tpo -c -o color_conversion_fuzzer-bitstream.o `test -f 'bitstream.cc' || echo '$(srcdir)/'`bitstream.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-bitstream.Tpo $(DEPDIR)/color_conversion_fuzzer-bitstream.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='bitstream.cc' object='color_conversion_fuzzer-bitstream.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-bitstream.o `test -f 'bitstream.cc' || echo '$(srcdir)/'`bitstream.cc
+
+color_conversion_fuzzer-bitstream.obj: bitstream.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-bitstream.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-bitstream.Tpo -c -o color_conversion_fuzzer-bitstream.obj `if test -f 'bitstream.cc'; then $(CYGPATH_W) 'bitstream.cc'; else $(CYGPATH_W) '$(srcdir)/bitstream.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-bitstream.Tpo $(DEPDIR)/color_conversion_fuzzer-bitstream.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='bitstream.cc' object='color_conversion_fuzzer-bitstream.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-bitstream.obj `if test -f 'bitstream.cc'; then $(CYGPATH_W) 'bitstream.cc'; else $(CYGPATH_W) '$(srcdir)/bitstream.cc'; fi`
+
+color_conversion_fuzzer-box.o: box.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-box.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-box.Tpo -c -o color_conversion_fuzzer-box.o `test -f 'box.cc' || echo '$(srcdir)/'`box.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-box.Tpo $(DEPDIR)/color_conversion_fuzzer-box.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='box.cc' object='color_conversion_fuzzer-box.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-box.o `test -f 'box.cc' || echo '$(srcdir)/'`box.cc
+
+color_conversion_fuzzer-box.obj: box.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-box.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-box.Tpo -c -o color_conversion_fuzzer-box.obj `if test -f 'box.cc'; then $(CYGPATH_W) 'box.cc'; else $(CYGPATH_W) '$(srcdir)/box.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-box.Tpo $(DEPDIR)/color_conversion_fuzzer-box.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='box.cc' object='color_conversion_fuzzer-box.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-box.obj `if test -f 'box.cc'; then $(CYGPATH_W) 'box.cc'; else $(CYGPATH_W) '$(srcdir)/box.cc'; fi`
+
+color_conversion_fuzzer-error.o: error.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-error.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-error.Tpo -c -o color_conversion_fuzzer-error.o `test -f 'error.cc' || echo '$(srcdir)/'`error.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-error.Tpo $(DEPDIR)/color_conversion_fuzzer-error.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='error.cc' object='color_conversion_fuzzer-error.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-error.o `test -f 'error.cc' || echo '$(srcdir)/'`error.cc
+
+color_conversion_fuzzer-error.obj: error.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-error.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-error.Tpo -c -o color_conversion_fuzzer-error.obj `if test -f 'error.cc'; then $(CYGPATH_W) 'error.cc'; else $(CYGPATH_W) '$(srcdir)/error.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-error.Tpo $(DEPDIR)/color_conversion_fuzzer-error.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='error.cc' object='color_conversion_fuzzer-error.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-error.obj `if test -f 'error.cc'; then $(CYGPATH_W) 'error.cc'; else $(CYGPATH_W) '$(srcdir)/error.cc'; fi`
+
+color_conversion_fuzzer-heif_file.o: heif_file.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_file.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_file.Tpo -c -o color_conversion_fuzzer-heif_file.o `test -f 'heif_file.cc' || echo '$(srcdir)/'`heif_file.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_file.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_file.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_file.cc' object='color_conversion_fuzzer-heif_file.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_file.o `test -f 'heif_file.cc' || echo '$(srcdir)/'`heif_file.cc
+
+color_conversion_fuzzer-heif_file.obj: heif_file.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_file.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_file.Tpo -c -o color_conversion_fuzzer-heif_file.obj `if test -f 'heif_file.cc'; then $(CYGPATH_W) 'heif_file.cc'; else $(CYGPATH_W) '$(srcdir)/heif_file.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_file.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_file.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_file.cc' object='color_conversion_fuzzer-heif_file.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_file.obj `if test -f 'heif_file.cc'; then $(CYGPATH_W) 'heif_file.cc'; else $(CYGPATH_W) '$(srcdir)/heif_file.cc'; fi`
+
+color_conversion_fuzzer-heif_image.o: heif_image.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_image.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_image.Tpo -c -o color_conversion_fuzzer-heif_image.o `test -f 'heif_image.cc' || echo '$(srcdir)/'`heif_image.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_image.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_image.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_image.cc' object='color_conversion_fuzzer-heif_image.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_image.o `test -f 'heif_image.cc' || echo '$(srcdir)/'`heif_image.cc
+
+color_conversion_fuzzer-heif_image.obj: heif_image.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_image.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_image.Tpo -c -o color_conversion_fuzzer-heif_image.obj `if test -f 'heif_image.cc'; then $(CYGPATH_W) 'heif_image.cc'; else $(CYGPATH_W) '$(srcdir)/heif_image.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_image.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_image.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_image.cc' object='color_conversion_fuzzer-heif_image.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_image.obj `if test -f 'heif_image.cc'; then $(CYGPATH_W) 'heif_image.cc'; else $(CYGPATH_W) '$(srcdir)/heif_image.cc'; fi`
+
+color_conversion_fuzzer-heif.o: heif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif.Tpo -c -o color_conversion_fuzzer-heif.o `test -f 'heif.cc' || echo '$(srcdir)/'`heif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif.Tpo $(DEPDIR)/color_conversion_fuzzer-heif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif.cc' object='color_conversion_fuzzer-heif.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif.o `test -f 'heif.cc' || echo '$(srcdir)/'`heif.cc
+
+color_conversion_fuzzer-heif.obj: heif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif.Tpo -c -o color_conversion_fuzzer-heif.obj `if test -f 'heif.cc'; then $(CYGPATH_W) 'heif.cc'; else $(CYGPATH_W) '$(srcdir)/heif.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif.Tpo $(DEPDIR)/color_conversion_fuzzer-heif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif.cc' object='color_conversion_fuzzer-heif.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif.obj `if test -f 'heif.cc'; then $(CYGPATH_W) 'heif.cc'; else $(CYGPATH_W) '$(srcdir)/heif.cc'; fi`
+
+color_conversion_fuzzer-heif_context.o: heif_context.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_context.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_context.Tpo -c -o color_conversion_fuzzer-heif_context.o `test -f 'heif_context.cc' || echo '$(srcdir)/'`heif_context.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_context.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_context.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_context.cc' object='color_conversion_fuzzer-heif_context.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_context.o `test -f 'heif_context.cc' || echo '$(srcdir)/'`heif_context.cc
+
+color_conversion_fuzzer-heif_context.obj: heif_context.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_context.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_context.Tpo -c -o color_conversion_fuzzer-heif_context.obj `if test -f 'heif_context.cc'; then $(CYGPATH_W) 'heif_context.cc'; else $(CYGPATH_W) '$(srcdir)/heif_context.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_context.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_context.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_context.cc' object='color_conversion_fuzzer-heif_context.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_context.obj `if test -f 'heif_context.cc'; then $(CYGPATH_W) 'heif_context.cc'; else $(CYGPATH_W) '$(srcdir)/heif_context.cc'; fi`
+
+color_conversion_fuzzer-heif_hevc.o: heif_hevc.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_hevc.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_hevc.Tpo -c -o color_conversion_fuzzer-heif_hevc.o `test -f 'heif_hevc.cc' || echo '$(srcdir)/'`heif_hevc.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_hevc.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_hevc.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_hevc.cc' object='color_conversion_fuzzer-heif_hevc.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_hevc.o `test -f 'heif_hevc.cc' || echo '$(srcdir)/'`heif_hevc.cc
+
+color_conversion_fuzzer-heif_hevc.obj: heif_hevc.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_hevc.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_hevc.Tpo -c -o color_conversion_fuzzer-heif_hevc.obj `if test -f 'heif_hevc.cc'; then $(CYGPATH_W) 'heif_hevc.cc'; else $(CYGPATH_W) '$(srcdir)/heif_hevc.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_hevc.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_hevc.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_hevc.cc' object='color_conversion_fuzzer-heif_hevc.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_hevc.obj `if test -f 'heif_hevc.cc'; then $(CYGPATH_W) 'heif_hevc.cc'; else $(CYGPATH_W) '$(srcdir)/heif_hevc.cc'; fi`
+
+color_conversion_fuzzer-heif_plugin_registry.o: heif_plugin_registry.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_plugin_registry.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Tpo -c -o color_conversion_fuzzer-heif_plugin_registry.o `test -f 'heif_plugin_registry.cc' || echo '$(srcdir)/'`heif_plugin_registry.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_plugin_registry.cc' object='color_conversion_fuzzer-heif_plugin_registry.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_plugin_registry.o `test -f 'heif_plugin_registry.cc' || echo '$(srcdir)/'`heif_plugin_registry.cc
+
+color_conversion_fuzzer-heif_plugin_registry.obj: heif_plugin_registry.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_plugin_registry.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Tpo -c -o color_conversion_fuzzer-heif_plugin_registry.obj `if test -f 'heif_plugin_registry.cc'; then $(CYGPATH_W) 'heif_plugin_registry.cc'; else $(CYGPATH_W) '$(srcdir)/heif_plugin_registry.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_plugin_registry.cc' object='color_conversion_fuzzer-heif_plugin_registry.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_plugin_registry.obj `if test -f 'heif_plugin_registry.cc'; then $(CYGPATH_W) 'heif_plugin_registry.cc'; else $(CYGPATH_W) '$(srcdir)/heif_plugin_registry.cc'; fi`
+
+color_conversion_fuzzer-heif_plugin.o: heif_plugin.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_plugin.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_plugin.Tpo -c -o color_conversion_fuzzer-heif_plugin.o `test -f 'heif_plugin.cc' || echo '$(srcdir)/'`heif_plugin.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_plugin.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_plugin.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_plugin.cc' object='color_conversion_fuzzer-heif_plugin.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_plugin.o `test -f 'heif_plugin.cc' || echo '$(srcdir)/'`heif_plugin.cc
+
+color_conversion_fuzzer-heif_plugin.obj: heif_plugin.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_plugin.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_plugin.Tpo -c -o color_conversion_fuzzer-heif_plugin.obj `if test -f 'heif_plugin.cc'; then $(CYGPATH_W) 'heif_plugin.cc'; else $(CYGPATH_W) '$(srcdir)/heif_plugin.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_plugin.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_plugin.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_plugin.cc' object='color_conversion_fuzzer-heif_plugin.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_plugin.obj `if test -f 'heif_plugin.cc'; then $(CYGPATH_W) 'heif_plugin.cc'; else $(CYGPATH_W) '$(srcdir)/heif_plugin.cc'; fi`
+
+color_conversion_fuzzer-heif_colorconversion.o: heif_colorconversion.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_colorconversion.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_colorconversion.Tpo -c -o color_conversion_fuzzer-heif_colorconversion.o `test -f 'heif_colorconversion.cc' || echo '$(srcdir)/'`heif_colorconversion.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_colorconversion.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_colorconversion.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_colorconversion.cc' object='color_conversion_fuzzer-heif_colorconversion.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_colorconversion.o `test -f 'heif_colorconversion.cc' || echo '$(srcdir)/'`heif_colorconversion.cc
+
+color_conversion_fuzzer-heif_colorconversion.obj: heif_colorconversion.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_colorconversion.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_colorconversion.Tpo -c -o color_conversion_fuzzer-heif_colorconversion.obj `if test -f 'heif_colorconversion.cc'; then $(CYGPATH_W) 'heif_colorconversion.cc'; else $(CYGPATH_W) '$(srcdir)/heif_colorconversion.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_colorconversion.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_colorconversion.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_colorconversion.cc' object='color_conversion_fuzzer-heif_colorconversion.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_colorconversion.obj `if test -f 'heif_colorconversion.cc'; then $(CYGPATH_W) 'heif_colorconversion.cc'; else $(CYGPATH_W) '$(srcdir)/heif_colorconversion.cc'; fi`
+
+color_conversion_fuzzer-heif_decoder_libde265.o: heif_decoder_libde265.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_decoder_libde265.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Tpo -c -o color_conversion_fuzzer-heif_decoder_libde265.o `test -f 'heif_decoder_libde265.cc' || echo '$(srcdir)/'`heif_decoder_libde265.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_libde265.cc' object='color_conversion_fuzzer-heif_decoder_libde265.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_decoder_libde265.o `test -f 'heif_decoder_libde265.cc' || echo '$(srcdir)/'`heif_decoder_libde265.cc
+
+color_conversion_fuzzer-heif_decoder_libde265.obj: heif_decoder_libde265.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_decoder_libde265.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Tpo -c -o color_conversion_fuzzer-heif_decoder_libde265.obj `if test -f 'heif_decoder_libde265.cc'; then $(CYGPATH_W) 'heif_decoder_libde265.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_libde265.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_libde265.cc' object='color_conversion_fuzzer-heif_decoder_libde265.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_decoder_libde265.obj `if test -f 'heif_decoder_libde265.cc'; then $(CYGPATH_W) 'heif_decoder_libde265.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_libde265.cc'; fi`
+
+color_conversion_fuzzer-heif_encoder_x265.o: heif_encoder_x265.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_encoder_x265.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_encoder_x265.Tpo -c -o color_conversion_fuzzer-heif_encoder_x265.o `test -f 'heif_encoder_x265.cc' || echo '$(srcdir)/'`heif_encoder_x265.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_encoder_x265.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_encoder_x265.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_x265.cc' object='color_conversion_fuzzer-heif_encoder_x265.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_encoder_x265.o `test -f 'heif_encoder_x265.cc' || echo '$(srcdir)/'`heif_encoder_x265.cc
+
+color_conversion_fuzzer-heif_encoder_x265.obj: heif_encoder_x265.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_encoder_x265.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_encoder_x265.Tpo -c -o color_conversion_fuzzer-heif_encoder_x265.obj `if test -f 'heif_encoder_x265.cc'; then $(CYGPATH_W) 'heif_encoder_x265.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_x265.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_encoder_x265.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_encoder_x265.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_x265.cc' object='color_conversion_fuzzer-heif_encoder_x265.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_encoder_x265.obj `if test -f 'heif_encoder_x265.cc'; then $(CYGPATH_W) 'heif_encoder_x265.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_x265.cc'; fi`
+
+color_conversion_fuzzer-color_conversion_fuzzer.o: color_conversion_fuzzer.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-color_conversion_fuzzer.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Tpo -c -o color_conversion_fuzzer-color_conversion_fuzzer.o `test -f 'color_conversion_fuzzer.cc' || echo '$(srcdir)/'`color_conversion_fuzzer.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Tpo $(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='color_conversion_fuzzer.cc' object='color_conversion_fuzzer-color_conversion_fuzzer.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-color_conversion_fuzzer.o `test -f 'color_conversion_fuzzer.cc' || echo '$(srcdir)/'`color_conversion_fuzzer.cc
+
+color_conversion_fuzzer-color_conversion_fuzzer.obj: color_conversion_fuzzer.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-color_conversion_fuzzer.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Tpo -c -o color_conversion_fuzzer-color_conversion_fuzzer.obj `if test -f 'color_conversion_fuzzer.cc'; then $(CYGPATH_W) 'color_conversion_fuzzer.cc'; else $(CYGPATH_W) '$(srcdir)/color_conversion_fuzzer.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Tpo $(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='color_conversion_fuzzer.cc' object='color_conversion_fuzzer-color_conversion_fuzzer.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-color_conversion_fuzzer.obj `if test -f 'color_conversion_fuzzer.cc'; then $(CYGPATH_W) 'color_conversion_fuzzer.cc'; else $(CYGPATH_W) '$(srcdir)/color_conversion_fuzzer.cc'; fi`
 
 encoder_fuzzer-bitstream.o: bitstream.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-bitstream.o -MD -MP -MF $(DEPDIR)/encoder_fuzzer-bitstream.Tpo -c -o encoder_fuzzer-bitstream.o `test -f 'bitstream.cc' || echo '$(srcdir)/'`bitstream.cc

@@ -1,11 +1,17 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.6.0], [opensource@struktur.de])
+AC_INIT([libheif], [1.6.1], [opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
 # Note: do not forget to set the version in the CMakeLists.txt file accordingly
-NUMERIC_VERSION=0x01060000 # Numeric representation of the version (A.B.C[.D] = 0xAABBCCDD)
-AC_SUBST(NUMERIC_VERSION)
+PROJECT_VERSION_MAJOR=1
+PROJECT_VERSION_MINOR=6
+PROJECT_VERSION_PATCH=1
+PROJECT_VERSION_TWEAK=0
+AC_SUBST(PROJECT_VERSION_MAJOR)
+AC_SUBST(PROJECT_VERSION_MINOR)
+AC_SUBST(PROJECT_VERSION_PATCH)
+AC_SUBST(PROJECT_VERSION_TWEAK)
 
 # From https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html:
 # If the library source code has changed at all since the last update, then increment revision (‘c:r:a’ becomes ‘c:r+1:a’).
@@ -14,7 +20,7 @@ AC_SUBST(NUMERIC_VERSION)
 # If any interfaces have been removed or changed since the last public release, then set age to 0.
 
 LIBHEIF_CURRENT=7
-LIBHEIF_REVISION=0
+LIBHEIF_REVISION=1
 LIBHEIF_AGE=6
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)

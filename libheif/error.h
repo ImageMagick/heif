@@ -25,12 +25,9 @@
 #include "config.h"
 #endif
 
-#if defined(HAVE_INTTYPES_H)
-#include <inttypes.h>
-#endif
-#if defined(HAVE_STDDEF_H)
-#include <stddef.h>
-#endif
+#include <cinttypes>
+#include <cstddef>
+
 #include <vector>
 #include <string>
 #include <memory>
@@ -44,7 +41,7 @@
 
 
 
-static const char kSuccess[] = "Success";
+static constexpr char kSuccess[] = "Success";
 
 
 namespace heif {
@@ -68,7 +65,7 @@ namespace heif {
     }
 
   private:
-    const char* c_success = "Success";
+    constexpr static const char* c_success = "Success";
     std::string m_buffer;
     const char* m_error_message = c_success;
   };
