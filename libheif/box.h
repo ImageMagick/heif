@@ -87,7 +87,7 @@ namespace heif {
     BoxHeader();
     virtual ~BoxHeader() { }
 
-    constexpr static uint64_t size_until_end_of_file = 0;
+    const static uint64_t size_until_end_of_file = 0;
 
     uint64_t get_box_size() const { return m_size; }
 
