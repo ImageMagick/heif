@@ -228,8 +228,8 @@ namespace heif {
 
   class Box_hdlr : public Box {
   public:
-    Box_hdlr() { set_short_type(fourcc("hdlr")); set_is_full_box(true); }
-  Box_hdlr(const BoxHeader& hdr) : Box(hdr) { }
+    Box_hdlr() { set_short_type(fourcc("hdlr")); set_is_full_box(true); m_reserved[0] = m_reserved[1] = m_reserved[2] = 0; }
+  Box_hdlr(const BoxHeader& hdr) : Box(hdr) { m_reserved[0] = m_reserved[1] = m_reserved[2] = 0; }
 
     std::string dump(Indent&) const override;
 
@@ -245,7 +245,7 @@ namespace heif {
   private:
     uint32_t m_pre_defined = 0;
     uint32_t m_handler_type = fourcc("pict");
-    uint32_t m_reserved[3] = {0, };
+    uint32_t m_reserved[3];
     std::string m_name;
   };
 
