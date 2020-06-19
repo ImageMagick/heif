@@ -36,6 +36,11 @@
 #include "heif_encoder_x265.h"
 #endif
 
+#if HAVE_AOM
+#include "heif_encoder_aom.h"
+#include "heif_decoder_aom.h"
+#endif
+
 
 using namespace heif;
 
@@ -69,6 +74,11 @@ public:
 
 #if HAVE_X265
     heif::register_encoder(get_encoder_plugin_x265());
+#endif
+
+#if HAVE_AOM
+    heif::register_encoder(get_encoder_plugin_aom());
+    heif::register_decoder(get_decoder_plugin_aom());
 #endif
   }
 } dummy;

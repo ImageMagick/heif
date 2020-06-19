@@ -76,6 +76,7 @@ static struct option long_options[] = {
   {"no-alpha",   no_argument, &master_alpha, 0 },
   {"no-thumb-alpha",   no_argument, &thumb_alpha, 0 },
   {"bit-depth",  required_argument, 0, 'b' },
+  {"avif",       no_argument,       0, 'A' },
   {0,         0,                 0,  0 }
 };
 
@@ -103,7 +104,9 @@ void show_help(const char* argv0)
             << "  -v, --verbose   enable logging output (more -v will increase logging level)\n"
             << "  -P, --params    show all encoder parameters\n"
             << "  -b #            bit-depth of generated HEIF file when using 16-bit PNG input (default: 10 bit)\n"
-            << "  -p              set encoder parameter (NAME=VALUE)\n";
+            << "  -p              set encoder parameter (NAME=VALUE)\n"
+            << "  -A, --avif      encode as AVIF\n"
+    ;
 }
 
 
@@ -649,8 +652,8 @@ std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
 
       for (uint32_t x = 0; x < nVal ; x++) {
         uint16_t v = (uint16_t)(((p[0]<<8) | p[1]) >> bdShift);
-        p_out[2*x + y*stride + 0] = (v>>8);
-        p_out[2*x + y*stride + 1] = (v & 0xFF);
+        p_out[2*x + y*stride + 0] = (uint8_t)(v >> 8);
+        p_out[2*x + y*stride + 1] = (uint8_t)(v & 0xFF);
         p += 2;
       }
     }
@@ -896,13 +899,14 @@ int main(int argc, char** argv)
   bool option_show_parameters = false;
   int thumbnail_bbox_size = 0;
   int output_bit_depth = 10;
+  bool enc_av1f = false;
 
   std::vector<std::string> raw_params;
 
 
   while (true) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:b:", long_options, &option_index);
+    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:b:A", long_options, &option_index);
     if (c == -1)
       break;
 
@@ -933,6 +937,8 @@ int main(int argc, char** argv)
       break;
     case 'b':
       output_bit_depth = atoi(optarg);
+    case 'A':
+      enc_av1f = true;
       break;
     }
   }
@@ -966,7 +972,9 @@ int main(int argc, char** argv)
 
 #define MAX_ENCODERS 5
   const heif_encoder_descriptor* encoder_descriptors[MAX_ENCODERS];
-  int count = heif_context_get_encoder_descriptors(context.get(), heif_compression_HEVC, nullptr,
+  int count = heif_context_get_encoder_descriptors(context.get(),
+                                                   enc_av1f ? heif_compression_AV1 : heif_compression_HEVC,
+                                                   nullptr,
                                                    encoder_descriptors, MAX_ENCODERS);
 
   if (count>0) {
@@ -1080,7 +1088,6 @@ int main(int argc, char** argv)
       std::cerr << "Could not encode HEIF file: " << error.message << "\n";
       return 1;
     }
-
 
     if (thumbnail_bbox_size > 0)
       {

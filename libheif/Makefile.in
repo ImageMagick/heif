@@ -93,24 +93,31 @@ build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
 bin_PROGRAMS = $(am__EXEEXT_1) $(am__EXEEXT_2) $(am__EXEEXT_3)
-@HAVE_LIBDE265_TRUE@am__append_1 = $(libde265_LIBS)
-@HAVE_X265_TRUE@am__append_2 = $(x265_LIBS)
-@MINGW_TRUE@am__append_3 = -no-undefined
-@HAVE_LIBDE265_TRUE@am__append_4 = \
+@HAVE_AOM_TRUE@am__append_1 = $(aom_LIBS)
+@HAVE_LIBDE265_TRUE@am__append_2 = $(libde265_LIBS)
+@HAVE_X265_TRUE@am__append_3 = $(x265_LIBS)
+@MINGW_TRUE@am__append_4 = -no-undefined
+@HAVE_AOM_TRUE@am__append_5 = \
+@HAVE_AOM_TRUE@  heif_encoder_aom.cc \
+@HAVE_AOM_TRUE@  heif_encoder_aom.h \
+@HAVE_AOM_TRUE@  heif_decoder_aom.cc \
+@HAVE_AOM_TRUE@  heif_decoder_aom.h
+
+@HAVE_LIBDE265_TRUE@am__append_6 = \
 @HAVE_LIBDE265_TRUE@  heif_decoder_libde265.cc \
 @HAVE_LIBDE265_TRUE@  heif_decoder_libde265.h
 
-@HAVE_X265_TRUE@am__append_5 = \
+@HAVE_X265_TRUE@am__append_7 = \
 @HAVE_X265_TRUE@  heif_encoder_x265.cc \
 @HAVE_X265_TRUE@  heif_encoder_x265.h
 
-@HAVE_VISIBILITY_TRUE@am__append_6 = -DHAVE_VISIBILITY
-@HAVE_VISIBILITY_TRUE@am__append_7 = -DHAVE_VISIBILITY
-@ENABLE_LIBFUZZER_TRUE@am__append_8 = box-fuzzer \
+@HAVE_VISIBILITY_TRUE@am__append_8 = -DHAVE_VISIBILITY
+@HAVE_VISIBILITY_TRUE@am__append_9 = -DHAVE_VISIBILITY
+@ENABLE_LIBFUZZER_TRUE@am__append_10 = box-fuzzer \
 @ENABLE_LIBFUZZER_TRUE@  color-conversion-fuzzer
 
-@ENABLE_LIBFUZZER_TRUE@@HAVE_LIBDE265_TRUE@am__append_9 = file-fuzzer
-@ENABLE_LIBFUZZER_TRUE@@HAVE_X265_TRUE@am__append_10 = encoder-fuzzer
+@ENABLE_LIBFUZZER_TRUE@@HAVE_LIBDE265_TRUE@am__append_11 = file-fuzzer
+@ENABLE_LIBFUZZER_TRUE@@HAVE_X265_TRUE@am__append_12 = encoder-fuzzer
 subdir = libheif
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/ac_c_cxx_compile_flags.m4 \
@@ -174,28 +181,35 @@ am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(bindir)" \
 	"$(DESTDIR)$(libheif_ladir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 am__DEPENDENCIES_1 =
-@HAVE_LIBDE265_TRUE@am__DEPENDENCIES_2 = $(am__DEPENDENCIES_1)
-@HAVE_X265_TRUE@am__DEPENDENCIES_3 = $(am__DEPENDENCIES_1)
-am__DEPENDENCIES_4 = $(am__DEPENDENCIES_2) $(am__DEPENDENCIES_3)
-libheif_la_DEPENDENCIES = $(am__DEPENDENCIES_4)
+@HAVE_AOM_TRUE@am__DEPENDENCIES_2 = $(am__DEPENDENCIES_1)
+@HAVE_LIBDE265_TRUE@am__DEPENDENCIES_3 = $(am__DEPENDENCIES_1)
+@HAVE_X265_TRUE@am__DEPENDENCIES_4 = $(am__DEPENDENCIES_1)
+am__DEPENDENCIES_5 = $(am__DEPENDENCIES_2) $(am__DEPENDENCIES_3) \
+	$(am__DEPENDENCIES_4)
+libheif_la_DEPENDENCIES = $(am__DEPENDENCIES_5)
 am__libheif_la_SOURCES_DIST = bitstream.h bitstream.cc box.h box.cc \
 	error.h error.cc heif_api_structs.h heif_file.h heif_file.cc \
 	heif_image.h heif_image.cc heif_limits.h heif.h heif.cc \
 	heif_context.h heif_context.cc heif_hevc.h heif_hevc.cc \
-	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
-	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
-	logging.h heif_decoder_libde265.cc heif_decoder_libde265.h \
-	heif_encoder_x265.cc heif_encoder_x265.h
-@HAVE_LIBDE265_TRUE@am__objects_1 =  \
+	heif_avif.h heif_avif.cc heif_plugin_registry.h \
+	heif_plugin_registry.cc heif_plugin.h heif_plugin.cc \
+	heif_colorconversion.h heif_colorconversion.cc logging.h \
+	heif_encoder_aom.cc heif_encoder_aom.h heif_decoder_aom.cc \
+	heif_decoder_aom.h heif_decoder_libde265.cc \
+	heif_decoder_libde265.h heif_encoder_x265.cc \
+	heif_encoder_x265.h
+@HAVE_AOM_TRUE@am__objects_1 = libheif_la-heif_encoder_aom.lo \
+@HAVE_AOM_TRUE@	libheif_la-heif_decoder_aom.lo
+@HAVE_LIBDE265_TRUE@am__objects_2 =  \
 @HAVE_LIBDE265_TRUE@	libheif_la-heif_decoder_libde265.lo
-@HAVE_X265_TRUE@am__objects_2 = libheif_la-heif_encoder_x265.lo
+@HAVE_X265_TRUE@am__objects_3 = libheif_la-heif_encoder_x265.lo
 am_libheif_la_OBJECTS = libheif_la-bitstream.lo libheif_la-box.lo \
 	libheif_la-error.lo libheif_la-heif_file.lo \
 	libheif_la-heif_image.lo libheif_la-heif.lo \
 	libheif_la-heif_context.lo libheif_la-heif_hevc.lo \
-	libheif_la-heif_plugin_registry.lo libheif_la-heif_plugin.lo \
-	libheif_la-heif_colorconversion.lo $(am__objects_1) \
-	$(am__objects_2)
+	libheif_la-heif_avif.lo libheif_la-heif_plugin_registry.lo \
+	libheif_la-heif_plugin.lo libheif_la-heif_colorconversion.lo \
+	$(am__objects_1) $(am__objects_2) $(am__objects_3)
 libheif_la_OBJECTS = $(am_libheif_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -213,23 +227,28 @@ am__box_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h box.cc \
 	error.h error.cc heif_api_structs.h heif_file.h heif_file.cc \
 	heif_image.h heif_image.cc heif_limits.h heif.h heif.cc \
 	heif_context.h heif_context.cc heif_hevc.h heif_hevc.cc \
-	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
-	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
-	logging.h heif_decoder_libde265.cc heif_decoder_libde265.h \
-	heif_encoder_x265.cc heif_encoder_x265.h box_fuzzer.cc
-@HAVE_LIBDE265_TRUE@am__objects_3 = box_fuzzer-heif_decoder_libde265.$(OBJEXT)
-@HAVE_X265_TRUE@am__objects_4 =  \
+	heif_avif.h heif_avif.cc heif_plugin_registry.h \
+	heif_plugin_registry.cc heif_plugin.h heif_plugin.cc \
+	heif_colorconversion.h heif_colorconversion.cc logging.h \
+	heif_encoder_aom.cc heif_encoder_aom.h heif_decoder_aom.cc \
+	heif_decoder_aom.h heif_decoder_libde265.cc \
+	heif_decoder_libde265.h heif_encoder_x265.cc \
+	heif_encoder_x265.h box_fuzzer.cc
+@HAVE_AOM_TRUE@am__objects_4 = box_fuzzer-heif_encoder_aom.$(OBJEXT) \
+@HAVE_AOM_TRUE@	box_fuzzer-heif_decoder_aom.$(OBJEXT)
+@HAVE_LIBDE265_TRUE@am__objects_5 = box_fuzzer-heif_decoder_libde265.$(OBJEXT)
+@HAVE_X265_TRUE@am__objects_6 =  \
 @HAVE_X265_TRUE@	box_fuzzer-heif_encoder_x265.$(OBJEXT)
-am__objects_5 = box_fuzzer-bitstream.$(OBJEXT) \
+am__objects_7 = box_fuzzer-bitstream.$(OBJEXT) \
 	box_fuzzer-box.$(OBJEXT) box_fuzzer-error.$(OBJEXT) \
 	box_fuzzer-heif_file.$(OBJEXT) box_fuzzer-heif_image.$(OBJEXT) \
 	box_fuzzer-heif.$(OBJEXT) box_fuzzer-heif_context.$(OBJEXT) \
-	box_fuzzer-heif_hevc.$(OBJEXT) \
+	box_fuzzer-heif_hevc.$(OBJEXT) box_fuzzer-heif_avif.$(OBJEXT) \
 	box_fuzzer-heif_plugin_registry.$(OBJEXT) \
 	box_fuzzer-heif_plugin.$(OBJEXT) \
-	box_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_3) \
-	$(am__objects_4)
-am_box_fuzzer_OBJECTS = $(am__objects_5) \
+	box_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_4) \
+	$(am__objects_5) $(am__objects_6)
+am_box_fuzzer_OBJECTS = $(am__objects_7) \
 	box_fuzzer-box_fuzzer.$(OBJEXT)
 box_fuzzer_OBJECTS = $(am_box_fuzzer_OBJECTS)
 box_fuzzer_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) \
@@ -239,14 +258,18 @@ am__color_conversion_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc \
 	box.h box.cc error.h error.cc heif_api_structs.h heif_file.h \
 	heif_file.cc heif_image.h heif_image.cc heif_limits.h heif.h \
 	heif.cc heif_context.h heif_context.cc heif_hevc.h \
-	heif_hevc.cc heif_plugin_registry.h heif_plugin_registry.cc \
-	heif_plugin.h heif_plugin.cc heif_colorconversion.h \
-	heif_colorconversion.cc logging.h heif_decoder_libde265.cc \
+	heif_hevc.cc heif_avif.h heif_avif.cc heif_plugin_registry.h \
+	heif_plugin_registry.cc heif_plugin.h heif_plugin.cc \
+	heif_colorconversion.h heif_colorconversion.cc logging.h \
+	heif_encoder_aom.cc heif_encoder_aom.h heif_decoder_aom.cc \
+	heif_decoder_aom.h heif_decoder_libde265.cc \
 	heif_decoder_libde265.h heif_encoder_x265.cc \
 	heif_encoder_x265.h color_conversion_fuzzer.cc
-@HAVE_LIBDE265_TRUE@am__objects_6 = color_conversion_fuzzer-heif_decoder_libde265.$(OBJEXT)
-@HAVE_X265_TRUE@am__objects_7 = color_conversion_fuzzer-heif_encoder_x265.$(OBJEXT)
-am__objects_8 = color_conversion_fuzzer-bitstream.$(OBJEXT) \
+@HAVE_AOM_TRUE@am__objects_8 = color_conversion_fuzzer-heif_encoder_aom.$(OBJEXT) \
+@HAVE_AOM_TRUE@	color_conversion_fuzzer-heif_decoder_aom.$(OBJEXT)
+@HAVE_LIBDE265_TRUE@am__objects_9 = color_conversion_fuzzer-heif_decoder_libde265.$(OBJEXT)
+@HAVE_X265_TRUE@am__objects_10 = color_conversion_fuzzer-heif_encoder_x265.$(OBJEXT)
+am__objects_11 = color_conversion_fuzzer-bitstream.$(OBJEXT) \
 	color_conversion_fuzzer-box.$(OBJEXT) \
 	color_conversion_fuzzer-error.$(OBJEXT) \
 	color_conversion_fuzzer-heif_file.$(OBJEXT) \
@@ -254,11 +277,12 @@ am__objects_8 = color_conversion_fuzzer-bitstream.$(OBJEXT) \
 	color_conversion_fuzzer-heif.$(OBJEXT) \
 	color_conversion_fuzzer-heif_context.$(OBJEXT) \
 	color_conversion_fuzzer-heif_hevc.$(OBJEXT) \
+	color_conversion_fuzzer-heif_avif.$(OBJEXT) \
 	color_conversion_fuzzer-heif_plugin_registry.$(OBJEXT) \
 	color_conversion_fuzzer-heif_plugin.$(OBJEXT) \
 	color_conversion_fuzzer-heif_colorconversion.$(OBJEXT) \
-	$(am__objects_6) $(am__objects_7)
-am_color_conversion_fuzzer_OBJECTS = $(am__objects_8) \
+	$(am__objects_8) $(am__objects_9) $(am__objects_10)
+am_color_conversion_fuzzer_OBJECTS = $(am__objects_11) \
 	color_conversion_fuzzer-color_conversion_fuzzer.$(OBJEXT)
 color_conversion_fuzzer_OBJECTS =  \
 	$(am_color_conversion_fuzzer_OBJECTS)
@@ -270,26 +294,32 @@ am__encoder_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h \
 	box.cc error.h error.cc heif_api_structs.h heif_file.h \
 	heif_file.cc heif_image.h heif_image.cc heif_limits.h heif.h \
 	heif.cc heif_context.h heif_context.cc heif_hevc.h \
-	heif_hevc.cc heif_plugin_registry.h heif_plugin_registry.cc \
-	heif_plugin.h heif_plugin.cc heif_colorconversion.h \
-	heif_colorconversion.cc logging.h heif_decoder_libde265.cc \
+	heif_hevc.cc heif_avif.h heif_avif.cc heif_plugin_registry.h \
+	heif_plugin_registry.cc heif_plugin.h heif_plugin.cc \
+	heif_colorconversion.h heif_colorconversion.cc logging.h \
+	heif_encoder_aom.cc heif_encoder_aom.h heif_decoder_aom.cc \
+	heif_decoder_aom.h heif_decoder_libde265.cc \
 	heif_decoder_libde265.h heif_encoder_x265.cc \
 	heif_encoder_x265.h encoder_fuzzer.cc
-@HAVE_LIBDE265_TRUE@am__objects_9 = encoder_fuzzer-heif_decoder_libde265.$(OBJEXT)
-@HAVE_X265_TRUE@am__objects_10 =  \
+@HAVE_AOM_TRUE@am__objects_12 =  \
+@HAVE_AOM_TRUE@	encoder_fuzzer-heif_encoder_aom.$(OBJEXT) \
+@HAVE_AOM_TRUE@	encoder_fuzzer-heif_decoder_aom.$(OBJEXT)
+@HAVE_LIBDE265_TRUE@am__objects_13 = encoder_fuzzer-heif_decoder_libde265.$(OBJEXT)
+@HAVE_X265_TRUE@am__objects_14 =  \
 @HAVE_X265_TRUE@	encoder_fuzzer-heif_encoder_x265.$(OBJEXT)
-am__objects_11 = encoder_fuzzer-bitstream.$(OBJEXT) \
+am__objects_15 = encoder_fuzzer-bitstream.$(OBJEXT) \
 	encoder_fuzzer-box.$(OBJEXT) encoder_fuzzer-error.$(OBJEXT) \
 	encoder_fuzzer-heif_file.$(OBJEXT) \
 	encoder_fuzzer-heif_image.$(OBJEXT) \
 	encoder_fuzzer-heif.$(OBJEXT) \
 	encoder_fuzzer-heif_context.$(OBJEXT) \
 	encoder_fuzzer-heif_hevc.$(OBJEXT) \
+	encoder_fuzzer-heif_avif.$(OBJEXT) \
 	encoder_fuzzer-heif_plugin_registry.$(OBJEXT) \
 	encoder_fuzzer-heif_plugin.$(OBJEXT) \
-	encoder_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_9) \
-	$(am__objects_10)
-am_encoder_fuzzer_OBJECTS = $(am__objects_11) \
+	encoder_fuzzer-heif_colorconversion.$(OBJEXT) \
+	$(am__objects_12) $(am__objects_13) $(am__objects_14)
+am_encoder_fuzzer_OBJECTS = $(am__objects_15) \
 	encoder_fuzzer-encoder_fuzzer.$(OBJEXT)
 encoder_fuzzer_OBJECTS = $(am_encoder_fuzzer_OBJECTS)
 encoder_fuzzer_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX \
@@ -300,24 +330,31 @@ am__file_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h box.cc \
 	error.h error.cc heif_api_structs.h heif_file.h heif_file.cc \
 	heif_image.h heif_image.cc heif_limits.h heif.h heif.cc \
 	heif_context.h heif_context.cc heif_hevc.h heif_hevc.cc \
-	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
-	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
-	logging.h heif_decoder_libde265.cc heif_decoder_libde265.h \
-	heif_encoder_x265.cc heif_encoder_x265.h file_fuzzer.cc
-@HAVE_LIBDE265_TRUE@am__objects_12 = file_fuzzer-heif_decoder_libde265.$(OBJEXT)
-@HAVE_X265_TRUE@am__objects_13 =  \
+	heif_avif.h heif_avif.cc heif_plugin_registry.h \
+	heif_plugin_registry.cc heif_plugin.h heif_plugin.cc \
+	heif_colorconversion.h heif_colorconversion.cc logging.h \
+	heif_encoder_aom.cc heif_encoder_aom.h heif_decoder_aom.cc \
+	heif_decoder_aom.h heif_decoder_libde265.cc \
+	heif_decoder_libde265.h heif_encoder_x265.cc \
+	heif_encoder_x265.h file_fuzzer.cc
+@HAVE_AOM_TRUE@am__objects_16 =  \
+@HAVE_AOM_TRUE@	file_fuzzer-heif_encoder_aom.$(OBJEXT) \
+@HAVE_AOM_TRUE@	file_fuzzer-heif_decoder_aom.$(OBJEXT)
+@HAVE_LIBDE265_TRUE@am__objects_17 = file_fuzzer-heif_decoder_libde265.$(OBJEXT)
+@HAVE_X265_TRUE@am__objects_18 =  \
 @HAVE_X265_TRUE@	file_fuzzer-heif_encoder_x265.$(OBJEXT)
-am__objects_14 = file_fuzzer-bitstream.$(OBJEXT) \
+am__objects_19 = file_fuzzer-bitstream.$(OBJEXT) \
 	file_fuzzer-box.$(OBJEXT) file_fuzzer-error.$(OBJEXT) \
 	file_fuzzer-heif_file.$(OBJEXT) \
 	file_fuzzer-heif_image.$(OBJEXT) file_fuzzer-heif.$(OBJEXT) \
 	file_fuzzer-heif_context.$(OBJEXT) \
 	file_fuzzer-heif_hevc.$(OBJEXT) \
+	file_fuzzer-heif_avif.$(OBJEXT) \
 	file_fuzzer-heif_plugin_registry.$(OBJEXT) \
 	file_fuzzer-heif_plugin.$(OBJEXT) \
-	file_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_12) \
-	$(am__objects_13)
-am_file_fuzzer_OBJECTS = $(am__objects_14) \
+	file_fuzzer-heif_colorconversion.$(OBJEXT) $(am__objects_16) \
+	$(am__objects_17) $(am__objects_18)
+am_file_fuzzer_OBJECTS = $(am__objects_19) \
 	file_fuzzer-file_fuzzer.$(OBJEXT)
 file_fuzzer_OBJECTS = $(am_file_fuzzer_OBJECTS)
 file_fuzzer_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) \
@@ -514,6 +551,8 @@ am__leading_dot = @am__leading_dot@
 am__quote = @am__quote@
 am__tar = @am__tar@
 am__untar = @am__untar@
+aom_CFLAGS = @aom_CFLAGS@
+aom_LIBS = @aom_LIBS@
 bindir = @bindir@
 build = @build@
 build_alias = @build_alias@
@@ -532,6 +571,7 @@ gdk_pixbuf_cache_file = @gdk_pixbuf_cache_file@
 gdk_pixbuf_moduledir = @gdk_pixbuf_moduledir@
 gdkpixbuf_CFLAGS = @gdkpixbuf_CFLAGS@
 gdkpixbuf_LIBS = @gdkpixbuf_LIBS@
+have_aom = @have_aom@
 have_libde265 = @have_libde265@
 have_x265 = @have_x265@
 host = @host@
@@ -580,24 +620,25 @@ lib_LTLIBRARIES = libheif.la
 libheif_ladir = \
         $(includedir)/libheif
 
-ADDITIONAL_LIBS = $(am__append_1) $(am__append_2)
+ADDITIONAL_LIBS = $(am__append_1) $(am__append_2) $(am__append_3)
 libheif_la_CPPFLAGS = 
 libheif_la_CFLAGS = $(CFLAG_VISIBILITY) -DLIBHEIF_EXPORTS \
-	$(am__append_6)
-libheif_la_CXXFLAGS = $(CFLAG_VISIBILITY) $(libde265_CFLAGS) \
-	$(x265_CFLAGS) -DLIBHEIF_EXPORTS -I$(top_srcdir) \
-	$(am__append_7)
+	$(am__append_8)
+libheif_la_CXXFLAGS = $(CFLAG_VISIBILITY) $(aom_CFLAGS) \
+	$(libde265_CFLAGS) $(x265_CFLAGS) -DLIBHEIF_EXPORTS \
+	-I$(top_srcdir) $(am__append_9)
 libheif_la_LIBADD = $(ADDITIONAL_LIBS)
 libheif_la_LDFLAGS = -version-info \
 	$(LIBHEIF_CURRENT):$(LIBHEIF_REVISION):$(LIBHEIF_AGE) \
-	$(am__append_3)
+	$(am__append_4)
 libheif_la_SOURCES = bitstream.h bitstream.cc box.h box.cc error.h \
 	error.cc heif_api_structs.h heif_file.h heif_file.cc \
 	heif_image.h heif_image.cc heif_limits.h heif.h heif.cc \
 	heif_context.h heif_context.cc heif_hevc.h heif_hevc.cc \
-	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
-	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
-	logging.h $(am__append_4) $(am__append_5)
+	heif_avif.h heif_avif.cc heif_plugin_registry.h \
+	heif_plugin_registry.cc heif_plugin.h heif_plugin.cc \
+	heif_colorconversion.h heif_colorconversion.cc logging.h \
+	$(am__append_5) $(am__append_6) $(am__append_7)
 libheif_la_HEADERS = \
   heif.h \
   heif_plugin.h \
@@ -795,9 +836,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-box_fuzzer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-error.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_avif.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_colorconversion.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_context.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_decoder_aom.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_decoder_libde265.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_encoder_aom.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_encoder_x265.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_file.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_hevc.Po@am__quote@
@@ -810,9 +854,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-error.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_avif.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_colorconversion.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_context.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_encoder_aom.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_encoder_x265.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_file.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_hevc.Po@am__quote@
@@ -825,9 +872,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-encoder_fuzzer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-error.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_avif.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_colorconversion.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_context.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_decoder_aom.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_decoder_libde265.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_encoder_aom.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_encoder_x265.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_file.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif_hevc.Po@am__quote@
@@ -840,9 +890,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-error.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-file_fuzzer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_avif.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_colorconversion.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_context.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_decoder_aom.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_decoder_libde265.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_encoder_aom.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_encoder_x265.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_file.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif_hevc.Po@am__quote@
@@ -854,9 +907,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-box.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-error.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_avif.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_colorconversion.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_context.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_decoder_aom.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_decoder_libde265.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_encoder_aom.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_encoder_x265.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_file.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_hevc.Plo@am__quote@
@@ -944,6 +1000,13 @@ libheif_la-heif_hevc.lo: heif_hevc.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -c -o libheif_la-heif_hevc.lo `test -f 'heif_hevc.cc' || echo '$(srcdir)/'`heif_hevc.cc
 
+libheif_la-heif_avif.lo: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -MT libheif_la-heif_avif.lo -MD -MP -MF $(DEPDIR)/libheif_la-heif_avif.Tpo -c -o libheif_la-heif_avif.lo `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/libheif_la-heif_avif.Tpo $(DEPDIR)/libheif_la-heif_avif.Plo
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='libheif_la-heif_avif.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -c -o libheif_la-heif_avif.lo `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+
 libheif_la-heif_plugin_registry.lo: heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -MT libheif_la-heif_plugin_registry.lo -MD -MP -MF $(DEPDIR)/libheif_la-heif_plugin_registry.Tpo -c -o libheif_la-heif_plugin_registry.lo `test -f 'heif_plugin_registry.cc' || echo '$(srcdir)/'`heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/libheif_la-heif_plugin_registry.Tpo $(DEPDIR)/libheif_la-heif_plugin_registry.Plo
@@ -964,6 +1027,20 @@ libheif_la-heif_colorconversion.lo: heif_colorconversion.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_colorconversion.cc' object='libheif_la-heif_colorconversion.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -c -o libheif_la-heif_colorconversion.lo `test -f 'heif_colorconversion.cc' || echo '$(srcdir)/'`heif_colorconversion.cc
+
+libheif_la-heif_encoder_aom.lo: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -MT libheif_la-heif_encoder_aom.lo -MD -MP -MF $(DEPDIR)/libheif_la-heif_encoder_aom.Tpo -c -o libheif_la-heif_encoder_aom.lo `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/libheif_la-heif_encoder_aom.Tpo $(DEPDIR)/libheif_la-heif_encoder_aom.Plo
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='libheif_la-heif_encoder_aom.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -c -o libheif_la-heif_encoder_aom.lo `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+
+libheif_la-heif_decoder_aom.lo: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -MT libheif_la-heif_decoder_aom.lo -MD -MP -MF $(DEPDIR)/libheif_la-heif_decoder_aom.Tpo -c -o libheif_la-heif_decoder_aom.lo `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/libheif_la-heif_decoder_aom.Tpo $(DEPDIR)/libheif_la-heif_decoder_aom.Plo
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='libheif_la-heif_decoder_aom.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -c -o libheif_la-heif_decoder_aom.lo `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
 
 libheif_la-heif_decoder_libde265.lo: heif_decoder_libde265.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -MT libheif_la-heif_decoder_libde265.lo -MD -MP -MF $(DEPDIR)/libheif_la-heif_decoder_libde265.Tpo -c -o libheif_la-heif_decoder_libde265.lo `test -f 'heif_decoder_libde265.cc' || echo '$(srcdir)/'`heif_decoder_libde265.cc
@@ -1091,6 +1168,20 @@ box_fuzzer-heif_hevc.obj: heif_hevc.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-heif_hevc.obj `if test -f 'heif_hevc.cc'; then $(CYGPATH_W) 'heif_hevc.cc'; else $(CYGPATH_W) '$(srcdir)/heif_hevc.cc'; fi`
 
+box_fuzzer-heif_avif.o: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-heif_avif.o -MD -MP -MF $(DEPDIR)/box_fuzzer-heif_avif.Tpo -c -o box_fuzzer-heif_avif.o `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-heif_avif.Tpo $(DEPDIR)/box_fuzzer-heif_avif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='box_fuzzer-heif_avif.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-heif_avif.o `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+
+box_fuzzer-heif_avif.obj: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-heif_avif.obj -MD -MP -MF $(DEPDIR)/box_fuzzer-heif_avif.Tpo -c -o box_fuzzer-heif_avif.obj `if test -f 'heif_avif.cc'; then $(CYGPATH_W) 'heif_avif.cc'; else $(CYGPATH_W) '$(srcdir)/heif_avif.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-heif_avif.Tpo $(DEPDIR)/box_fuzzer-heif_avif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='box_fuzzer-heif_avif.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-heif_avif.obj `if test -f 'heif_avif.cc'; then $(CYGPATH_W) 'heif_avif.cc'; else $(CYGPATH_W) '$(srcdir)/heif_avif.cc'; fi`
+
 box_fuzzer-heif_plugin_registry.o: heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-heif_plugin_registry.o -MD -MP -MF $(DEPDIR)/box_fuzzer-heif_plugin_registry.Tpo -c -o box_fuzzer-heif_plugin_registry.o `test -f 'heif_plugin_registry.cc' || echo '$(srcdir)/'`heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-heif_plugin_registry.Tpo $(DEPDIR)/box_fuzzer-heif_plugin_registry.Po
@@ -1132,6 +1223,34 @@ box_fuzzer-heif_colorconversion.obj: heif_colorconversion.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_colorconversion.cc' object='box_fuzzer-heif_colorconversion.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-heif_colorconversion.obj `if test -f 'heif_colorconversion.cc'; then $(CYGPATH_W) 'heif_colorconversion.cc'; else $(CYGPATH_W) '$(srcdir)/heif_colorconversion.cc'; fi`
+
+box_fuzzer-heif_encoder_aom.o: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-heif_encoder_aom.o -MD -MP -MF $(DEPDIR)/box_fuzzer-heif_encoder_aom.Tpo -c -o box_fuzzer-heif_encoder_aom.o `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-heif_encoder_aom.Tpo $(DEPDIR)/box_fuzzer-heif_encoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='box_fuzzer-heif_encoder_aom.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-heif_encoder_aom.o `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+
+box_fuzzer-heif_encoder_aom.obj: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-heif_encoder_aom.obj -MD -MP -MF $(DEPDIR)/box_fuzzer-heif_encoder_aom.Tpo -c -o box_fuzzer-heif_encoder_aom.obj `if test -f 'heif_encoder_aom.cc'; then $(CYGPATH_W) 'heif_encoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_aom.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-heif_encoder_aom.Tpo $(DEPDIR)/box_fuzzer-heif_encoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='box_fuzzer-heif_encoder_aom.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-heif_encoder_aom.obj `if test -f 'heif_encoder_aom.cc'; then $(CYGPATH_W) 'heif_encoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_aom.cc'; fi`
+
+box_fuzzer-heif_decoder_aom.o: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-heif_decoder_aom.o -MD -MP -MF $(DEPDIR)/box_fuzzer-heif_decoder_aom.Tpo -c -o box_fuzzer-heif_decoder_aom.o `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-heif_decoder_aom.Tpo $(DEPDIR)/box_fuzzer-heif_decoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='box_fuzzer-heif_decoder_aom.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-heif_decoder_aom.o `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+
+box_fuzzer-heif_decoder_aom.obj: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-heif_decoder_aom.obj -MD -MP -MF $(DEPDIR)/box_fuzzer-heif_decoder_aom.Tpo -c -o box_fuzzer-heif_decoder_aom.obj `if test -f 'heif_decoder_aom.cc'; then $(CYGPATH_W) 'heif_decoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_aom.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-heif_decoder_aom.Tpo $(DEPDIR)/box_fuzzer-heif_decoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='box_fuzzer-heif_decoder_aom.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-heif_decoder_aom.obj `if test -f 'heif_decoder_aom.cc'; then $(CYGPATH_W) 'heif_decoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_aom.cc'; fi`
 
 box_fuzzer-heif_decoder_libde265.o: heif_decoder_libde265.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-heif_decoder_libde265.o -MD -MP -MF $(DEPDIR)/box_fuzzer-heif_decoder_libde265.Tpo -c -o box_fuzzer-heif_decoder_libde265.o `test -f 'heif_decoder_libde265.cc' || echo '$(srcdir)/'`heif_decoder_libde265.cc
@@ -1287,6 +1406,20 @@ color_conversion_fuzzer-heif_hevc.obj: heif_hevc.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_hevc.obj `if test -f 'heif_hevc.cc'; then $(CYGPATH_W) 'heif_hevc.cc'; else $(CYGPATH_W) '$(srcdir)/heif_hevc.cc'; fi`
 
+color_conversion_fuzzer-heif_avif.o: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_avif.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_avif.Tpo -c -o color_conversion_fuzzer-heif_avif.o `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_avif.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_avif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='color_conversion_fuzzer-heif_avif.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_avif.o `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+
+color_conversion_fuzzer-heif_avif.obj: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_avif.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_avif.Tpo -c -o color_conversion_fuzzer-heif_avif.obj `if test -f 'heif_avif.cc'; then $(CYGPATH_W) 'heif_avif.cc'; else $(CYGPATH_W) '$(srcdir)/heif_avif.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_avif.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_avif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='color_conversion_fuzzer-heif_avif.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_avif.obj `if test -f 'heif_avif.cc'; then $(CYGPATH_W) 'heif_avif.cc'; else $(CYGPATH_W) '$(srcdir)/heif_avif.cc'; fi`
+
 color_conversion_fuzzer-heif_plugin_registry.o: heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_plugin_registry.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Tpo -c -o color_conversion_fuzzer-heif_plugin_registry.o `test -f 'heif_plugin_registry.cc' || echo '$(srcdir)/'`heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_plugin_registry.Po
@@ -1328,6 +1461,34 @@ color_conversion_fuzzer-heif_colorconversion.obj: heif_colorconversion.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_colorconversion.cc' object='color_conversion_fuzzer-heif_colorconversion.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_colorconversion.obj `if test -f 'heif_colorconversion.cc'; then $(CYGPATH_W) 'heif_colorconversion.cc'; else $(CYGPATH_W) '$(srcdir)/heif_colorconversion.cc'; fi`
+
+color_conversion_fuzzer-heif_encoder_aom.o: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_encoder_aom.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_encoder_aom.Tpo -c -o color_conversion_fuzzer-heif_encoder_aom.o `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_encoder_aom.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_encoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='color_conversion_fuzzer-heif_encoder_aom.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_encoder_aom.o `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+
+color_conversion_fuzzer-heif_encoder_aom.obj: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_encoder_aom.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_encoder_aom.Tpo -c -o color_conversion_fuzzer-heif_encoder_aom.obj `if test -f 'heif_encoder_aom.cc'; then $(CYGPATH_W) 'heif_encoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_aom.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_encoder_aom.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_encoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='color_conversion_fuzzer-heif_encoder_aom.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_encoder_aom.obj `if test -f 'heif_encoder_aom.cc'; then $(CYGPATH_W) 'heif_encoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_aom.cc'; fi`
+
+color_conversion_fuzzer-heif_decoder_aom.o: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_decoder_aom.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Tpo -c -o color_conversion_fuzzer-heif_decoder_aom.o `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='color_conversion_fuzzer-heif_decoder_aom.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_decoder_aom.o `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+
+color_conversion_fuzzer-heif_decoder_aom.obj: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_decoder_aom.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Tpo -c -o color_conversion_fuzzer-heif_decoder_aom.obj `if test -f 'heif_decoder_aom.cc'; then $(CYGPATH_W) 'heif_decoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_aom.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Tpo $(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='color_conversion_fuzzer-heif_decoder_aom.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-heif_decoder_aom.obj `if test -f 'heif_decoder_aom.cc'; then $(CYGPATH_W) 'heif_decoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_aom.cc'; fi`
 
 color_conversion_fuzzer-heif_decoder_libde265.o: heif_decoder_libde265.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-heif_decoder_libde265.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-heif_decoder_libde265.Tpo -c -o color_conversion_fuzzer-heif_decoder_libde265.o `test -f 'heif_decoder_libde265.cc' || echo '$(srcdir)/'`heif_decoder_libde265.cc
@@ -1483,6 +1644,20 @@ encoder_fuzzer-heif_hevc.obj: heif_hevc.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-heif_hevc.obj `if test -f 'heif_hevc.cc'; then $(CYGPATH_W) 'heif_hevc.cc'; else $(CYGPATH_W) '$(srcdir)/heif_hevc.cc'; fi`
 
+encoder_fuzzer-heif_avif.o: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-heif_avif.o -MD -MP -MF $(DEPDIR)/encoder_fuzzer-heif_avif.Tpo -c -o encoder_fuzzer-heif_avif.o `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-heif_avif.Tpo $(DEPDIR)/encoder_fuzzer-heif_avif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='encoder_fuzzer-heif_avif.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-heif_avif.o `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+
+encoder_fuzzer-heif_avif.obj: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-heif_avif.obj -MD -MP -MF $(DEPDIR)/encoder_fuzzer-heif_avif.Tpo -c -o encoder_fuzzer-heif_avif.obj `if test -f 'heif_avif.cc'; then $(CYGPATH_W) 'heif_avif.cc'; else $(CYGPATH_W) '$(srcdir)/heif_avif.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-heif_avif.Tpo $(DEPDIR)/encoder_fuzzer-heif_avif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='encoder_fuzzer-heif_avif.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-heif_avif.obj `if test -f 'heif_avif.cc'; then $(CYGPATH_W) 'heif_avif.cc'; else $(CYGPATH_W) '$(srcdir)/heif_avif.cc'; fi`
+
 encoder_fuzzer-heif_plugin_registry.o: heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-heif_plugin_registry.o -MD -MP -MF $(DEPDIR)/encoder_fuzzer-heif_plugin_registry.Tpo -c -o encoder_fuzzer-heif_plugin_registry.o `test -f 'heif_plugin_registry.cc' || echo '$(srcdir)/'`heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-heif_plugin_registry.Tpo $(DEPDIR)/encoder_fuzzer-heif_plugin_registry.Po
@@ -1524,6 +1699,34 @@ encoder_fuzzer-heif_colorconversion.obj: heif_colorconversion.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_colorconversion.cc' object='encoder_fuzzer-heif_colorconversion.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-heif_colorconversion.obj `if test -f 'heif_colorconversion.cc'; then $(CYGPATH_W) 'heif_colorconversion.cc'; else $(CYGPATH_W) '$(srcdir)/heif_colorconversion.cc'; fi`
+
+encoder_fuzzer-heif_encoder_aom.o: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-heif_encoder_aom.o -MD -MP -MF $(DEPDIR)/encoder_fuzzer-heif_encoder_aom.Tpo -c -o encoder_fuzzer-heif_encoder_aom.o `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-heif_encoder_aom.Tpo $(DEPDIR)/encoder_fuzzer-heif_encoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='encoder_fuzzer-heif_encoder_aom.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-heif_encoder_aom.o `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+
+encoder_fuzzer-heif_encoder_aom.obj: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-heif_encoder_aom.obj -MD -MP -MF $(DEPDIR)/encoder_fuzzer-heif_encoder_aom.Tpo -c -o encoder_fuzzer-heif_encoder_aom.obj `if test -f 'heif_encoder_aom.cc'; then $(CYGPATH_W) 'heif_encoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_aom.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-heif_encoder_aom.Tpo $(DEPDIR)/encoder_fuzzer-heif_encoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='encoder_fuzzer-heif_encoder_aom.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-heif_encoder_aom.obj `if test -f 'heif_encoder_aom.cc'; then $(CYGPATH_W) 'heif_encoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_aom.cc'; fi`
+
+encoder_fuzzer-heif_decoder_aom.o: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-heif_decoder_aom.o -MD -MP -MF $(DEPDIR)/encoder_fuzzer-heif_decoder_aom.Tpo -c -o encoder_fuzzer-heif_decoder_aom.o `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-heif_decoder_aom.Tpo $(DEPDIR)/encoder_fuzzer-heif_decoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='encoder_fuzzer-heif_decoder_aom.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-heif_decoder_aom.o `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+
+encoder_fuzzer-heif_decoder_aom.obj: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-heif_decoder_aom.obj -MD -MP -MF $(DEPDIR)/encoder_fuzzer-heif_decoder_aom.Tpo -c -o encoder_fuzzer-heif_decoder_aom.obj `if test -f 'heif_decoder_aom.cc'; then $(CYGPATH_W) 'heif_decoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_aom.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-heif_decoder_aom.Tpo $(DEPDIR)/encoder_fuzzer-heif_decoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='encoder_fuzzer-heif_decoder_aom.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-heif_decoder_aom.obj `if test -f 'heif_decoder_aom.cc'; then $(CYGPATH_W) 'heif_decoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_aom.cc'; fi`
 
 encoder_fuzzer-heif_decoder_libde265.o: heif_decoder_libde265.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-heif_decoder_libde265.o -MD -MP -MF $(DEPDIR)/encoder_fuzzer-heif_decoder_libde265.Tpo -c -o encoder_fuzzer-heif_decoder_libde265.o `test -f 'heif_decoder_libde265.cc' || echo '$(srcdir)/'`heif_decoder_libde265.cc
@@ -1679,6 +1882,20 @@ file_fuzzer-heif_hevc.obj: heif_hevc.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-heif_hevc.obj `if test -f 'heif_hevc.cc'; then $(CYGPATH_W) 'heif_hevc.cc'; else $(CYGPATH_W) '$(srcdir)/heif_hevc.cc'; fi`
 
+file_fuzzer-heif_avif.o: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-heif_avif.o -MD -MP -MF $(DEPDIR)/file_fuzzer-heif_avif.Tpo -c -o file_fuzzer-heif_avif.o `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-heif_avif.Tpo $(DEPDIR)/file_fuzzer-heif_avif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='file_fuzzer-heif_avif.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-heif_avif.o `test -f 'heif_avif.cc' || echo '$(srcdir)/'`heif_avif.cc
+
+file_fuzzer-heif_avif.obj: heif_avif.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-heif_avif.obj -MD -MP -MF $(DEPDIR)/file_fuzzer-heif_avif.Tpo -c -o file_fuzzer-heif_avif.obj `if test -f 'heif_avif.cc'; then $(CYGPATH_W) 'heif_avif.cc'; else $(CYGPATH_W) '$(srcdir)/heif_avif.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-heif_avif.Tpo $(DEPDIR)/file_fuzzer-heif_avif.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_avif.cc' object='file_fuzzer-heif_avif.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-heif_avif.obj `if test -f 'heif_avif.cc'; then $(CYGPATH_W) 'heif_avif.cc'; else $(CYGPATH_W) '$(srcdir)/heif_avif.cc'; fi`
+
 file_fuzzer-heif_plugin_registry.o: heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-heif_plugin_registry.o -MD -MP -MF $(DEPDIR)/file_fuzzer-heif_plugin_registry.Tpo -c -o file_fuzzer-heif_plugin_registry.o `test -f 'heif_plugin_registry.cc' || echo '$(srcdir)/'`heif_plugin_registry.cc
 @am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-heif_plugin_registry.Tpo $(DEPDIR)/file_fuzzer-heif_plugin_registry.Po
@@ -1720,6 +1937,34 @@ file_fuzzer-heif_colorconversion.obj: heif_colorconversion.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_colorconversion.cc' object='file_fuzzer-heif_colorconversion.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-heif_colorconversion.obj `if test -f 'heif_colorconversion.cc'; then $(CYGPATH_W) 'heif_colorconversion.cc'; else $(CYGPATH_W) '$(srcdir)/heif_colorconversion.cc'; fi`
+
+file_fuzzer-heif_encoder_aom.o: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-heif_encoder_aom.o -MD -MP -MF $(DEPDIR)/file_fuzzer-heif_encoder_aom.Tpo -c -o file_fuzzer-heif_encoder_aom.o `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-heif_encoder_aom.Tpo $(DEPDIR)/file_fuzzer-heif_encoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='file_fuzzer-heif_encoder_aom.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-heif_encoder_aom.o `test -f 'heif_encoder_aom.cc' || echo '$(srcdir)/'`heif_encoder_aom.cc
+
+file_fuzzer-heif_encoder_aom.obj: heif_encoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-heif_encoder_aom.obj -MD -MP -MF $(DEPDIR)/file_fuzzer-heif_encoder_aom.Tpo -c -o file_fuzzer-heif_encoder_aom.obj `if test -f 'heif_encoder_aom.cc'; then $(CYGPATH_W) 'heif_encoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_aom.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-heif_encoder_aom.Tpo $(DEPDIR)/file_fuzzer-heif_encoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_encoder_aom.cc' object='file_fuzzer-heif_encoder_aom.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-heif_encoder_aom.obj `if test -f 'heif_encoder_aom.cc'; then $(CYGPATH_W) 'heif_encoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_encoder_aom.cc'; fi`
+
+file_fuzzer-heif_decoder_aom.o: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-heif_decoder_aom.o -MD -MP -MF $(DEPDIR)/file_fuzzer-heif_decoder_aom.Tpo -c -o file_fuzzer-heif_decoder_aom.o `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-heif_decoder_aom.Tpo $(DEPDIR)/file_fuzzer-heif_decoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='file_fuzzer-heif_decoder_aom.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-heif_decoder_aom.o `test -f 'heif_decoder_aom.cc' || echo '$(srcdir)/'`heif_decoder_aom.cc
+
+file_fuzzer-heif_decoder_aom.obj: heif_decoder_aom.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-heif_decoder_aom.obj -MD -MP -MF $(DEPDIR)/file_fuzzer-heif_decoder_aom.Tpo -c -o file_fuzzer-heif_decoder_aom.obj `if test -f 'heif_decoder_aom.cc'; then $(CYGPATH_W) 'heif_decoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_aom.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-heif_decoder_aom.Tpo $(DEPDIR)/file_fuzzer-heif_decoder_aom.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='heif_decoder_aom.cc' object='file_fuzzer-heif_decoder_aom.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-heif_decoder_aom.obj `if test -f 'heif_decoder_aom.cc'; then $(CYGPATH_W) 'heif_decoder_aom.cc'; else $(CYGPATH_W) '$(srcdir)/heif_decoder_aom.cc'; fi`
 
 file_fuzzer-heif_decoder_libde265.o: heif_decoder_libde265.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-heif_decoder_libde265.o -MD -MP -MF $(DEPDIR)/file_fuzzer-heif_decoder_libde265.Tpo -c -o file_fuzzer-heif_decoder_libde265.o `test -f 'heif_decoder_libde265.cc' || echo '$(srcdir)/'`heif_decoder_libde265.cc

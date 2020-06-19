@@ -48,7 +48,6 @@
 namespace heif {
 
 #define fourcc(id) (((uint32_t)(id[0])<<24) | (id[1]<<16) | (id[2]<<8) | (id[3]))
-#define fourcc_const(a,b,c,d) ((a<<24) | (b<<16) | (c<<8) | (d))
 
   /*
     constexpr uint32_t fourcc(const char* string)
@@ -87,7 +86,7 @@ namespace heif {
     BoxHeader();
     virtual ~BoxHeader() { }
 
-    const static uint64_t size_until_end_of_file = 0;
+    constexpr static uint64_t size_until_end_of_file = 0;
 
     uint64_t get_box_size() const { return m_size; }
 
@@ -228,8 +227,8 @@ namespace heif {
 
   class Box_hdlr : public Box {
   public:
-    Box_hdlr() { set_short_type(fourcc("hdlr")); set_is_full_box(true); m_reserved[0] = m_reserved[1] = m_reserved[2] = 0; }
-  Box_hdlr(const BoxHeader& hdr) : Box(hdr) { m_reserved[0] = m_reserved[1] = m_reserved[2] = 0; }
+    Box_hdlr() { set_short_type(fourcc("hdlr")); set_is_full_box(true); }
+  Box_hdlr(const BoxHeader& hdr) : Box(hdr) { }
 
     std::string dump(Indent&) const override;
 
@@ -245,7 +244,7 @@ namespace heif {
   private:
     uint32_t m_pre_defined = 0;
     uint32_t m_handler_type = fourcc("pict");
-    uint32_t m_reserved[3];
+    uint32_t m_reserved[3] = {0, };
     std::string m_name;
   };
 
@@ -684,6 +683,58 @@ namespace heif {
   };
 
 
+  class Box_av1C : public Box {
+  public:
+    Box_av1C() { set_short_type(fourcc("av1C")); set_is_full_box(false); }
+  Box_av1C(const BoxHeader& hdr) : Box(hdr) { }
+
+    struct configuration {
+      //unsigned int (1) marker = 1;
+      uint8_t version = 1;
+      uint8_t seq_profile = 0;
+      uint8_t seq_level_idx_0 = 0;
+      uint8_t seq_tier_0 = 0;
+      uint8_t high_bitdepth = 0;
+      uint8_t twelve_bit = 0;
+      uint8_t monochrome = 0;
+      uint8_t chroma_subsampling_x = 0;
+      uint8_t chroma_subsampling_y = 0;
+      uint8_t chroma_sample_position = 0;
+      //uint8_t reserved = 0;
+
+      uint8_t initial_presentation_delay_present = 0;
+      uint8_t initial_presentation_delay_minus_one = 0;
+
+      //unsigned int (8)[] configOBUs;
+    };
+
+
+    std::string dump(Indent&) const override;
+
+    bool get_headers(std::vector<uint8_t>* dest) const {
+      *dest = m_config_OBUs;
+      return true;
+    }
+
+    void set_configuration(const configuration& config) { m_configuration=config; }
+
+    configuration get_configuration() const { return m_configuration; }
+
+    //void append_nal_data(const std::vector<uint8_t>& nal);
+    //void append_nal_data(const uint8_t* data, size_t size);
+
+    Error write(StreamWriter& writer) const override;
+
+  protected:
+    Error parse(BitstreamRange& range) override;
+
+  private:
+    configuration m_configuration;
+
+    std::vector<uint8_t> m_config_OBUs;
+  };
+
+
   class Box_idat : public Box {
   public:
   Box_idat(const BoxHeader& hdr) : Box(hdr) { }
@@ -759,6 +810,10 @@ namespace heif {
   public:
     Box_pixi() { set_short_type(fourcc("pixi")); set_is_full_box(true); }
   Box_pixi(const BoxHeader& hdr) : Box(hdr) { }
+
+    int get_num_channels() const { return (int)m_bits_per_channel.size(); }
+
+    int get_bits_per_channel(int channel) const { return m_bits_per_channel[channel]; }
 
     std::string dump(Indent&) const override;
 

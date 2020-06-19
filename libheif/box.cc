@@ -384,99 +384,103 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
   std::shared_ptr<Box> box;
 
   switch (hdr.get_short_type()) {
-  case fourcc_const('f','t','y','p'):
+  case fourcc("ftyp"):
     box = std::make_shared<Box_ftyp>(hdr);
     break;
 
-  case fourcc_const('m','e','t','a'):
+  case fourcc("meta"):
     box = std::make_shared<Box_meta>(hdr);
     break;
 
-  case fourcc_const('h','d','l','r'):
+  case fourcc("hdlr"):
     box = std::make_shared<Box_hdlr>(hdr);
     break;
 
-  case fourcc_const('p','i','t','m'):
+  case fourcc("pitm"):
     box = std::make_shared<Box_pitm>(hdr);
     break;
 
-  case fourcc_const('i','l','o','c'):
+  case fourcc("iloc"):
     box = std::make_shared<Box_iloc>(hdr);
     break;
 
-  case fourcc_const('i','i','n','f'):
+  case fourcc("iinf"):
     box = std::make_shared<Box_iinf>(hdr);
     break;
 
-  case fourcc_const('i','n','f','e'):
+  case fourcc("infe"):
     box = std::make_shared<Box_infe>(hdr);
     break;
 
-  case fourcc_const('i','p','r','p'):
+  case fourcc("iprp"):
     box = std::make_shared<Box_iprp>(hdr);
     break;
 
-  case fourcc_const('i','p','c','o'):
+  case fourcc("ipco"):
     box = std::make_shared<Box_ipco>(hdr);
     break;
 
-  case fourcc_const('i','p','m','a'):
+  case fourcc("ipma"):
     box = std::make_shared<Box_ipma>(hdr);
     break;
 
-  case fourcc_const('i','s','p','e'):
+  case fourcc("ispe"):
     box = std::make_shared<Box_ispe>(hdr);
     break;
 
-  case fourcc_const('a','u','x','C'):
+  case fourcc("auxC"):
     box = std::make_shared<Box_auxC>(hdr);
     break;
 
-  case fourcc_const('i','r','o','t'):
+  case fourcc("irot"):
     box = std::make_shared<Box_irot>(hdr);
     break;
 
-  case fourcc_const('i','m','i','r'):
+  case fourcc("imir"):
     box = std::make_shared<Box_imir>(hdr);
     break;
 
-  case fourcc_const('c','l','a','p'):
+  case fourcc("clap"):
     box = std::make_shared<Box_clap>(hdr);
     break;
 
-  case fourcc_const('i','r','e','f'):
+  case fourcc("iref"):
     box = std::make_shared<Box_iref>(hdr);
     break;
 
-  case fourcc_const('h','v','c','C'):
+  case fourcc("hvcC"):
     box = std::make_shared<Box_hvcC>(hdr);
     break;
 
-  case fourcc_const('i','d','a','t'):
+  case fourcc("av1C"):
+    box = std::make_shared<Box_av1C>(hdr);
+    break;
+
+  case fourcc("idat"):
     box = std::make_shared<Box_idat>(hdr);
     break;
 
-  case fourcc_const('g','r','p','l'):
+  case fourcc("grpl"):
     box = std::make_shared<Box_grpl>(hdr);
     break;
 
-  case fourcc_const('d','i','n','f'):
+  case fourcc("dinf"):
     box = std::make_shared<Box_dinf>(hdr);
     break;
 
-  case fourcc_const('d','r','e','f'):
+  case fourcc("dref"):
     box = std::make_shared<Box_dref>(hdr);
     break;
 
-  case fourcc_const('u','r','l',' '):
+  case fourcc("url "):
     box = std::make_shared<Box_url>(hdr);
     break;
 
-  case fourcc_const('c','o','l','r'):
+  case fourcc("colr"):
     box = std::make_shared<Box_colr>(hdr);
     break;
 
-  case fourcc_const('p','i','x','i'):
+  case fourcc("pixi"):
     box = std::make_shared<Box_pixi>(hdr);
     break;
 
@@ -514,7 +518,7 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
 
   // Security check: make sure that box size does not exceed int64 size.
 
-  if (hdr.get_box_size() > std::numeric_limits<int64_t>::max()) {
+  if (hdr.get_box_size() > (uint64_t)std::numeric_limits<int64_t>::max()) {
     return Error(heif_error_Invalid_input,
                  heif_suberror_Invalid_box_size);
   }
@@ -2676,6 +2680,113 @@ Error Box_hvcC::write(StreamWriter& writer) const
   prepend_header(writer, box_start);
 
   return Error::Ok;
+}
+
+
+Error Box_av1C::parse(BitstreamRange& range)
+{
+  //parse_full_box_header(range);
+
+  uint8_t byte;
+
+  auto& c = m_configuration; // abbreviation
+
+  byte = range.read8();
+  if ((byte & 0x80) == 0) {
+    // error: marker bit not set
+  }
+
+  c.version = byte & 0x7F;
+
+  byte = range.read8();
+  c.seq_profile = (byte>>5) & 0x7;
+  c.seq_level_idx_0 = byte & 0x1f;
+
+  byte = range.read8();
+  c.seq_tier_0 = (byte >> 7) & 1;
+  c.high_bitdepth = (byte >> 6) & 1;
+  c.twelve_bit = (byte >> 5) & 1;
+  c.monochrome = (byte >> 4) & 1;
+  c.chroma_subsampling_x = (byte >> 3) & 1;
+  c.chroma_subsampling_y = (byte >> 2) & 1;
+  c.chroma_sample_position = byte & 3;
+
+  byte = range.read8();
+  c.initial_presentation_delay_present = (byte >> 4) & 1;
+  if (c.initial_presentation_delay_present) {
+    c.initial_presentation_delay_minus_one = byte & 0x0F;
+  }
+
+  const int64_t configOBUs_bytes = range.get_remaining_bytes();
+  m_config_OBUs.resize(configOBUs_bytes);
+
+  if (!range.read(m_config_OBUs.data(), configOBUs_bytes)) {
+    // error
+  }
+
+  return range.get_error();
+}
+
+
+Error Box_av1C::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  const auto& c = m_configuration; // abbreviation
+
+  writer.write8(c.version | 0x80);
+
+  writer.write8((uint8_t)(((c.seq_profile & 0x7) << 5) |
+                          (c.seq_level_idx_0 & 0x1f)));
+
+  writer.write8((uint8_t)((c.seq_tier_0 ? 0x80 : 0) |
+                          (c.high_bitdepth ? 0x40 : 0) |
+                          (c.twelve_bit ? 0x20 : 0) |
+                          (c.monochrome ? 0x10 : 0) |
+                          (c.chroma_subsampling_x ? 0x08 : 0) |
+                          (c.chroma_subsampling_y ? 0x04 : 0) |
+                          (c.chroma_sample_position & 0x03)));
+
+  writer.write8(0); // TODO initial_presentation_delay
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
+std::string Box_av1C::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  const auto& c = m_configuration; // abbreviation
+
+  sstr << indent << "version: " << ((int)c.version) << "\n"
+       << indent << "seq_profile: " << ((int)c.seq_profile) << "\n"
+       << indent << "seq_level_idx_0: " << ((int)c.seq_level_idx_0) << "\n"
+       << indent << "high_bitdepth: " << ((int)c.high_bitdepth) << "\n"
+       << indent << "twelve_bit: " << ((int)c.twelve_bit) << "\n"
+       << indent << "chroma_subsampling_x: " << ((int)c.chroma_subsampling_x) << "\n"
+       << indent << "chroma_subsampling_y: " << ((int)c.chroma_subsampling_y) << "\n"
+       << indent << "chroma_sample_position: " << ((int)c.chroma_sample_position) << "\n"
+       << indent << "initial_presentation_delay: ";
+
+  if (c.initial_presentation_delay_present) {
+    sstr << c.initial_presentation_delay_minus_one+1 << "\n";
+  }
+  else {
+    sstr << "not present\n";
+  }
+
+  sstr << indent << "config OBUs:";
+  for (size_t i=0;i<m_config_OBUs.size();i++) {
+    sstr << " " << std::hex << std::setfill('0') << std::setw(2)
+         << ((int)m_config_OBUs[i]);
+  }
+  sstr << std::dec << "\n";
+
+  return sstr.str();
 }
 
 

@@ -79,6 +79,7 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
   case heif_suberror_No_meta_box: return "No 'meta' box";
   case heif_suberror_No_hdlr_box: return "No 'hdlr' box";
   case heif_suberror_No_hvcC_box: return "No 'hvcC' box";
+  case heif_suberror_No_av1C_box: return "No 'av1C' box";
   case heif_suberror_No_pitm_box: return "No 'pitm' box";
   case heif_suberror_No_ipco_box: return "No 'ipco' box";
   case heif_suberror_No_ipma_box: return "No 'ipma' box";
@@ -100,6 +101,8 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
   case heif_suberror_Wrong_tile_image_chroma_format: return "Wrong tile image chroma format";
   case heif_suberror_Invalid_fractional_number: return "Invalid fractional number";
   case heif_suberror_Invalid_image_size: return "Invalid image size";
+  case heif_suberror_Invalid_pixi_box: return "Invalid pixi box";
+
 
     // --- Memory_allocation_error ---
 

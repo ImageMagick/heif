@@ -192,6 +192,12 @@ enum heif_suberror_code {
 
   heif_suberror_Invalid_image_size = 129,
 
+  heif_suberror_Invalid_pixi_box = 130,
+
+  heif_suberror_No_av1C_box = 131,
+
+
+
   // --- Memory_allocation_error ---
 
   // A security limit preventing unreasonable memory allocations was exceeded by the input file.
@@ -293,7 +299,9 @@ enum heif_brand {
   heif_hevm, // multiview sequence
   heif_hevs, // scalable sequence
   heif_mif1, // image, any coding algorithm
-  heif_msf1  // sequence, any coding algorithm
+  heif_msf1, // sequence, any coding algorithm
+  heif_avif,
+  heif_avis
 };
 
 // input data should be at least 12 bytes
@@ -708,7 +716,8 @@ enum heif_compression_format {
   heif_compression_undefined = 0,
   heif_compression_HEVC = 1,
   heif_compression_AVC = 2,
-  heif_compression_JPEG = 3
+  heif_compression_JPEG = 3,
+  heif_compression_AV1 = 4
 };
 
 enum heif_chroma {
@@ -769,6 +778,10 @@ struct heif_decoding_options
   void (*on_progress)(enum heif_progress_step step, int progress, void* progress_user_data);
   void (*end_progress)(enum heif_progress_step step, void* progress_user_data);
   void* progress_user_data;
+
+  // version 2 options
+
+  uint8_t convert_hdr_to_8bit;
 };
 
 

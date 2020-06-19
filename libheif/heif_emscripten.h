@@ -214,6 +214,7 @@ EMSCRIPTEN_BINDINGS(libheif) {
     .value("heif_suberror_No_item_data",heif_suberror_No_item_data)
     .value("heif_suberror_Invalid_grid_data",heif_suberror_Invalid_grid_data)
     .value("heif_suberror_Missing_grid_images",heif_suberror_Missing_grid_images)
+    .value("heif_suberror_No_av1C_box",heif_suberror_No_av1C_box)
     .value("heif_suberror_Invalid_clean_aperture",heif_suberror_Invalid_clean_aperture)
     .value("heif_suberror_Invalid_overlay_data",heif_suberror_Invalid_overlay_data)
     .value("heif_suberror_Overlay_image_outside_of_canvas",heif_suberror_Overlay_image_outside_of_canvas)
@@ -232,6 +233,7 @@ EMSCRIPTEN_BINDINGS(libheif) {
     .value("heif_suberror_Unsupported_writer_version",heif_suberror_Unsupported_writer_version)
     .value("heif_suberror_Unsupported_parameter",heif_suberror_Unsupported_parameter)
     .value("heif_suberror_Invalid_parameter_value",heif_suberror_Invalid_parameter_value)
+    .value("heif_suberror_Invalid_pixi_box",heif_suberror_Invalid_pixi_box)
     .value("heif_suberror_Unsupported_codec",heif_suberror_Unsupported_codec)
     .value("heif_suberror_Unsupported_image_type",heif_suberror_Unsupported_image_type)
     .value("heif_suberror_Unsupported_data_version",heif_suberror_Unsupported_data_version)
@@ -244,6 +246,7 @@ EMSCRIPTEN_BINDINGS(libheif) {
     .value("heif_compression_HEVC", heif_compression_HEVC)
     .value("heif_compression_AVC", heif_compression_AVC)
     .value("heif_compression_JPEG", heif_compression_JPEG)
+    .value("heif_compression_AV1", heif_compression_AV1)
     ;
   emscripten::enum_<heif_chroma>("heif_chroma")
     .value("heif_chroma_undefined", heif_chroma_undefined)

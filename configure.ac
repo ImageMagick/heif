@@ -1,12 +1,12 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.6.1], [opensource@struktur.de])
+AC_INIT([libheif], [1.7.0], [opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
 # Note: do not forget to set the version in the CMakeLists.txt file accordingly
 PROJECT_VERSION_MAJOR=1
-PROJECT_VERSION_MINOR=6
-PROJECT_VERSION_PATCH=1
+PROJECT_VERSION_MINOR=7
+PROJECT_VERSION_PATCH=0
 PROJECT_VERSION_TWEAK=0
 AC_SUBST(PROJECT_VERSION_MAJOR)
 AC_SUBST(PROJECT_VERSION_MINOR)
@@ -19,9 +19,9 @@ AC_SUBST(PROJECT_VERSION_TWEAK)
 # If any interfaces have been added since the last public release, then increment age.
 # If any interfaces have been removed or changed since the last public release, then set age to 0.
 
-LIBHEIF_CURRENT=7
-LIBHEIF_REVISION=1
-LIBHEIF_AGE=6
+LIBHEIF_CURRENT=8
+LIBHEIF_REVISION=0
+LIBHEIF_AGE=7
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
 AC_SUBST(LIBHEIF_AGE)
@@ -89,6 +89,15 @@ AM_CONDITIONAL([HAVE_TESTS], [test "x$HAVE_TESTS" == "x1"])
 
 AM_CONDITIONAL([HAVE_VISIBILITY], [test "x$HAVE_VISIBILITY" != "x0"])
 if eval "test x$enable_visibility = x" ; then enable_visibility=yes ; fi
+
+PKG_CHECK_MODULES([aom], [aom], [
+    AC_DEFINE([HAVE_AOM], [1], [Whether aom was found.])
+    AC_SUBST(aom_CFLAGS)
+    AC_SUBST(aom_LIBS)
+    have_aom="yes"
+], [have_aom="no"])
+AM_CONDITIONAL([HAVE_AOM], [test "x$have_aom" = "xyes"])
+AC_SUBST([have_aom])
 
 PKG_CHECK_MODULES([libde265], [libde265], [
     AC_DEFINE([HAVE_LIBDE265], [1], [Whether libde265 was found.])
@@ -215,6 +224,8 @@ AC_C_CXX_COMPILE_FLAGS([-Wno-error=potentially-evaluated-expression])
 AC_MSG_NOTICE([---------------------------------------])
 AC_MSG_NOTICE([Multithreading: $enable_multithreading])
 AC_MSG_NOTICE([Symbol visibility: $enable_visibility])
+AC_MSG_NOTICE([libaom decoder: $have_aom])
+AC_MSG_NOTICE([libaom encoder: $have_aom])
 AC_MSG_NOTICE([libde265 decoder: $have_libde265])
 AC_MSG_NOTICE([libx265 encoder: $have_x265])
 AC_MSG_NOTICE([JPEG output: $have_libjpeg])

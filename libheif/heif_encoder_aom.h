@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Joachim Bauch <bauch@struktur.de>
+ * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
  *
  * This file is part of libheif.
  *
@@ -18,28 +18,10 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <sstream>
+#ifndef LIBHEIF_HEIF_ENCODER_AOM_H
+#define LIBHEIF_HEIF_ENCODER_AOM_H
 
-#include "box.h"
-#include "bitstream.h"
-#include "logging.h"
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  auto reader = std::make_shared<heif::StreamReader_memory>(data, size, false);
+const struct heif_encoder_plugin* get_encoder_plugin_aom();
 
-  heif::BitstreamRange range(reader, size);
-  for (;;) {
-    std::shared_ptr<heif::Box> box;
-    heif::Error error = heif::Box::read(range, &box);
-    if (error != heif::Error::Ok || range.error()) {
-      break;
-    }
-
-    box->get_type();
-    box->get_type_string();
-    heif::Indent indent;
-    box->dump(indent);
-  }
-
-  return 0;
-}
+#endif

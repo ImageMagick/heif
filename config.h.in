@@ -3,6 +3,9 @@
 /* Whether we enable multithreaded decoding. */
 #undef ENABLE_PARALLEL_TILE_DECODING
 
+/* Whether aom was found. */
+#undef HAVE_AOM
+
 /* define if the compiler supports basic C++11 syntax */
 #undef HAVE_CXX11
 

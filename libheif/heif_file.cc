@@ -117,13 +117,29 @@ void HeifFile::new_empty_file()
 
   m_top_level_boxes.push_back(m_ftyp_box);
   m_top_level_boxes.push_back(m_meta_box);
+}
 
 
+void HeifFile::set_brand(heif_compression_format format)
+{
+  switch (format) {
+    case heif_compression_HEVC:
+      m_ftyp_box->set_major_brand(fourcc("heic"));
+      m_ftyp_box->set_minor_version(0);
+      m_ftyp_box->add_compatible_brand(fourcc("mif1"));
+      m_ftyp_box->add_compatible_brand(fourcc("heic"));
+      break;
 
-  m_ftyp_box->set_major_brand(fourcc("heic"));
-  m_ftyp_box->set_minor_version(0);
-  m_ftyp_box->add_compatible_brand(fourcc("mif1"));
-  m_ftyp_box->add_compatible_brand(fourcc("heic"));
+    case heif_compression_AV1:
+      m_ftyp_box->set_major_brand(fourcc("avif"));
+      m_ftyp_box->set_minor_version(0);
+      m_ftyp_box->add_compatible_brand(fourcc("avif"));
+      m_ftyp_box->add_compatible_brand(fourcc("mif1"));
+      break;
+
+  default:
+    break;
+  }
 }
 
 
@@ -199,9 +215,12 @@ Error HeifFile::parse_heif_file(BitstreamRange& range)
                  heif_suberror_No_ftyp_box);
   }
 
-  if (!m_ftyp_box->has_compatible_brand(fourcc("heic"))) {
+  if (!m_ftyp_box->has_compatible_brand(fourcc("heic")) &&
+      !m_ftyp_box->has_compatible_brand(fourcc("heix")) &&
+      !m_ftyp_box->has_compatible_brand(fourcc("mif1")) &&
+      !m_ftyp_box->has_compatible_brand(fourcc("avif"))) {
     std::stringstream sstr;
-    sstr << "File does not support the 'heic' brand.\n";
+    sstr << "File does not include any supported brands.\n";
 
     return Error(heif_error_Unsupported_filetype,
                  heif_suberror_Unspecified,
@@ -347,11 +366,38 @@ Error HeifFile::get_properties(heif_item_id imageID,
 
 heif_chroma HeifFile::get_image_chroma_from_configuration(heif_item_id imageID) const
 {
+  // HEVC
+
   auto box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("hvcC"));
   std::shared_ptr<Box_hvcC> hvcC_box = std::dynamic_pointer_cast<Box_hvcC>(box);
   if (hvcC_box) {
     return (heif_chroma)(hvcC_box->get_configuration().chroma_format);
   }
+
+
+  // AV1
+
+  box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("av1C"));
+  std::shared_ptr<Box_av1C> av1C_box = std::dynamic_pointer_cast<Box_av1C>(box);
+  if (av1C_box) {
+    Box_av1C::configuration config = av1C_box->get_configuration();
+    if (config.chroma_subsampling_x == 1 &&
+        config.chroma_subsampling_y == 1) {
+      return heif_chroma_420;
+    }
+    else if (config.chroma_subsampling_x == 1 &&
+             config.chroma_subsampling_y == 0) {
+      return heif_chroma_422;
+    }
+    else if (config.chroma_subsampling_x == 0 &&
+             config.chroma_subsampling_y == 0) {
+      return heif_chroma_444;
+    }
+    else {
+      return heif_chroma_undefined;
+    }
+  }
+
 
   assert(false);
   return heif_chroma_undefined;
@@ -360,10 +406,29 @@ heif_chroma HeifFile::get_image_chroma_from_configuration(heif_item_id imageID) 
 
 int HeifFile::get_luma_bits_per_pixel_from_configuration(heif_item_id imageID) const
 {
+  // HEVC
+
   auto box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("hvcC"));
   std::shared_ptr<Box_hvcC> hvcC_box = std::dynamic_pointer_cast<Box_hvcC>(box);
   if (hvcC_box) {
     return hvcC_box->get_configuration().bit_depth_luma;
+  }
+
+  // AV1
+
+  box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("av1C"));
+  std::shared_ptr<Box_av1C> av1C_box = std::dynamic_pointer_cast<Box_av1C>(box);
+  if (av1C_box) {
+    Box_av1C::configuration config = av1C_box->get_configuration();
+    if (!config.high_bitdepth) {
+      return 8;
+    }
+    else if (config.twelve_bit) {
+      return 12;
+    }
+    else {
+      return 10;
+    }
   }
 
   assert(false);
@@ -373,10 +438,29 @@ int HeifFile::get_luma_bits_per_pixel_from_configuration(heif_item_id imageID) c
 
 int HeifFile::get_chroma_bits_per_pixel_from_configuration(heif_item_id imageID) const
 {
+  // HEVC
+
   auto box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("hvcC"));
   std::shared_ptr<Box_hvcC> hvcC_box = std::dynamic_pointer_cast<Box_hvcC>(box);
   if (hvcC_box) {
     return hvcC_box->get_configuration().bit_depth_chroma;
+  }
+
+  // AV1
+
+  box = m_ipco_box->get_property_for_item_ID(imageID, m_ipma_box, fourcc("av1C"));
+  std::shared_ptr<Box_av1C> av1C_box = std::dynamic_pointer_cast<Box_av1C>(box);
+  if (av1C_box) {
+    Box_av1C::configuration config = av1C_box->get_configuration();
+    if (!config.high_bitdepth) {
+      return 8;
+    }
+    else if (config.twelve_bit) {
+      return 12;
+    }
+    else {
+      return 10;
+    }
   }
 
   assert(false);
@@ -456,6 +540,41 @@ Error HeifFile::get_compressed_image_data(heif_item_id ID, std::vector<uint8_t>*
       return Error(heif_error_Invalid_input,
                    heif_suberror_No_hvcC_box);
     } else if (!hvcC_box->get_headers(data)) {
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_No_item_data);
+    }
+
+    error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, data);
+  } else if (item_type == "av01") {
+    // --- --- --- AV1
+
+    // --- get properties for this image
+
+    std::vector<Box_ipco::Property> properties;
+    Error err = m_ipco_box->get_properties_for_item_ID(ID, m_ipma_box, properties);
+    if (err) {
+      return err;
+    }
+
+    // --- get codec configuration
+
+    std::shared_ptr<Box_av1C> av1C_box;
+    for (auto& prop : properties) {
+      if (prop.property->get_short_type() == fourcc("av1C")) {
+        av1C_box = std::dynamic_pointer_cast<Box_av1C>(prop.property);
+        if (av1C_box) {
+          break;
+        }
+      }
+    }
+
+    if (!av1C_box) {
+      // Should always have an hvcC box, because we are checking this in
+      // heif_context::interpret_heif_file()
+      assert(false);
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_No_hvcC_box);
+    } else if (!av1C_box->get_headers(data)) {
       return Error(heif_error_Invalid_input,
                    heif_suberror_No_item_data);
     }
@@ -599,6 +718,33 @@ Error HeifFile::append_hvcC_nal_data(heif_item_id id, const uint8_t* data, size_
                  heif_suberror_No_hvcC_box);
   }
 }
+
+
+void HeifFile::add_av1C_property(heif_item_id id)
+{
+  auto av1C = std::make_shared<Box_av1C>();
+  int index = m_ipco_box->append_child_box(av1C);
+
+  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation { true, uint16_t(index+1) });
+}
+
+
+Error HeifFile::set_av1C_configuration(heif_item_id id, const Box_av1C::configuration& config)
+{
+  auto av1C = std::dynamic_pointer_cast<Box_av1C>(m_ipco_box->get_property_for_item_ID(id,
+                                                                                       m_ipma_box,
+                                                                                       fourcc("av1C")));
+
+  if (av1C) {
+    av1C->set_configuration(config);
+    return Error::Ok;
+  }
+  else {
+    return Error(heif_error_Usage_error,
+                 heif_suberror_No_av1C_box);
+  }
+}
+
 
 void HeifFile::append_iloc_data(heif_item_id id, const std::vector<uint8_t>& nal_packets)
 {

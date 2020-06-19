@@ -47,6 +47,7 @@ type Compression C.enum_heif_compression_format
 const (
 	CompressionUndefined = C.heif_compression_undefined
 	CompressionHEVC      = C.heif_compression_HEVC
+	CompressionAV1       = C.heif_compression_AV1
 	CompressionAVC       = C.heif_compression_AVC
 	CompressionJPEG      = C.heif_compression_JPEG
 )
@@ -206,6 +207,8 @@ const (
 	// Tile-images in a grid image are missing
 	SuberrorMissingGridImages = C.heif_suberror_Missing_grid_images
 
+	SuberrorNoAV1CBox = C.heif_suberror_No_av1C_box
+
 	SuberrorInvalidCleanAperture = C.heif_suberror_Invalid_clean_aperture
 
 	// Invalid specification of overlay image
@@ -257,6 +260,8 @@ const (
 
 	// The value for the given parameter is not in the valid range.
 	SuberrorInvalidParameterValue = C.heif_suberror_Invalid_parameter_value
+
+	SuberrorInvalidPixiBox = C.heif_suberror_Invalid_pixi_box
 
 	// --- Unsupported_feature ---
 
@@ -1076,4 +1081,6 @@ func init() {
 	image.RegisterFormat("heif", "????ftyphevm", decodeImage, decodeConfig)
 	image.RegisterFormat("heif", "????ftyphevs", decodeImage, decodeConfig)
 	image.RegisterFormat("heif", "????ftypmif1", decodeImage, decodeConfig)
+	image.RegisterFormat("avif", "????ftypavif", decodeImage, decodeConfig)
+	image.RegisterFormat("avif", "????ftypavis", decodeImage, decodeConfig)
 }
