@@ -77,7 +77,7 @@ public:
 #endif
 
 #if HAVE_AOM
-    //heif::register_encoder(get_encoder_plugin_aom());
+    heif::register_encoder(get_encoder_plugin_aom());
     heif::register_decoder(get_decoder_plugin_aom());
 #endif
   }
