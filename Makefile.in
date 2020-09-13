@@ -271,6 +271,7 @@ ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
 EGREP = @EGREP@
 ENABLE_LIBFUZZER = @ENABLE_LIBFUZZER@
+ENABLE_LOCAL_RAV1E = @ENABLE_LOCAL_RAV1E@
 ENABLE_PARALLEL_TILE_DECODING = @ENABLE_PARALLEL_TILE_DECODING@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
@@ -420,7 +421,7 @@ SUBDIRS = \
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libheif.pc
 EXTRA_DIST = \
-    .travis.yml \
+    .github/workflows/*.yml \
     appveyor.yml \
     autogen.sh \
     CMakeLists.txt \

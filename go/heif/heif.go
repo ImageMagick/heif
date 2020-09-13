@@ -674,6 +674,12 @@ func (img *Image) GetBitsPerPixel(channel Channel) int {
 	return i
 }
 
+func (img *Image) GetBitsPerPixelRange(channel Channel) int {
+	i := int(C.heif_image_get_bits_per_pixel_range(img.image, uint32(channel)))
+	keepAlive(img)
+	return i
+}
+
 func (img *Image) GetImage() (image.Image, error) {
 	var i image.Image
 	cf := img.GetChromaFormat()
@@ -722,6 +728,169 @@ func (img *Image) GetImage() (image.Image, error) {
 		}
 	case ColorspaceRGB:
 		switch cf {
+		case Chroma444:
+			r, err := img.GetPlane(ChannelR)
+			if err != nil {
+				return nil, err
+			}
+			g, err := img.GetPlane(ChannelG)
+			if err != nil {
+				return nil, err
+			}
+			b, err := img.GetPlane(ChannelB)
+			if err != nil {
+				return nil, err
+			}
+			width := img.GetWidth(ChannelR)
+			height := img.GetHeight(ChannelR)
+			read_pos_r := 0
+			read_pos_g := 0
+			read_pos_b := 0
+			write_pos := 0
+			var rgba []byte
+			var stride int
+			if bpp := img.GetBitsPerPixelRange(ChannelR); bpp > 8 {
+				// NOTE: We only support the same bits per pixel on all components.
+				stride = width * 8
+				rgba = make([]byte, height*stride)
+				stride_add_r := r.Stride - width*2
+				stride_add_g := g.Stride - width*2
+				stride_add_b := b.Stride - width*2
+				if bpp == 16 {
+					for y := 0; y < height; y++ {
+						for x := 0; x < width; x++ {
+							rgba[write_pos] = r.Plane[read_pos_r]
+							rgba[write_pos+1] = r.Plane[read_pos_r+1]
+							rgba[write_pos+2] = g.Plane[read_pos_g]
+							rgba[write_pos+3] = g.Plane[read_pos_g+1]
+							rgba[write_pos+4] = b.Plane[read_pos_b]
+							rgba[write_pos+5] = b.Plane[read_pos_b+1]
+							rgba[write_pos+6] = 0xff
+							rgba[write_pos+7] = 0xff
+							read_pos_r += 2
+							read_pos_g += 2
+							read_pos_b += 2
+							write_pos += 8
+						}
+						read_pos_r += stride_add_r
+						read_pos_g += stride_add_g
+						read_pos_b += stride_add_b
+					}
+				} else {
+					for y := 0; y < height; y++ {
+						for x := 0; x < width; x++ {
+							r_value := (int16(r.Plane[read_pos_r+1]) << 8) | int16(r.Plane[read_pos_r])
+							r_value = (r_value << (16 - uint(bpp))) | (r_value >> (2*uint(bpp) - 16))
+							rgba[write_pos] = byte(r_value >> 8)
+							rgba[write_pos+1] = byte(r_value & 0xff)
+							g_value := (int16(g.Plane[read_pos_g+1]) << 8) | int16(g.Plane[read_pos_g])
+							g_value = (g_value << (16 - uint(bpp))) | (g_value >> (2*uint(bpp) - 16))
+							rgba[write_pos+2] = byte(g_value >> 8)
+							rgba[write_pos+3] = byte(g_value & 0xff)
+							b_value := (int16(b.Plane[read_pos_b+1]) << 8) | int16(b.Plane[read_pos_b])
+							b_value = (b_value << (16 - uint(bpp))) | (b_value >> (2*uint(bpp) - 16))
+							rgba[write_pos+4] = byte(b_value >> 8)
+							rgba[write_pos+5] = byte(b_value & 0xff)
+							rgba[write_pos+6] = 0xff
+							rgba[write_pos+7] = 0xff
+							read_pos_r += 2
+							read_pos_g += 2
+							read_pos_b += 2
+							write_pos += 8
+						}
+						read_pos_r += stride_add_r
+						read_pos_g += stride_add_g
+						read_pos_b += stride_add_b
+					}
+				}
+
+				i = &image.RGBA64{
+					Pix:    rgba,
+					Stride: stride,
+					Rect: image.Rectangle{
+						Min: image.Point{
+							X: 0,
+							Y: 0,
+						},
+						Max: image.Point{
+							X: width,
+							Y: height,
+						},
+					},
+				}
+			} else {
+				stride = width * 4
+				rgba = make([]byte, height*stride)
+				stride_add_r := r.Stride - width
+				stride_add_g := g.Stride - width
+				stride_add_b := b.Stride - width
+				for y := 0; y < height; y++ {
+					for x := 0; x < width; x++ {
+						rgba[write_pos] = r.Plane[read_pos_r]
+						rgba[write_pos+1] = g.Plane[read_pos_g]
+						rgba[write_pos+2] = b.Plane[read_pos_b]
+						rgba[write_pos+3] = 0xff
+						read_pos_r++
+						read_pos_g++
+						read_pos_b++
+						write_pos += 4
+					}
+					read_pos_r += stride_add_r
+					read_pos_g += stride_add_g
+					read_pos_b += stride_add_b
+				}
+
+				i = &image.RGBA{
+					Pix:    rgba,
+					Stride: stride,
+					Rect: image.Rectangle{
+						Min: image.Point{
+							X: 0,
+							Y: 0,
+						},
+						Max: image.Point{
+							X: width,
+							Y: height,
+						},
+					},
+				}
+			}
+		case ChromaInterleavedRGB:
+			rgb, err := img.GetPlane(ChannelInterleaved)
+			if err != nil {
+				return nil, err
+			}
+			width := img.GetWidth(ChannelInterleaved)
+			height := img.GetHeight(ChannelInterleaved)
+			rgba := make([]byte, width*height*4)
+			read_pos := 0
+			write_pos := 0
+			stride_add := rgb.Stride - width*3
+			for y := 0; y < height; y++ {
+				for x := 0; x < width; x++ {
+					rgba[write_pos] = rgb.Plane[read_pos]
+					rgba[write_pos+1] = rgb.Plane[read_pos+1]
+					rgba[write_pos+2] = rgb.Plane[read_pos+2]
+					rgba[write_pos+3] = 0xff
+					read_pos += 3
+					write_pos += 4
+				}
+				read_pos += stride_add
+			}
+			i = &image.RGBA{
+				Pix:    rgba,
+				Stride: width * 4,
+				Rect: image.Rectangle{
+					Min: image.Point{
+						X: 0,
+						Y: 0,
+					},
+					Max: image.Point{
+						X: width,
+						Y: height,
+					},
+				},
+			}
 		case ChromaInterleavedRGBA:
 			rgba, err := img.GetPlane(ChannelInterleaved)
 			if err != nil {
@@ -738,6 +907,123 @@ func (img *Image) GetImage() (image.Image, error) {
 					Max: image.Point{
 						X: img.GetWidth(ChannelInterleaved),
 						Y: img.GetHeight(ChannelInterleaved),
+					},
+				},
+			}
+		case ChromaInterleavedRRGGBB_BE:
+			rgb, err := img.GetPlane(ChannelInterleaved)
+			if err != nil {
+				return nil, err
+			}
+			width := img.GetWidth(ChannelInterleaved)
+			height := img.GetHeight(ChannelInterleaved)
+			rgba := make([]byte, width*height*8)
+			read_pos := 0
+			write_pos := 0
+			stride_add := rgb.Stride - width*6
+			if bpp := img.GetBitsPerPixelRange(ChannelInterleaved); bpp != 16 {
+				for y := 0; y < height; y++ {
+					for x := 0; x < width; x++ {
+						r_value := (int16(rgb.Plane[read_pos]) << 8) | int16(rgb.Plane[read_pos+1])
+						r_value = (r_value << (16 - uint(bpp))) | (r_value >> (2*uint(bpp) - 16))
+						rgba[write_pos] = byte(r_value >> 8)
+						rgba[write_pos+1] = byte(r_value & 0xff)
+						g_value := (int16(rgb.Plane[read_pos+2]) << 8) | int16(rgb.Plane[read_pos+3])
+						g_value = (g_value << (16 - uint(bpp))) | (g_value >> (2*uint(bpp) - 16))
+						rgba[write_pos+2] = byte(g_value >> 8)
+						rgba[write_pos+3] = byte(g_value & 0xff)
+						b_value := (int16(rgb.Plane[read_pos+4]) << 8) | int16(rgb.Plane[read_pos+5])
+						b_value = (b_value << (16 - uint(bpp))) | (b_value >> (2*uint(bpp) - 16))
+						rgba[write_pos+4] = byte(b_value >> 8)
+						rgba[write_pos+5] = byte(b_value & 0xff)
+						rgba[write_pos+6] = 0xff
+						rgba[write_pos+7] = 0xff
+						read_pos += 6
+						write_pos += 8
+					}
+					read_pos += stride_add
+				}
+			} else {
+				for y := 0; y < height; y++ {
+					for x := 0; x < width; x++ {
+						rgba[write_pos] = rgb.Plane[read_pos]
+						rgba[write_pos+1] = rgb.Plane[read_pos+1]
+						rgba[write_pos+2] = rgb.Plane[read_pos+2]
+						rgba[write_pos+3] = rgb.Plane[read_pos+3]
+						rgba[write_pos+4] = rgb.Plane[read_pos+4]
+						rgba[write_pos+5] = rgb.Plane[read_pos+5]
+						rgba[write_pos+6] = 0xff
+						rgba[write_pos+7] = 0xff
+						read_pos += 6
+						write_pos += 8
+					}
+					read_pos += stride_add
+				}
+			}
+			i = &image.RGBA64{
+				Pix:    rgba,
+				Stride: width * 4,
+				Rect: image.Rectangle{
+					Min: image.Point{
+						X: 0,
+						Y: 0,
+					},
+					Max: image.Point{
+						X: width,
+						Y: height,
+					},
+				},
+			}
+		case ChromaInterleavedRRGGBBAA_BE:
+			rgba, err := img.GetPlane(ChannelInterleaved)
+			if err != nil {
+				return nil, err
+			}
+			width := img.GetWidth(ChannelInterleaved)
+			height := img.GetHeight(ChannelInterleaved)
+			var plane []byte
+			if bpp := img.GetBitsPerPixelRange(ChannelInterleaved); bpp != 16 {
+				read_pos := 0
+				write_pos := 0
+				stride_add := rgba.Stride - width*8
+				plane = make([]byte, width*height*8)
+				for y := 0; y < height; y++ {
+					for x := 0; x < width; x++ {
+						r_value := (int16(rgba.Plane[read_pos]) << 8) | int16(rgba.Plane[read_pos+1])
+						r_value = (r_value << (16 - uint(bpp))) | (r_value >> (2*uint(bpp) - 16))
+						plane[write_pos] = byte(r_value >> 8)
+						plane[write_pos+1] = byte(r_value & 0xff)
+						g_value := (int16(rgba.Plane[read_pos+2]) << 8) | int16(rgba.Plane[read_pos+3])
+						g_value = (g_value << (16 - uint(bpp))) | (g_value >> (2*uint(bpp) - 16))
+						plane[write_pos+2] = byte(g_value >> 8)
+						plane[write_pos+3] = byte(g_value & 0xff)
+						b_value := (int16(rgba.Plane[read_pos+4]) << 8) | int16(rgba.Plane[read_pos+5])
+						b_value = (b_value << (16 - uint(bpp))) | (b_value >> (2*uint(bpp) - 16))
+						plane[write_pos+4] = byte(b_value >> 8)
+						plane[write_pos+5] = byte(b_value & 0xff)
+						a_value := (int16(rgba.Plane[read_pos+6]) << 8) | int16(rgba.Plane[read_pos+7])
+						a_value = (a_value << (16 - uint(bpp))) | (a_value >> (2*uint(bpp) - 16))
+						plane[write_pos+6] = byte(a_value >> 8)
+						plane[write_pos+7] = byte(a_value & 0xff)
+						read_pos += 8
+						write_pos += 8
+					}
+					read_pos += stride_add
+				}
+			} else {
+				plane = rgba.Plane
+			}
+			i = &image.RGBA64{
+				Pix:    plane,
+				Stride: rgba.Stride,
+				Rect: image.Rectangle{
+					Min: image.Point{
+						X: 0,
+						Y: 0,
+					},
+					Max: image.Point{
+						X: width,
+						Y: height,
 					},
 				},
 			}
@@ -763,15 +1049,15 @@ type ImageAccess struct {
 func (i *ImageAccess) setData(data []byte, stride int) {
 	// Handle common case directly
 	if stride == i.Stride {
-		i.Plane = data
-		i.planePtr = unsafe.Pointer(&i.Plane[0])
-		return
-	}
-
-	for y := 0; y < i.height; y++ {
-		dstP := uintptr(i.planePtr) + uintptr(y*i.Stride)
-		srcP := uintptr(unsafe.Pointer(&data[0])) + uintptr(y*stride)
-		C.memcpy(unsafe.Pointer(dstP), unsafe.Pointer(srcP), C.size_t(stride))
+		dstP := uintptr(i.planePtr)
+		srcP := uintptr(unsafe.Pointer(&data[0]))
+		C.memcpy(unsafe.Pointer(dstP), unsafe.Pointer(srcP), C.size_t(i.height*stride))
+	} else {
+		for y := 0; y < i.height; y++ {
+			dstP := uintptr(i.planePtr) + uintptr(y*i.Stride)
+			srcP := uintptr(unsafe.Pointer(&data[0])) + uintptr(y*stride)
+			C.memcpy(unsafe.Pointer(dstP), unsafe.Pointer(srcP), C.size_t(stride))
+		}
 	}
 	i.Plane = C.GoBytes(i.planePtr, C.int(i.height*i.Stride))
 }
@@ -846,57 +1132,82 @@ func freeHeifEncodingOptions(options *EncodingOptions) {
 	options.options = nil
 }
 
-func imageFromNRGBA(i *image.NRGBA) (*Image, error) {
+func imageFromRGBA(i *image.RGBA) (*Image, error) {
+	min := i.Bounds().Min
 	max := i.Bounds().Max
-	w, h := max.X, max.Y
+	w := max.X - min.X
+	h := max.Y - min.Y
 
-	hasAlpha := func(i *image.NRGBA) bool {
-		rect := i.Rect
-		if rect.Empty() {
-			return true
-		}
-
-		for y := rect.Min.Y; y < rect.Max.Y; y++ {
-			for x := rect.Min.X; x < rect.Max.X; x++ {
-				o := i.PixOffset(x, y)
-				if i.Pix[o+3] == 0xff {
-					return true
-				}
-			}
-		}
-		return false
-	}
-
-	var cm Chroma
-	var depth int
-	var stride int
-	if hasAlpha(i) {
-		cm = ChromaInterleavedRGBA
-		depth = 32
-		stride = w * 4
-	} else {
-		cm = ChromaInterleavedRGB
-		depth = 64
-		stride = w * 3
-	}
-
-	out, err := NewImage(w, h, ColorspaceRGB, cm)
+	out, err := NewImage(w, h, ColorspaceRGB, ChromaInterleavedRGBA)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create image: %v", err)
 	}
 
-	p, err := out.NewPlane(ChannelInterleaved, w, h, depth)
+	p, err := out.NewPlane(ChannelInterleaved, w, h, 8)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add plane: %v", err)
 	}
-	p.setData([]byte(i.Pix), stride)
+	p.setData([]byte(i.Pix), w*4)
+
+	return out, nil
+}
+
+func imageFromRGBA64(i *image.RGBA64) (*Image, error) {
+	min := i.Bounds().Min
+	max := i.Bounds().Max
+	w := max.X - min.X
+	h := max.Y - min.Y
+
+	out, err := NewImage(w, h, ColorspaceRGB, ChromaInterleavedRRGGBBAA_BE)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create image: %v", err)
+	}
+
+	p, err := out.NewPlane(ChannelInterleaved, w, h, 10)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add plane: %v", err)
+	}
+
+	pix := make([]byte, w*h*8)
+	read_pos := 0
+	write_pos := 0
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			r := (uint16(i.Pix[read_pos]) << 8) | uint16(i.Pix[read_pos+1])
+			r = r >> 6
+			pix[write_pos] = byte(r >> 8)
+			pix[write_pos+1] = byte(r & 0xff)
+			read_pos += 2
+			g := (uint16(i.Pix[read_pos]) << 8) | uint16(i.Pix[read_pos+1])
+			g = g >> 6
+			pix[write_pos+2] = byte(g >> 8)
+			pix[write_pos+3] = byte(g & 0xff)
+			read_pos += 2
+			b := (uint16(i.Pix[read_pos]) << 8) | uint16(i.Pix[read_pos+1])
+			b = b >> 6
+			pix[write_pos+4] = byte(b >> 8)
+			pix[write_pos+5] = byte(b & 0xff)
+			read_pos += 2
+			a := (uint16(i.Pix[read_pos]) << 8) | uint16(i.Pix[read_pos+1])
+			a = a >> 6
+			pix[write_pos+6] = byte(a >> 8)
+			pix[write_pos+7] = byte(a & 0xff)
+			pix[write_pos+6] = byte(a >> 8)
+			pix[write_pos+7] = byte(a & 0xff)
+			read_pos += 2
+			write_pos += 8
+		}
+	}
+	p.setData(pix, w*8)
 
 	return out, nil
 }
 
 func imageFromGray(i *image.Gray) (*Image, error) {
+	min := i.Bounds().Min
 	max := i.Bounds().Max
-	w, h := max.X, max.Y
+	w := max.X - min.X
+	h := max.Y - min.Y
 
 	out, err := NewImage(w, h, ColorspaceYCbCr, ChromaMonochrome)
 	if err != nil {
@@ -914,8 +1225,10 @@ func imageFromGray(i *image.Gray) (*Image, error) {
 }
 
 func imageFromYCbCr(i *image.YCbCr) (*Image, error) {
+	min := i.Bounds().Min
 	max := i.Bounds().Max
-	w, h := max.X, max.Y
+	w := max.X - min.X
+	h := max.Y - min.Y
 
 	var cm Chroma
 	switch sr := i.SubsampleRatio; sr {
@@ -959,8 +1272,14 @@ func EncodeFromImage(img image.Image, compression Compression, quality int, loss
 	switch i := img.(type) {
 	default:
 		return nil, fmt.Errorf("unsupported image type: %T", i)
-	case *image.NRGBA:
-		tmp, err := imageFromNRGBA(i)
+	case *image.RGBA:
+		tmp, err := imageFromRGBA(i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create image: %v", err)
+		}
+		out = tmp
+	case *image.RGBA64:
+		tmp, err := imageFromRGBA64(i)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create image: %v", err)
 		}

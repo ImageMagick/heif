@@ -1,6 +1,6 @@
 # libheif
 
-[![Build Status](https://travis-ci.org/strukturag/libheif.svg?branch=master)](https://travis-ci.org/strukturag/libheif) [![Build Status](https://ci.appveyor.com/api/projects/status/github/strukturag/libheif?svg=true)](https://ci.appveyor.com/project/strukturag/libheif) [![Coverity Scan Build Status](https://scan.coverity.com/projects/16641/badge.svg)](https://scan.coverity.com/projects/strukturag-libheif)
+[![Build Status](https://github.com/strukturag/libheif/workflows/build/badge.svg)](https://github.com/strukturag/libheif/actions) [![Build Status](https://ci.appveyor.com/api/projects/status/github/strukturag/libheif?svg=true)](https://ci.appveyor.com/project/strukturag/libheif) [![Coverity Scan Build Status](https://scan.coverity.com/projects/16641/badge.svg)](https://scan.coverity.com/projects/strukturag-libheif)
 
 
 libheif is an ISO/IEC 23008-12:2017 HEIF and AVIF (AV1 Image File Format) file format decoder and encoder.
@@ -17,7 +17,7 @@ Alternative codecs for, e.g., AVC and JPEG can be provided as plugins.
 
 libheif has support for decoding
 * tiled images
-* alpha channels (currently HEIF only)
+* alpha channels
 * thumbnails
 * reading EXIF and XMP metadata
 * reading the depth channel
@@ -32,13 +32,13 @@ libheif has support for decoding
 The encoder supports:
 * lossy compression with adjustable quality
 * lossless compression
-* alpha channels (currently HEIF only)
+* alpha channels
 * thumbnails
 * save multiple images to a file
 * save EXIF and XMP metadata
 * writing color profiles
-* 10 and 12 bit images (currently HEIF only)
-* monochrome images (currently HEIF only)
+* 10 and 12 bit images
+* monochrome images
 
 ## API
 
@@ -81,7 +81,7 @@ heif_encoder_set_lossy_quality(encoder, 50);
 
 // encode the image
 heif_image* image; // code to fill in the image omitted in this example
-heif_context_encode_image(ctx, nullptr, image, encoder);
+heif_context_encode_image(ctx, image, encoder, nullptr, nullptr);
 
 heif_encoder_release(encoder);
 
@@ -127,6 +127,19 @@ For AVIF support, make sure that libaom is installed.
     make
     ```
 
+### Adding rav1e encoder for AVIF
+
+* Install `cargo`.
+* Install `cbindgen` by executing
+```
+cargo install --force cbindgen
+```
+* Make sure that the `cbindgen` executable is found. You probably have to add `~/.cargo/bin` to your `$PATH`.
+* Run the `rav1e.cmd` script in directory `third-party` to download rav1e and compile it.
+
+When using cmake, you have to enable compiling in the local rav1e encoder with `USE_LOCAL_RAV1E'.
+With autoconf, use the configure option `--enable-local-rav1e'.
+
 
 ## Compiling to JavaScript
 
@@ -168,8 +181,15 @@ There is also a GIMP plugin using libheif [here](https://github.com/strukturag/h
 
 The program `heif-thumbnailer` can be used as an HEIF/AVIF thumbnailer for the Gnome desktop.
 The matching Gnome configuration files are in the `gnome` directory.
-Place the file `heif.xml` into `/usr/share/mime/packages` and `heif.thumbnailer` into `/usr/share/thumbnailers`.
+Place the files `heif.xml` and 'avif.xml' into `/usr/share/mime/packages` and `heif.thumbnailer` into `/usr/share/thumbnailers`.
 You may have to run `update-mime-database /usr/share/mime` to update the list of known MIME types.
+
+
+## gdk-pixbuf loader
+
+libheif also includes a gdk-pixbuf loader for HEIF/AVIF images. 'make install' will copy the plugin
+into the system directories. However, you will still have to run `gdk-pixbuf-query-loaders --update-cache`
+to update the gdk-pixbuf loader database.
 
 
 ## License

@@ -1,6 +1,8 @@
 cmake_minimum_required (VERSION 3.3.2)
 
-project(libheif LANGUAGES C CXX VERSION 1.7.0.0)
+project(libheif LANGUAGES C CXX VERSION 1.8.0.0)
+
+option(USE_LOCAL_RAV1E "Include rav1e support from local rav1e source" FALSE)
 
 # https://cmake.org/cmake/help/v3.1/policy/CMP0054.html
 cmake_policy(SET CMP0054 NEW)
@@ -51,12 +53,35 @@ if (has_potentially_evaluated_expression)
   add_definitions(-Wno-error=potentially-evaluated-expression)
 endif()
 
-if (UNIX)
-  find_package(PkgConfig)
-  pkg_check_modules(LIBDE265 libde265)
-  pkg_check_modules(X265 x265)
-  pkg_check_modules(AOM aom)
-endif()
+LIST (APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
+find_package(Libde265 REQUIRED)
+find_package(X265)
+find_package(LibAOM)
+
+if (LIBDE265_FOUND)
+    message("HEIF decoder, libde265: found")
+else ()
+    message("HEIF decoder, libde265: not found")
+endif ()
+
+if (X265_FOUND)
+    message("HEIF encoder, x265: found")
+else ()
+    message("HEIF encoder, x265: not found")
+endif ()
+
+if (AOM_FOUND)
+    message("AVIF decoder/encoder, aom: found")
+else ()
+    message("AVIF decoder/encoder, aom: not found")
+endif ()
+
+if (USE_LOCAL_RAV1E)
+    message("AVIF encoder, use local rav1e: yes")
+else ()
+    message("AVIF encoder, use local rav1e: no")
+endif ()
+
 
 # Create libheif pkgconfig file
 set(prefix ${CMAKE_INSTALL_PREFIX})
@@ -80,6 +105,10 @@ configure_file(libheif.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libheif.pc @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libheif.pc
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
-add_subdirectory (examples)
+option(WITH_EXAMPLES "Build examples" ON)
+
+if(WITH_EXAMPLES)
+    add_subdirectory (examples)
+endif()
 add_subdirectory (libheif)
 add_subdirectory (gdk-pixbuf)

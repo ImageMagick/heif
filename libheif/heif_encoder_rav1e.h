@@ -18,25 +18,10 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef HEIF_AVIF_H
-#define HEIF_AVIF_H
-
-#include <assert.h>
-#include <math.h>
-
-#include <memory>
-
-#include "heif.h"
-#include "box.h"
-#include "error.h"
+#ifndef LIBHEIF_HEIF_ENCODER_RAV1E_H
+#define LIBHEIF_HEIF_ENCODER_RAV1E_H
 
 
-namespace heif {
-
-  class HeifPixelImage;
-
-  Error fill_av1C_configuration(Box_av1C::configuration* inout_config, std::shared_ptr<HeifPixelImage>);
-
-}
+const struct heif_encoder_plugin* get_encoder_plugin_rav1e();
 
 #endif

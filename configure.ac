@@ -1,11 +1,11 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.7.0], [opensource@struktur.de])
+AC_INIT([libheif], [1.8.0], [opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
 # Note: do not forget to set the version in the CMakeLists.txt file accordingly
 PROJECT_VERSION_MAJOR=1
-PROJECT_VERSION_MINOR=7
+PROJECT_VERSION_MINOR=8
 PROJECT_VERSION_PATCH=0
 PROJECT_VERSION_TWEAK=0
 AC_SUBST(PROJECT_VERSION_MAJOR)
@@ -19,9 +19,9 @@ AC_SUBST(PROJECT_VERSION_TWEAK)
 # If any interfaces have been added since the last public release, then increment age.
 # If any interfaces have been removed or changed since the last public release, then set age to 0.
 
-LIBHEIF_CURRENT=8
+LIBHEIF_CURRENT=9
 LIBHEIF_REVISION=0
-LIBHEIF_AGE=7
+LIBHEIF_AGE=8
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
 AC_SUBST(LIBHEIF_AGE)
@@ -189,6 +189,16 @@ if eval "test x$have_gdkpixbuf2 = xyes"; then
     AC_SUBST([gdk_pixbuf_cache_file])
 fi
 
+AC_ARG_ENABLE([local_rav1e], AS_HELP_STRING([--enable-local-rav1e],
+    [Enable compiling with local rav1e encoder.]), [], [enable_local_rav1e=no])
+if eval "test x$enable_local_rav1e != xno"; then
+    AC_MSG_NOTICE([Enable compiling with local rav1e])
+    AC_DEFINE([HAVE_RAV1E], [1], [Whether rav1e plugin has been enabled.])
+fi
+AM_CONDITIONAL([ENABLE_LOCAL_RAV1E], [test "x$enable_local_rav1e" != "xno"])
+AC_SUBST(ENABLE_LOCAL_RAV1E)
+
+
 AC_ARG_ENABLE([libfuzzer], AS_HELP_STRING([--enable-libfuzzer],
     [Enable fuzzing with libFuzzer.]), [], [enable_libfuzzer=no])
 if eval "test x$enable_libfuzzer != xno"; then
@@ -226,6 +236,7 @@ AC_MSG_NOTICE([Multithreading: $enable_multithreading])
 AC_MSG_NOTICE([Symbol visibility: $enable_visibility])
 AC_MSG_NOTICE([libaom decoder: $have_aom])
 AC_MSG_NOTICE([libaom encoder: $have_aom])
+AC_MSG_NOTICE([rav1e encoder: $enable_local_rav1e])
 AC_MSG_NOTICE([libde265 decoder: $have_libde265])
 AC_MSG_NOTICE([libx265 encoder: $have_x265])
 AC_MSG_NOTICE([JPEG output: $have_libjpeg])
