@@ -9,8 +9,7 @@ HEIF and AVIF are new image file formats employing HEVC (h.265) or AV1 image cod
 best compression ratios currently possible.
 
 libheif makes use of [libde265](https://github.com/strukturag/libde265) for HEIF image decoding and x265 for encoding.
-For AVIF, libaom is used as encoder and decoder.
-Alternative codecs for, e.g., AVC and JPEG can be provided as plugins.
+For AVIF, libaom, dav1d, or rav1e are used as codecs.
 
 
 ## Supported features
@@ -127,6 +126,11 @@ For AVIF support, make sure that libaom is installed.
     make
     ```
 
+### Windows
+
+Libheif is included in [Vcpkg](https://github.com/Microsoft/vcpkg/).
+
+
 ### Adding rav1e encoder for AVIF
 
 * Install `cargo`.
@@ -137,8 +141,28 @@ cargo install --force cbindgen
 * Make sure that the `cbindgen` executable is found. You probably have to add `~/.cargo/bin` to your `$PATH`.
 * Run the `rav1e.cmd` script in directory `third-party` to download rav1e and compile it.
 
-When using cmake, you have to enable compiling in the local rav1e encoder with `USE_LOCAL_RAV1E'.
+When using cmake, you have to enable compiling the local rav1e encoder with `USE_LOCAL_RAV1E'.
 With autoconf, use the configure option `--enable-local-rav1e'.
+
+
+### Adding dav1d decoder for AVIF
+
+* Install `meson`.
+* Run the `dav1d.cmd` script in directory `third-party` to download dav1d and compile it.
+
+When using cmake, you have to enable compiling the local dav1d encoder with `USE_LOCAL_DAV1D'.
+With autoconf, use the configure option `--enable-local-dav1d'.
+
+
+## Language bindings
+
+* C++: part of libheif
+* Go: part of libheif
+* JavaScript: by compilation with emscripten (see below)
+* Python: [pyheif](https://pypi.org/project/pyheif/)
+* Rust: [libheif-sys](https://github.com/Cykooz/libheif-sys)
+
+Languages that can directly interface with C libraries (e.g., Swift, C#) should work out of the box.
 
 
 ## Compiling to JavaScript
@@ -190,6 +214,16 @@ You may have to run `update-mime-database /usr/share/mime` to update the list of
 libheif also includes a gdk-pixbuf loader for HEIF/AVIF images. 'make install' will copy the plugin
 into the system directories. However, you will still have to run `gdk-pixbuf-query-loaders --update-cache`
 to update the gdk-pixbuf loader database.
+
+
+## Software using libheif
+
+* GIMP
+* Krita
+* ImageMagick
+* digiKam 7.0.0
+* libvips
+* [Kodi HEIF image decoder plugin](https://kodi.wiki/view/Add-on:HEIF_image_decoder)
 
 
 ## License

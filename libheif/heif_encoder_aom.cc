@@ -27,12 +27,9 @@
 #include "config.h"
 #endif
 
-#include <math.h>
-#include <memory>
-#include <string>
-#include <string.h>
-#include <stdio.h>
-#include <assert.h>
+#include <cstring>
+#include <cstdio>
+#include <cassert>
 #include <vector>
 
 #include <aom/aom_encoder.h>
@@ -54,6 +51,8 @@ struct encoder_struct_aom
   int max_q;
   int threads;
 
+  aom_tune_metric tune;
+
   heif_chroma chroma = heif_chroma_420;
 
   // --- output
@@ -62,6 +61,7 @@ struct encoder_struct_aom
   bool data_read = false;
 };
 
+static const char* kError_out_of_memory = "Out of memory";
 
 static const char* kParam_min_q = "min-q";
 static const char* kParam_max_q = "max-q";
@@ -71,7 +71,12 @@ static const char* kParam_speed = "speed";
 
 static const char* kParam_chroma = "chroma";
 static const char* const kParam_chroma_valid_values[] = {
-    "420", "422", "444"
+    "420", "422", "444", nullptr
+};
+
+static const char* kParam_tune = "tune";
+static const char* const kParam_tune_valid_values[] = {
+    "psnr", "ssim"
 };
 
 static const int AOM_PLUGIN_PRIORITY = 40;
@@ -170,6 +175,15 @@ static void aom_init_parameters()
   p->string.default_value = "420";
   p->has_default = true;
   p->string.valid_values = kParam_chroma_valid_values;
+  d[i++] = p++;
+
+  assert(i < MAX_NPARAMETERS);
+  p->version = 2;
+  p->name = kParam_tune;
+  p->type = heif_encoder_parameter_type_string;
+  p->string.default_value = "ssim";
+  p->has_default = true;
+  p->string.valid_values = kParam_tune_valid_values;
   d[i++] = p++;
 
   assert(i < MAX_NPARAMETERS);
@@ -402,6 +416,20 @@ struct heif_error aom_set_parameter_string(void* encoder_raw, const char* name, 
     }
   }
 
+  if (strcmp(name, kParam_tune) == 0) {
+    if (strcmp(value, "psnr") == 0) {
+      encoder->tune = AOM_TUNE_PSNR;
+      return heif_error_ok;
+    }
+    else if (strcmp(value, "ssim") == 0) {
+      encoder->tune = AOM_TUNE_SSIM;
+      return heif_error_ok;
+    }
+    else {
+      return heif_error_invalid_parameter_value;
+    }
+  }
+
   return heif_error_unsupported_parameter;
 }
 
@@ -418,19 +446,34 @@ struct heif_error aom_get_parameter_string(void* encoder_raw, const char* name,
 {
   struct encoder_struct_aom* encoder = (struct encoder_struct_aom*) encoder_raw;
 
-  switch (encoder->chroma) {
-    case heif_chroma_420:
-      save_strcpy(value, value_size, "420");
-      break;
-    case heif_chroma_422:
-      save_strcpy(value, value_size, "422");
-      break;
-    case heif_chroma_444:
-      save_strcpy(value, value_size, "444");
-      break;
-    default:
-      assert(false);
-      return heif_error_invalid_parameter_value;
+  if (strcmp(name, kParam_chroma) == 0) {
+    switch (encoder->chroma) {
+      case heif_chroma_420:
+        save_strcpy(value, value_size, "420");
+        break;
+      case heif_chroma_422:
+        save_strcpy(value, value_size, "422");
+        break;
+      case heif_chroma_444:
+        save_strcpy(value, value_size, "444");
+        break;
+      default:
+        assert(false);
+        return heif_error_invalid_parameter_value;
+    }
+  }
+  else if (strcmp(name, kParam_tune) == 0) {
+    switch (encoder->tune) {
+      case AOM_TUNE_PSNR:
+        save_strcpy(value, value_size, "psnr");
+        break;
+      case AOM_TUNE_SSIM:
+        save_strcpy(value, value_size, "ssim");
+        break;
+      default:
+        assert(false);
+        return heif_error_invalid_parameter_value;
+    }
   }
 
   return heif_error_unsupported_parameter;
@@ -475,6 +518,14 @@ void aom_query_input_colorspace2(void* encoder_raw, heif_colorspace* colorspace,
 }
 
 
+void aom_query_encoded_size(void* encoder, uint32_t input_width, uint32_t input_height,
+                            uint32_t* encoded_width, uint32_t* encoded_height)
+{
+  *encoded_width = std::max(input_width, 16U);
+  *encoded_height = std::max(input_height, 16U);
+}
+
+
 // TODO: encode as still frame (seq header)
 static int encode_frame(aom_codec_ctx_t* codec, aom_image_t* img)
 {
@@ -499,6 +550,26 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 {
   struct encoder_struct_aom* encoder = (struct encoder_struct_aom*) encoder_raw;
 
+  // --- round image size to minimum size
+
+  uint32_t rounded_width, rounded_height;
+  aom_query_encoded_size(encoder,
+                         image->image->get_width(),
+                         image->image->get_height(),
+                         &rounded_width,
+                         &rounded_height);
+
+  bool success = image->image->extend_to_size(rounded_width, rounded_height);
+  if (!success) {
+    struct heif_error err = {
+        heif_error_Memory_allocation_error,
+        heif_suberror_Unspecified,
+        kError_out_of_memory
+    };
+    return err;
+  }
+
+
   const int source_width = heif_image_get_width(image, heif_channel_Y);
   const int source_height = heif_image_get_height(image, heif_channel_Y);
 
@@ -510,7 +581,7 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 
   aom_image_t input_image;
 
-  aom_img_fmt_t img_format;
+  aom_img_fmt_t img_format = AOM_IMG_FMT_NONE;
 
   switch (chroma) {
     case heif_chroma_420:
@@ -524,6 +595,7 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
       img_format = AOM_IMG_FMT_I444;
       break;
     default:
+      img_format = AOM_IMG_FMT_NONE;
       assert(false);
       break;
   }
@@ -545,13 +617,13 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
     const int stride = input_image.stride[plane];
 
     if (chroma == heif_chroma_monochrome && plane != 0) {
-      if (bpp_y==8) {
+      if (bpp_y == 8) {
         memset(buf, 128, source_height * stride);
       }
       else {
-        uint16_t* buf16 = (uint16_t*)buf;
-        uint16_t half_range = (uint16_t)(1<<(bpp_y-1));
-        for (int i=0;i<source_height * stride/2;i++) {
+        uint16_t* buf16 = (uint16_t*) buf;
+        uint16_t half_range = (uint16_t) (1 << (bpp_y - 1));
+        for (int i = 0; i < source_height * stride / 2; i++) {
           buf16[i] = half_range;
         }
       }
@@ -575,8 +647,8 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
       if (chroma != heif_chroma_444) { w = (w + 1) / 2; }
       if (chroma == heif_chroma_420) { h = (h + 1) / 2; }
 
-      assert(w == heif_image_get_width(image, (heif_channel)plane));
-      assert(h == heif_image_get_height(image, (heif_channel)plane));
+      assert(w == heif_image_get_width(image, (heif_channel) plane));
+      assert(h == heif_image_get_height(image, (heif_channel) plane));
     }
 
     if (bpp_y > 8) {
@@ -666,6 +738,23 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 #endif
   }
 
+
+  auto nclx = image->image->get_color_profile_nclx();
+
+  // In aom, color_range defaults to limited range (0). Set it to full range (1).
+  aom_codec_control(&codec, AV1E_SET_COLOR_RANGE, nclx ? nclx->get_full_range_flag() : 1);
+
+  if (nclx &&
+      (input_class == heif_image_input_class_normal ||
+       input_class == heif_image_input_class_thumbnail)) {
+    aom_codec_control(&codec, AV1E_SET_COLOR_PRIMARIES, nclx->get_colour_primaries());
+    aom_codec_control(&codec, AV1E_SET_MATRIX_COEFFICIENTS, nclx->get_matrix_coefficients());
+    aom_codec_control(&codec, AV1E_SET_TRANSFER_CHARACTERISTICS, nclx->get_transfer_characteristics());
+  }
+
+  aom_codec_control(&codec, AOME_SET_TUNING, encoder->tune);
+
+
   // --- encode frame
 
   encode_frame(&codec, &input_image); //, frame_count++, flags, writer);
@@ -739,7 +828,7 @@ struct heif_error aom_get_compressed_data(void* encoder_raw, uint8_t** data, int
 
 static const struct heif_encoder_plugin encoder_plugin_aom
     {
-        /* plugin_api_version */ 2,
+        /* plugin_api_version */ 3,
         /* compression_format */ heif_compression_AV1,
         /* id_name */ "aom",
         /* priority */ AOM_PLUGIN_PRIORITY,
@@ -766,7 +855,8 @@ static const struct heif_encoder_plugin encoder_plugin_aom
         /* query_input_colorspace */ aom_query_input_colorspace,
         /* encode_image */ aom_encode_image,
         /* get_compressed_data */ aom_get_compressed_data,
-        /* query_input_colorspace (v2) */ aom_query_input_colorspace2
+        /* query_input_colorspace (v2) */ aom_query_input_colorspace2,
+        /* query_encoded_size (v3) */ aom_query_encoded_size
     };
 
 const struct heif_encoder_plugin* get_encoder_plugin_aom()

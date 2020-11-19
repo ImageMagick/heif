@@ -28,24 +28,13 @@
 #include <math.h>
 #include <png.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "encoder_png.h"
 
 PngEncoder::PngEncoder()
 {}
 
-inline uint8_t clip(float value)
-{
-  if (value < 0) {
-    return 0x00;
-  }
-  else if (value >= 255) {
-    return 0xff;
-  }
-  else {
-    return static_cast<uint8_t>(round(value));
-  }
-}
 
 bool PngEncoder::Encode(const struct heif_image_handle* handle,
                         const struct heif_image* image, const std::string& filename)

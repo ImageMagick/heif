@@ -64,29 +64,39 @@ extern "C" {
 
 int master_alpha = 1;
 int thumb_alpha = 1;
+int list_encoders = 0;
+const char* encoderId = nullptr;
 
 int nclx_matrix_coefficients = 6;
 int nclx_colour_primaries = 2;
 int nclx_transfer_characteristic = 2;
 int nclx_full_range = true;
 
+const int OPTION_NCLX_MATRIX_COEFFICIENTS = 1000;
+const int OPTION_NCLX_COLOUR_PRIMARIES = 1001;
+const int OPTION_NCLX_TRANSFER_CHARACTERISTIC = 1002;
+const int OPTION_NCLX_FULL_RANGE_FLAG = 1003;
+
 static struct option long_options[] = {
-    {"help",                    no_argument,       0,                             'h'},
-    {"quality",                 required_argument, 0,                             'q'},
-    {"output",                  required_argument, 0,                             'o'},
-    {"lossless",                no_argument,       0,                             'L'},
-    {"thumb",                   required_argument, 0,                             't'},
-    {"verbose",                 no_argument,       0,                             'v'},
-    {"params",                  no_argument,       0,                             'P'},
-    {"no-alpha",                no_argument,       &master_alpha,                 0},
-    {"no-thumb-alpha",          no_argument,       &thumb_alpha,                  0},
-    {"bit-depth",               required_argument, 0,                             'b'},
-    {"avif",                    no_argument,       0,                             'A'},
-    {"matrix_coefficients",     required_argument, &nclx_matrix_coefficients,     0},
-    {"colour_primaries",        required_argument, &nclx_colour_primaries,        0},
-    {"transfer_characteristic", required_argument, &nclx_transfer_characteristic, 0},
-    {"full_range_flag",         required_argument, &nclx_full_range,              0},
-    {0, 0,                                         0,                             0}
+    {(char* const) "help",                    no_argument,       0,              'h'},
+    {(char* const) "quality",                 required_argument, 0,              'q'},
+    {(char* const) "output",                  required_argument, 0,              'o'},
+    {(char* const) "lossless",                no_argument,       0,              'L'},
+    {(char* const) "thumb",                   required_argument, 0,              't'},
+    {(char* const) "verbose",                 no_argument,       0,              'v'},
+    {(char* const) "params",                  no_argument,       0,              'P'},
+    {(char* const) "no-alpha",                no_argument,       &master_alpha,  0},
+    {(char* const) "no-thumb-alpha",          no_argument,       &thumb_alpha,   0},
+    {(char* const) "list-encoders",           no_argument,       &list_encoders, 1},
+    {(char* const) "encoders",                no_argument,       0,              'e'},
+    {(char* const) "bit-depth",               required_argument, 0,              'b'},
+    {(char* const) "even-size",               no_argument,       0,              'E'},
+    {(char* const) "avif",                    no_argument,       0,              'A'},
+    {(char* const) "matrix_coefficients",     required_argument, 0,              OPTION_NCLX_MATRIX_COEFFICIENTS},
+    {(char* const) "colour_primaries",        required_argument, 0,              OPTION_NCLX_COLOUR_PRIMARIES},
+    {(char* const) "transfer_characteristic", required_argument, 0,              OPTION_NCLX_TRANSFER_CHARACTERISTIC},
+    {(char* const) "full_range_flag",         required_argument, 0,              OPTION_NCLX_FULL_RANGE_FLAG},
+    {0, 0,                                                       0,              0}
 };
 
 void show_help(const char* argv0)
@@ -103,22 +113,31 @@ void show_help(const char* argv0)
             << "Note that there is no checking for valid parameters when using the prefix.\n"
             << "\n"
             << "Options:\n"
-            << "  -h, --help      show help\n"
-            << "  -q, --quality   set output quality (0-100) for lossy compression\n"
-            << "  -L, --lossless  generate lossless output (-q has no effect)\n"
-            << "  -t, --thumb #   generate thumbnail with maximum size # (default: off)\n"
-            << "      --no-alpha  do not save alpha channel\n"
+            << "  -h, --help       show help\n"
+            << "  -q, --quality    set output quality (0-100) for lossy compression\n"
+            << "  -L, --lossless   generate lossless output (-q has no effect)\n"
+            << "  -t, --thumb #    generate thumbnail with maximum size # (default: off)\n"
+            << "      --no-alpha   do not save alpha channel\n"
             << "      --no-thumb-alpha  do not save alpha channel in thumbnail image\n"
-            << "  -o, --output    output filename (optional)\n"
-            << "  -v, --verbose   enable logging output (more -v will increase logging level)\n"
-            << "  -P, --params    show all encoder parameters\n"
-            << "  -b #            bit-depth of generated HEIF/AVIF file when using 16-bit PNG input (default: 10 bit)\n"
-            << "  -p              set encoder parameter (NAME=VALUE)\n"
-            << "  -A, --avif      encode as AVIF\n"
+            << "  -o, --output     output filename (optional)\n"
+            << "  -v, --verbose    enable logging output (more -v will increase logging level)\n"
+            << "  -P, --params     show all encoder parameters\n"
+            << "  -b #             bit-depth of generated HEIF/AVIF file when using 16-bit PNG input (default: 10 bit)\n"
+            << "  -p               set encoder parameter (NAME=VALUE)\n"
+            << "  -A, --avif       encode as AVIF\n"
+            << "  --list-encoders  list all available encoders for the selected output format\n"
+            << "  -e, --encoder ID select encoder to use (the IDs can be listed with --list-encoders)\n"
+            << "  -E, --even-size crop images to even width and height (odd sizes are not decoded correctly by some software)\n"
             << "  --matrix_coefficients     nclx profile: color conversion matrix coefficients, default=6 (see h.273)\n"
             << "  --colour_primaries        nclx profile: color primaries (see h.273)\n"
             << "  --transfer_characteristic nclx profile: transfer characteristics (see h.273)\n"
-            << "  --full_range_flag         nclx profile: full range flag, default: 1\n";
+            << "  --full_range_flag         nclx profile: full range flag, default: 1\n"
+            << "\n"
+            << "Note: to get lossless encoding, you need this set of options:\n"
+            << "  -L                       switch encoder to lossless mode\n"
+            << "  -p chroma=444            switch off color subsampling\n"
+            << "  --matrix_coefficients=0  encode in RGB color-space\n";
+
 }
 
 
@@ -896,6 +915,19 @@ void set_params(struct heif_encoder* encoder, std::vector<std::string> params)
 }
 
 
+static void show_list_of_encoders(const heif_encoder_descriptor*const* encoder_descriptors,
+                                  int count)
+{
+  std::cout << "Encoders (first is default):\n";
+  for (int i = 0; i < count; i++) {
+    std::cout << "- " << heif_encoder_descriptor_get_id_name(encoder_descriptors[i])
+              << " = "
+              << heif_encoder_descriptor_get_name(encoder_descriptors[i])
+              << "\n";
+  }
+}
+
+
 int main(int argc, char** argv)
 {
   int quality = 50;
@@ -906,13 +938,14 @@ int main(int argc, char** argv)
   int thumbnail_bbox_size = 0;
   int output_bit_depth = 10;
   bool enc_av1f = false;
+  bool crop_to_even_size = false;
 
   std::vector<std::string> raw_params;
 
 
   while (true) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:b:A", long_options, &option_index);
+    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:b:AEe:", long_options, &option_index);
     if (c == -1)
       break;
 
@@ -946,6 +979,24 @@ int main(int argc, char** argv)
         break;
       case 'A':
         enc_av1f = true;
+        break;
+      case 'E':
+        crop_to_even_size = true;
+        break;
+      case 'e':
+        encoderId = optarg;
+        break;
+      case OPTION_NCLX_MATRIX_COEFFICIENTS:
+        nclx_matrix_coefficients = atoi(optarg);
+        break;
+      case OPTION_NCLX_COLOUR_PRIMARIES:
+        nclx_colour_primaries = atoi(optarg);
+        break;
+      case OPTION_NCLX_TRANSFER_CHARACTERISTIC:
+        nclx_transfer_characteristic = atoi(optarg);
+        break;
+      case OPTION_NCLX_FULL_RANGE_FLAG:
+        nclx_full_range = atoi(optarg);
         break;
     }
   }
@@ -984,16 +1035,28 @@ int main(int argc, char** argv)
                                                    nullptr,
                                                    encoder_descriptors, MAX_ENCODERS);
 
+  if (list_encoders) {
+    show_list_of_encoders(encoder_descriptors, count);
+  }
+
   if (count > 0) {
-    if (logging_level > 0) {
-      std::cerr << "Encoder: "
-                << heif_encoder_descriptor_get_id_name(encoder_descriptors[0])
-                << " = "
-                << heif_encoder_descriptor_get_name(encoder_descriptors[0])
-                << "\n";
+    int idx = 0;
+    if (encoderId != nullptr) {
+      for (int i = 0; i <= count; i++) {
+        if (i==count) {
+          std::cerr << "Unknown encoder ID. Choose one from the list below.\n";
+          show_list_of_encoders(encoder_descriptors, count);
+          return 5;
+        }
+
+        if (strcmp(encoderId, heif_encoder_descriptor_get_id_name(encoder_descriptors[i])) == 0) {
+          idx = i;
+          break;
+        }
+      }
     }
 
-    heif_error error = heif_context_get_encoder(context.get(), encoder_descriptors[0], &encoder);
+    heif_error error = heif_context_get_encoder(context.get(), encoder_descriptors[idx], &encoder);
     if (error.code) {
       std::cerr << error.message << "\n";
       return 5;
@@ -1077,14 +1140,6 @@ int main(int argc, char** argv)
 
     heif_image_set_nclx_color_profile(image.get(), &nclx);
 
-    if (heif_image_get_colorspace(image.get()) == heif_colorspace_RGB &&
-        lossless) {
-      std::cerr << "Warning: input image is in RGB colorspace, but encoding is currently\n"
-                << "  always done in YCbCr colorspace. Hence, even though you specified lossless\n"
-                << "  compression, there will be differences because of the color conversion.\n";
-    }
-
-
     heif_encoder_set_lossy_quality(encoder, quality);
     heif_encoder_set_lossless(encoder, lossless);
     heif_encoder_set_logging_level(encoder, logging_level);
@@ -1093,6 +1148,33 @@ int main(int argc, char** argv)
 
     struct heif_encoding_options* options = heif_encoding_options_alloc();
     options->save_alpha_channel = (uint8_t) master_alpha;
+
+    if (crop_to_even_size) {
+      if (heif_image_get_primary_width(image.get()) == 1 ||
+          heif_image_get_primary_height(image.get()) == 1) {
+        std::cerr << "Image only has a size of 1 pixel width or height. Cannot crop to even size.\n";
+        return 1;
+      }
+
+      int right = heif_image_get_primary_width(image.get()) % 2;
+      int bottom = heif_image_get_primary_height(image.get()) % 2;
+
+      error = heif_image_crop(image.get(), 0, right, 0, bottom);
+      if (error.code != 0) {
+        heif_encoding_options_free(options);
+        std::cerr << "Could not crop image: " << error.message << "\n";
+        return 1;
+      }
+    }
+
+    if (!enc_av1f &&
+        ((heif_image_get_primary_width(image.get())) % 2 ||
+         (heif_image_get_primary_height(image.get())) % 2)) {
+      std::cerr << "Warning: HEIF images with odd width or height cannot be displayed by\n"
+                   "many programs on macOS (tested up to Catalina 10.15.6). Until macOS is\n"
+                   "fixed or we have a workaround, it is advised to use option -E to make the\n"
+                   "image size an even number.\n";
+    }
 
     struct heif_image_handle* handle;
     error = heif_context_encode_image(context.get(),

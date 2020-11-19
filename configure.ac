@@ -1,12 +1,12 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.8.0], [opensource@struktur.de])
+AC_INIT([libheif], [1.9.1], [opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
 # Note: do not forget to set the version in the CMakeLists.txt file accordingly
 PROJECT_VERSION_MAJOR=1
-PROJECT_VERSION_MINOR=8
-PROJECT_VERSION_PATCH=0
+PROJECT_VERSION_MINOR=9
+PROJECT_VERSION_PATCH=1
 PROJECT_VERSION_TWEAK=0
 AC_SUBST(PROJECT_VERSION_MAJOR)
 AC_SUBST(PROJECT_VERSION_MINOR)
@@ -19,9 +19,9 @@ AC_SUBST(PROJECT_VERSION_TWEAK)
 # If any interfaces have been added since the last public release, then increment age.
 # If any interfaces have been removed or changed since the last public release, then set age to 0.
 
-LIBHEIF_CURRENT=9
-LIBHEIF_REVISION=0
-LIBHEIF_AGE=8
+LIBHEIF_CURRENT=10
+LIBHEIF_REVISION=1
+LIBHEIF_AGE=9
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
 AC_SUBST(LIBHEIF_AGE)
@@ -95,7 +95,13 @@ PKG_CHECK_MODULES([aom], [aom], [
     AC_SUBST(aom_CFLAGS)
     AC_SUBST(aom_LIBS)
     have_aom="yes"
-], [have_aom="no"])
+    have_avif_decoder="yes"
+    have_avif_encoder="yes"
+], [
+    have_aom="no"
+    have_avif_decoder="no"
+    have_avif_encoder="no"
+])
 AM_CONDITIONAL([HAVE_AOM], [test "x$have_aom" = "xyes"])
 AC_SUBST([have_aom])
 
@@ -194,10 +200,23 @@ AC_ARG_ENABLE([local_rav1e], AS_HELP_STRING([--enable-local-rav1e],
 if eval "test x$enable_local_rav1e != xno"; then
     AC_MSG_NOTICE([Enable compiling with local rav1e])
     AC_DEFINE([HAVE_RAV1E], [1], [Whether rav1e plugin has been enabled.])
+    have_avif_encoder="yes"
 fi
 AM_CONDITIONAL([ENABLE_LOCAL_RAV1E], [test "x$enable_local_rav1e" != "xno"])
 AC_SUBST(ENABLE_LOCAL_RAV1E)
 
+AC_ARG_ENABLE([local_dav1d], AS_HELP_STRING([--enable-local-dav1d],
+    [Enable compiling with local dav1d decoder.]), [], [enable_local_dav1d=no])
+if eval "test x$enable_local_dav1d != xno"; then
+    AC_MSG_NOTICE([Enable compiling with local dav1d])
+    AC_DEFINE([HAVE_DAV1D], [1], [Whether dav1d plugin has been enabled.])
+    have_avif_encoder="yes"
+fi
+AM_CONDITIONAL([ENABLE_LOCAL_DAV1D], [test "x$enable_local_dav1d" != "xno"])
+AC_SUBST(ENABLE_LOCAL_DAV1D)
+
+AC_SUBST(have_avif_decoder)
+AC_SUBST(have_avif_encoder)
 
 AC_ARG_ENABLE([libfuzzer], AS_HELP_STRING([--enable-libfuzzer],
     [Enable fuzzing with libFuzzer.]), [], [enable_libfuzzer=no])
@@ -237,6 +256,7 @@ AC_MSG_NOTICE([Symbol visibility: $enable_visibility])
 AC_MSG_NOTICE([libaom decoder: $have_aom])
 AC_MSG_NOTICE([libaom encoder: $have_aom])
 AC_MSG_NOTICE([rav1e encoder: $enable_local_rav1e])
+AC_MSG_NOTICE([dav1d decoder: $enable_local_dav1d])
 AC_MSG_NOTICE([libde265 decoder: $have_libde265])
 AC_MSG_NOTICE([libx265 encoder: $have_x265])
 AC_MSG_NOTICE([JPEG output: $have_libjpeg])

@@ -29,7 +29,6 @@
 #include "heif_plugin_registry.h"
 #include "error.h"
 #include "bitstream.h"
-#include "nclx.h"
 
 #if defined(__EMSCRIPTEN__)
 #include "heif_emscripten.h"
@@ -42,14 +41,13 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <string.h>
-#if defined(HAVE_UNISTD_H)
-#include <unistd.h>
-#endif
+#include <cstring>
 
-#if defined(_MSC_VER)
+#if (defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)) && !defined(HAVE_UNISTD_H)
 // for _write
 #include <io.h>
+#else
+#include <unistd.h>
 #endif
 
 using namespace heif;
@@ -324,7 +322,7 @@ void heif_context_debug_dump_boxes_to_file(struct heif_context* ctx, int fd)
 
   std::string dump = ctx->context->debug_dump_boxes();
   // TODO(fancycode): Should we return an error if writing fails?
-#if defined(_MSC_VER)
+#if (defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)) && !defined(HAVE_UNISTD_H)
   auto written = _write(fd, dump.c_str(), dump.size());
 #else
   auto written = write(fd, dump.c_str(), dump.size());
@@ -746,9 +744,61 @@ int heif_image_get_width(const struct heif_image* img, enum heif_channel channel
   return img->image->get_width(channel);
 }
 
+
 int heif_image_get_height(const struct heif_image* img, enum heif_channel channel)
 {
   return img->image->get_height(channel);
+}
+
+
+int heif_image_get_primary_width(const struct heif_image* img)
+{
+  if (img->image->get_colorspace() == heif_colorspace_RGB) {
+    if (img->image->get_chroma_format() == heif_chroma_444) {
+      return img->image->get_width(heif_channel_G);
+    }
+    else {
+      return img->image->get_width(heif_channel_interleaved);
+    }
+  }
+  else {
+    return img->image->get_width(heif_channel_Y);
+  }
+}
+
+
+int heif_image_get_primary_height(const struct heif_image* img)
+{
+  if (img->image->get_colorspace() == heif_colorspace_RGB) {
+    if (img->image->get_chroma_format() == heif_chroma_444) {
+      return img->image->get_height(heif_channel_G);
+    }
+    else {
+      return img->image->get_width(heif_channel_interleaved);
+    }
+  }
+  else {
+    return img->image->get_height(heif_channel_Y);
+  }
+}
+
+
+heif_error heif_image_crop(struct heif_image* img,
+                           int left, int right, int top, int bottom)
+{
+  std::shared_ptr<HeifPixelImage> out_img;
+
+  int w = img->image->get_width();
+  int h = img->image->get_height();
+
+  Error err = img->image->crop(left, w - 1 - right, top, h - 1 - bottom, out_img);
+  if (err) {
+    return err.error_struct(img->image.get());
+  }
+
+  img->image = out_img;
+
+  return heif_error{heif_error_Ok, heif_suberror_Unspecified, Error::kSuccess};
 }
 
 
@@ -851,7 +901,7 @@ struct heif_error heif_image_set_raw_color_profile(struct heif_image* image,
 
   auto color_profile = std::make_shared<color_profile_raw>(color_profile_type, data);
 
-  image->image->set_color_profile(color_profile);
+  image->image->set_color_profile_icc(color_profile);
 
   struct heif_error err = {heif_error_Ok, heif_suberror_Unspecified, Error::kSuccess};
   return err;
@@ -868,7 +918,7 @@ struct heif_error heif_image_set_nclx_color_profile(struct heif_image* image,
   nclx->set_matrix_coefficients(color_profile->matrix_coefficients);
   nclx->set_full_range_flag(color_profile->full_range_flag);
 
-  image->image->set_color_profile(nclx);
+  image->image->set_color_profile_nclx(nclx);
 
   return error_Ok;
 }
@@ -1059,7 +1109,13 @@ struct heif_error heif_image_handle_get_raw_color_profile(const struct heif_imag
 
 enum heif_color_profile_type heif_image_get_color_profile_type(const struct heif_image* image)
 {
-  auto profile = image->image->get_color_profile();
+  std::shared_ptr<const color_profile> profile;
+
+  profile = image->image->get_color_profile_icc();
+  if (!profile) {
+    profile = image->image->get_color_profile_nclx();
+  }
+
   if (!profile) {
     return heif_color_profile_type_not_present;
   }
@@ -1071,8 +1127,7 @@ enum heif_color_profile_type heif_image_get_color_profile_type(const struct heif
 
 size_t heif_image_get_raw_color_profile_size(const struct heif_image* image)
 {
-  auto profile = image->image->get_color_profile();
-  auto raw_profile = std::dynamic_pointer_cast<const color_profile_raw>(profile);
+  auto raw_profile = image->image->get_color_profile_icc();
   if (raw_profile) {
     return raw_profile->get_data().size();
   }
@@ -1091,8 +1146,7 @@ struct heif_error heif_image_get_raw_color_profile(const struct heif_image* imag
     return err.error_struct(image->image.get());
   }
 
-  auto profile = image->image->get_color_profile();
-  auto raw_profile = std::dynamic_pointer_cast<const color_profile_raw>(profile);
+  auto raw_profile = image->image->get_color_profile_icc();
   if (raw_profile) {
     memcpy(out_data,
            raw_profile->get_data().data(),
@@ -1112,11 +1166,16 @@ struct heif_error heif_image_get_nclx_color_profile(const struct heif_image* ima
     return err.error_struct(image->image.get());
   }
 
-  auto profile = image->image->get_color_profile();
-  auto nclx_profile = std::dynamic_pointer_cast<const color_profile_nclx>(profile);
+  auto nclx_profile = image->image->get_color_profile_nclx();
   Error err = nclx_profile->get_nclx_color_profile(out_data);
 
   return err.error_struct(image->image.get());
+}
+
+
+struct heif_color_profile_nclx* heif_nclx_color_profile_alloc()
+{
+  return color_profile_nclx::alloc_nclx_color_profile();
 }
 
 
