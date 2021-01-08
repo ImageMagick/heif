@@ -35,7 +35,7 @@
 #include <aom/aom_encoder.h>
 #include <aom/aomcx.h>
 
-
+#include <algorithm>
 #include <iostream>  // TODO: remove me
 
 
