@@ -98,13 +98,14 @@ There is also an experimental Go API, but this is not stable yet.
 
 ## Compiling
 
-This library uses a standard autoconf/automake build system.
-After downloading, run `./autogen.sh` to build the configuration scripts,
+This library uses either a standard autoconf/automake build system or CMake.
+
+When using autoconf, run `./autogen.sh` to build the configuration scripts,
 then call `./configure` and `make`.
 Make sure that you compile and install [libde265](https://github.com/strukturag/libde265)
 first, so that the configuration script will find this.
 Preferably, download the `frame-parallel` branch of libde265, as this uses a
-more recent API than version in the `master` branch.
+more recent API than the version in the `master` branch.
 Also install x265 and its development files if you want to use HEIF encoding.
 
 For AVIF support, make sure that libaom is installed.
@@ -134,31 +135,32 @@ Libheif is included in [Vcpkg](https://github.com/Microsoft/vcpkg/).
 ### Adding rav1e encoder for AVIF
 
 * Install `cargo`.
-* Install `cbindgen` by executing
+* Install `cargo-c` by executing
 ```
-cargo install --force cbindgen
+cargo install --force cargo-c
 ```
-* Make sure that the `cbindgen` executable is found. You probably have to add `~/.cargo/bin` to your `$PATH`.
 * Run the `rav1e.cmd` script in directory `third-party` to download rav1e and compile it.
 
-When using cmake, you have to enable compiling the local rav1e encoder with `USE_LOCAL_RAV1E'.
-With autoconf, use the configure option `--enable-local-rav1e'.
+When running `cmake` or `configure`, make sure that the environment variable
+`PKG_CONFIG_PATH` includes the absolute path to `third-party/rav1e/dist/lib/pkgconfig`.
 
 
 ### Adding dav1d decoder for AVIF
 
-* Install `meson`.
+* Install [`meson`](https://mesonbuild.com/).
 * Run the `dav1d.cmd` script in directory `third-party` to download dav1d and compile it.
 
-When using cmake, you have to enable compiling the local dav1d encoder with `USE_LOCAL_DAV1D'.
-With autoconf, use the configure option `--enable-local-dav1d'.
+When running `cmake` or `configure`, make sure that the environment variable
+`PKG_CONFIG_PATH` includes the absolute path to `third-party/dav1d/dist/lib/x86_64-linux-gnu/pkgconfig`.
 
 
 ## Language bindings
 
+* .NET Platform (C#, F#, and other languages): [libheif-sharp](https://github.com/0xC0000054/libheif-sharp)
 * C++: part of libheif
 * Go: part of libheif
 * JavaScript: by compilation with emscripten (see below)
+* NodeJS module: [libheif-js](https://www.npmjs.com/package/libheif-js)
 * Python: [pyheif](https://pypi.org/project/pyheif/)
 * Rust: [libheif-sys](https://github.com/Cykooz/libheif-sys)
 

@@ -45,8 +45,11 @@ extern "C" {
 // Prevent duplicate definition for libjpeg-turbo v2.0
 // Note: these 'undef's are only a workaround for a libjpeg-turbo-v2.0 bug and
 // should be removed again later. Bug has been fixed in libjpeg-turbo-v2.0.1.
+#include <jconfig.h>
+#if defined(LIBJPEG_TURBO_VERSION_NUMBER) && LIBJPEG_TURBO_VERSION_NUMBER == 2000000
 #undef HAVE_STDDEF_H
 #undef HAVE_STDLIB_H
+#endif
 #include <jpeglib.h>
 }
 #endif
@@ -65,6 +68,7 @@ extern "C" {
 int master_alpha = 1;
 int thumb_alpha = 1;
 int list_encoders = 0;
+int two_colr_boxes = 0;
 const char* encoderId = nullptr;
 
 int nclx_matrix_coefficients = 6;
@@ -96,6 +100,7 @@ static struct option long_options[] = {
     {(char* const) "colour_primaries",        required_argument, 0,              OPTION_NCLX_COLOUR_PRIMARIES},
     {(char* const) "transfer_characteristic", required_argument, 0,              OPTION_NCLX_TRANSFER_CHARACTERISTIC},
     {(char* const) "full_range_flag",         required_argument, 0,              OPTION_NCLX_FULL_RANGE_FLAG},
+    {(char* const) "enable-two-colr-boxes",   no_argument,       &two_colr_boxes, 1},
     {0, 0,                                                       0,              0}
 };
 
@@ -127,11 +132,12 @@ void show_help(const char* argv0)
             << "  -A, --avif       encode as AVIF\n"
             << "  --list-encoders  list all available encoders for the selected output format\n"
             << "  -e, --encoder ID select encoder to use (the IDs can be listed with --list-encoders)\n"
-            << "  -E, --even-size crop images to even width and height (odd sizes are not decoded correctly by some software)\n"
+            << "  -E, --even-size  [deprecated] crop images to even width and height (odd sizes are not decoded correctly by some software)\n"
             << "  --matrix_coefficients     nclx profile: color conversion matrix coefficients, default=6 (see h.273)\n"
             << "  --colour_primaries        nclx profile: color primaries (see h.273)\n"
             << "  --transfer_characteristic nclx profile: transfer characteristics (see h.273)\n"
             << "  --full_range_flag         nclx profile: full range flag, default: 1\n"
+            << "  --enable-two-colr-boxes   will write both an ICC and an nclx color profile if both a present\n"
             << "\n"
             << "Note: to get lossless encoding, you need this set of options:\n"
             << "  -L                       switch encoder to lossless mode\n"
@@ -600,7 +606,7 @@ std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
 
   bool has_alpha = (color_type & PNG_COLOR_MASK_ALPHA);
 
-  if (band == 1) {
+  if (band == 1 && bit_depth==8) {
     err = heif_image_create((int) width, (int) height,
                             heif_colorspace_monochrome,
                             heif_chroma_monochrome,
@@ -635,6 +641,58 @@ std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
       }
     }
   }
+  else if (band == 1) {
+    assert(bit_depth>8);
+
+    err = heif_image_create((int) width, (int) height,
+                            heif_colorspace_monochrome,
+                            heif_chroma_monochrome,
+                            &image);
+    (void) err;
+
+    int bdShift = 16 - output_bit_depth;
+
+    heif_image_add_plane(image, heif_channel_Y, (int) width, (int) height, output_bit_depth);
+
+    int y_stride;
+    int a_stride = 0;
+    uint16_t* py = (uint16_t*)heif_image_get_plane(image, heif_channel_Y, &y_stride);
+    uint16_t* pa = nullptr;
+
+    if (has_alpha) {
+      heif_image_add_plane(image, heif_channel_Alpha, (int) width, (int) height, output_bit_depth);
+
+      pa = (uint16_t*)heif_image_get_plane(image, heif_channel_Alpha, &a_stride);
+    }
+
+    y_stride /= 2;
+    a_stride /= 2;
+
+    for (uint32_t y = 0; y < height; y++) {
+      uint8_t* p = row_pointers[y];
+
+      if (has_alpha) {
+        for (uint32_t x = 0; x < width; x++) {
+          uint16_t vp = (uint16_t) (((p[0] << 8) | p[1]) >> bdShift);
+          uint16_t va = (uint16_t) (((p[2] << 8) | p[3]) >> bdShift);
+
+          py[x + y * y_stride] = vp;
+          pa[x + y * y_stride] = va;
+
+          p += 4;
+        }
+      }
+      else {
+        for (uint32_t x = 0; x < width; x++) {
+          uint16_t vp = (uint16_t) (((p[0] << 8) | p[1]) >> bdShift);
+
+          py[x + y * y_stride] = vp;
+
+          p += 2;
+        }
+      }
+    }
+  }
   else if (bit_depth == 8) {
     err = heif_image_create((int) width, (int) height,
                             heif_colorspace_RGB,
@@ -661,8 +719,8 @@ std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
     err = heif_image_create((int) width, (int) height,
                             heif_colorspace_RGB,
                             has_alpha ?
-                            heif_chroma_interleaved_RRGGBBAA_BE :
-                            heif_chroma_interleaved_RRGGBB_BE,
+                            heif_chroma_interleaved_RRGGBBAA_LE :
+                            heif_chroma_interleaved_RRGGBB_LE,
                             &image);
     (void) err;
 
@@ -680,8 +738,8 @@ std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
 
       for (uint32_t x = 0; x < nVal; x++) {
         uint16_t v = (uint16_t) (((p[0] << 8) | p[1]) >> bdShift);
-        p_out[2 * x + y * stride + 0] = (uint8_t) (v >> 8);
-        p_out[2 * x + y * stride + 1] = (uint8_t) (v & 0xFF);
+        p_out[2 * x + y * stride + 1] = (uint8_t) (v >> 8);
+        p_out[2 * x + y * stride + 0] = (uint8_t) (v & 0xFF);
         p += 2;
       }
     }
@@ -833,12 +891,30 @@ void list_encoder_parameters(heif_encoder* encoder)
           std::cerr << ", default=" << value;
         }
 
-        int have_minmax, minimum, maximum;
-        error = heif_encoder_parameter_integer_valid_range(encoder, name,
-                                                           &have_minmax, &minimum, &maximum);
+        int have_minimum, have_maximum, minimum, maximum, num_valid_values;
+        const int* valid_values = nullptr;
+        error = heif_encoder_parameter_integer_valid_values(encoder, name,
+                                                            &have_minimum, &have_maximum,
+                                                            &minimum, &maximum,
+                                                            &num_valid_values,
+                                                            &valid_values);
 
-        if (have_minmax) {
+        if (have_minimum || have_maximum) {  // TODO: only one is set
           std::cerr << ", [" << minimum << ";" << maximum << "]";
+        }
+
+        if (num_valid_values > 0) {
+          std::cerr << ", {";
+
+          for (int p=0;p<num_valid_values;p++) {
+            if (p>0) {
+              std::cerr << ", ";
+            }
+
+            std::cerr << valid_values[p];
+          }
+
+          std::cerr << "}";
         }
 
         std::cerr << "\n";
@@ -1037,6 +1113,7 @@ int main(int argc, char** argv)
 
   if (list_encoders) {
     show_list_of_encoders(encoder_descriptors, count);
+    return 0;
   }
 
   if (count > 0) {
@@ -1138,7 +1215,7 @@ int main(int argc, char** argv)
     nclx.color_primaries = (heif_color_primaries) nclx_colour_primaries;
     nclx.full_range_flag = (uint8_t) nclx_full_range;
 
-    heif_image_set_nclx_color_profile(image.get(), &nclx);
+    //heif_image_set_nclx_color_profile(image.get(), &nclx);
 
     heif_encoder_set_lossy_quality(encoder, quality);
     heif_encoder_set_lossless(encoder, lossless);
@@ -1148,6 +1225,8 @@ int main(int argc, char** argv)
 
     struct heif_encoding_options* options = heif_encoding_options_alloc();
     options->save_alpha_channel = (uint8_t) master_alpha;
+    options->save_two_colr_boxes_when_ICC_and_nclx_available = (uint8_t)two_colr_boxes;
+    options->output_nclx_profile = &nclx;
 
     if (crop_to_even_size) {
       if (heif_image_get_primary_width(image.get()) == 1 ||
@@ -1155,6 +1234,8 @@ int main(int argc, char** argv)
         std::cerr << "Image only has a size of 1 pixel width or height. Cannot crop to even size.\n";
         return 1;
       }
+
+      std::cerr << "Warning: option --even-size/-E is deprecated as it is not needed anymore.\n";
 
       int right = heif_image_get_primary_width(image.get()) % 2;
       int bottom = heif_image_get_primary_height(image.get()) % 2;
@@ -1167,14 +1248,6 @@ int main(int argc, char** argv)
       }
     }
 
-    if (!enc_av1f &&
-        ((heif_image_get_primary_width(image.get())) % 2 ||
-         (heif_image_get_primary_height(image.get())) % 2)) {
-      std::cerr << "Warning: HEIF images with odd width or height cannot be displayed by\n"
-                   "many programs on macOS (tested up to Catalina 10.15.6). Until macOS is\n"
-                   "fixed or we have a workaround, it is advised to use option -E to make the\n"
-                   "image size an even number.\n";
-    }
 
     struct heif_image_handle* handle;
     error = heif_context_encode_image(context.get(),

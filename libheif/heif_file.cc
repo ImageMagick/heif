@@ -27,7 +27,19 @@
 #include <cstring>
 #include <cassert>
 
+#ifdef _MSC_VER
+
+#ifndef NOMINMAX
+#define NOMINMAX 1
+#endif
+
+#include <Windows.h>
+#endif
+
 using namespace heif;
+
+// TODO: make this a decoder option
+#define STRICT_PARSING false
 
 
 HeifFile::HeifFile()
@@ -54,7 +66,11 @@ std::vector<heif_item_id> HeifFile::get_item_IDs() const
 
 Error HeifFile::read_from_file(const char* input_filename)
 {
+#ifdef _MSC_VER
+  auto input_stream_istr = std::unique_ptr<std::istream>(new std::ifstream(convert_utf8_path_to_utf16(input_filename).c_str(), std::ios_base::binary));
+#else
   auto input_stream_istr = std::unique_ptr<std::istream>(new std::ifstream(input_filename, std::ios_base::binary));
+#endif
   if (!input_stream_istr->good()) {
     std::stringstream sstr;
     sstr << "Error opening file: " << strerror(errno) << " (" << errno << ")\n";
@@ -231,12 +247,13 @@ Error HeifFile::parse_heif_file(BitstreamRange& range)
 
 
   m_hdlr_box = std::dynamic_pointer_cast<Box_hdlr>(m_meta_box->get_child_box(fourcc("hdlr")));
-  if (!m_hdlr_box) {
+  if (STRICT_PARSING && !m_hdlr_box) {
     return Error(heif_error_Invalid_input,
                  heif_suberror_No_hdlr_box);
   }
 
-  if (m_hdlr_box->get_handler_type() != fourcc("pict")) {
+  if (m_hdlr_box &&
+      m_hdlr_box->get_handler_type() != fourcc("pict")) {
     return Error(heif_error_Invalid_input,
                  heif_suberror_No_pict_handler);
   }
@@ -676,6 +693,22 @@ void HeifFile::add_clap_property(heif_item_id id, uint32_t clap_width, uint32_t 
   m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{true, uint16_t(index + 1)});
 }
 
+
+void HeifFile::add_pixi_property(heif_item_id id, uint8_t c1, uint8_t c2, uint8_t c3)
+{
+  auto pixi = std::make_shared<Box_pixi>();
+  pixi->add_channel_bits(c1);
+  if (c2 || c3) {
+    pixi->add_channel_bits(c2);
+    pixi->add_channel_bits(c3);
+  }
+
+  int index = m_ipco_box->append_child_box(pixi);
+
+  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{true, uint16_t(index + 1)});
+}
+
+
 void HeifFile::add_hvcC_property(heif_item_id id)
 {
   auto hvcC = std::make_shared<Box_hvcC>();
@@ -767,10 +800,11 @@ Error HeifFile::set_av1C_configuration(heif_item_id id, const Box_av1C::configur
 }
 
 
-void HeifFile::append_iloc_data(heif_item_id id, const std::vector<uint8_t>& nal_packets)
+void HeifFile::append_iloc_data(heif_item_id id, const std::vector<uint8_t>& nal_packets, uint8_t construction_method)
 {
-  m_iloc_box->append_data(id, nal_packets);
+  m_iloc_box->append_data(id, nal_packets, construction_method);
 }
+
 
 void HeifFile::append_iloc_data_with_4byte_size(heif_item_id id, const uint8_t* data, size_t size)
 {
@@ -823,9 +857,25 @@ void HeifFile::set_color_profile(heif_item_id id, const std::shared_ptr<const co
 }
 
 
+// TODO: the hdlr box is probably not the right place for this. Into which box should we write comments?
 void HeifFile::set_hdlr_library_info(std::string encoder_plugin_version)
 {
   std::stringstream sstr;
   sstr << "libheif (" << LIBHEIF_VERSION << ") / " << encoder_plugin_version;
   m_hdlr_box->set_name(sstr.str());
 }
+
+
+#ifdef _MSC_VER
+std::wstring HeifFile::convert_utf8_path_to_utf16(std::string str)
+{
+  std::wstring ret;
+  int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), str.length(), NULL, 0);
+  if (len > 0)
+  {
+    ret.resize(len);
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), str.length(), &ret[0], len);
+  }
+  return ret;
+}
+#endif

@@ -97,14 +97,7 @@ if(X265_FOUND)
     install(FILES heif_encoder_x265.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME})
 endif()
 
-if(AOM_FOUND)
-  target_compile_definitions(heif PRIVATE HAVE_AOM=1)
-  target_sources(heif PRIVATE
-    heif_decoder_aom.cc
-    heif_decoder_aom.h
-    heif_encoder_aom.cc
-    heif_encoder_aom.h
-  )
+if(AOM_ENCODER_FOUND OR AOM_DECODER_FOUND)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${AOM_CFLAGS}")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${AOM_CFLAGS}")
 
@@ -115,29 +108,53 @@ if(AOM_FOUND)
   include_directories(SYSTEM ${AOM_INCLUDE_DIR})
   target_link_libraries(heif PRIVATE ${AOM_LIBRARIES} ${AOM_LINKDIR})
 endif()
+if(AOM_ENCODER_FOUND)
+  target_compile_definitions(heif PRIVATE HAVE_AOM_ENCODER=1)
+  target_sources(heif PRIVATE
+    heif_encoder_aom.cc
+    heif_encoder_aom.h
+  )
+endif()
+if(AOM_DECODER_FOUND)
+  target_compile_definitions(heif PRIVATE HAVE_AOM_DECODER=1)
+  target_sources(heif PRIVATE
+    heif_decoder_aom.cc
+    heif_decoder_aom.h
+  )
+endif()
 
-if(USE_LOCAL_RAV1E)
+if(RAV1E_FOUND)
     target_compile_definitions(heif PRIVATE HAVE_RAV1E=1)
     target_sources(heif PRIVATE
             heif_encoder_rav1e.cc
             heif_encoder_rav1e.h
             )
-    target_include_directories(heif PRIVATE ${CMAKE_SOURCE_DIR}/third-party/rav1e/target/release/include)
-    target_link_libraries(heif PRIVATE ${CMAKE_SOURCE_DIR}/third-party/rav1e/target/release/librav1e.a -ldl)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RAV1E_CFLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RAV1E_CFLAGS}")
+
+    if (NOT "${RAV1E_LIBRARY_DIRS}" STREQUAL "")
+        set(RAV1E_LINKDIR "-L${RAV1E_LIBRARY_DIRS}")
+    endif()
+
+    include_directories(SYSTEM ${RAV1E_INCLUDE_DIR})
+    target_link_libraries(heif PRIVATE ${RAV1E_LIBRARIES} ${RAV1E_LINKDIR})
 endif()
 
-if(USE_LOCAL_DAV1D)
+if(DAV1D_FOUND)
     target_compile_definitions(heif PRIVATE HAVE_DAV1D=1)
     target_sources(heif PRIVATE
             heif_decoder_dav1d.cc
             heif_decoder_dav1d.h
             )
-    target_include_directories(heif PRIVATE ${CMAKE_SOURCE_DIR}/third-party/dav1d/build
-            ${CMAKE_SOURCE_DIR}/third-party/dav1d/build/include
-            ${CMAKE_SOURCE_DIR}/third-party/dav1d/build/include/dav1d
-            ${CMAKE_SOURCE_DIR}/third-party/dav1d/include)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${DAV1D_CFLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${DAV1D_CFLAGS}")
 
-    target_link_libraries(heif PRIVATE ${CMAKE_SOURCE_DIR}/third-party/dav1d/build/src/libdav1d.a -ldl)
+    if (NOT "${DAV1D_LIBRARY_DIRS}" STREQUAL "")
+        set(DAV1D_LINKDIR "-L${DAV1D_LIBRARY_DIRS}")
+    endif()
+
+    include_directories(SYSTEM ${DAV1D_INCLUDE_DIR})
+    target_link_libraries(heif PRIVATE ${DAV1D_LIBRARIES} ${DAV1D_LINKDIR})
 endif ()
 
 write_basic_package_version_file(${PROJECT_NAME}-config-version.cmake COMPATIBILITY ExactVersion)

@@ -29,6 +29,7 @@
 
 #include <errno.h>
 #include <string.h>
+#include <vector>
 
 #if defined(HAVE_UNISTD_H)
 
@@ -140,11 +141,13 @@ int main(int argc, char** argv)
   //   show MIME type
 
   {
-    uint8_t buf[20];
+    const static int bufSize = 50;
+
+    uint8_t buf[bufSize];
     FILE* fh = fopen(input_filename, "rb");
     if (fh) {
       std::cout << "MIME type: ";
-      int n = (int) fread(buf, 1, 20, fh);
+      int n = (int) fread(buf, 1, bufSize, fh);
       const char* mime_type = heif_get_file_mime_type(buf, n);
       if (*mime_type == 0) {
         std::cout << "unknown\n";
@@ -154,7 +157,35 @@ int main(int argc, char** argv)
       }
 
       fclose(fh);
+
+      char fourcc[5];
+      fourcc[4]=0;
+      heif_brand_to_fourcc( heif_read_main_brand(buf,bufSize), fourcc );
+      std::cout << "main brand: " << fourcc << "\n";
+
+      heif_brand2* brands=nullptr;
+      int nBrands=0;
+      struct heif_error err=heif_list_compatible_brands(buf, n, &brands, &nBrands);
+      if (err.code) {
+	std::cerr << "error reading brands: " << err.message << "\n";
+      }
+      else {
+	std::cout << "compatible brands: ";
+	for (int i=0;i<nBrands;i++) {
+	  heif_brand_to_fourcc(brands[i], fourcc);
+	  if (i>0) {
+	    std::cout << ", ";
+	  }
+	  std::cout << fourcc;
+	}
+	
+	std::cout << "\n";
+
+	heif_free_list_of_compatible_brands(brands);
+      }
     }
+
+    std::cout << "\n";
   }
 
   // ==============================================================================
@@ -184,8 +215,8 @@ int main(int argc, char** argv)
 
 
   int numImages = heif_context_get_number_of_top_level_images(ctx.get());
-  heif_item_id* IDs = (heif_item_id*) alloca(numImages * sizeof(heif_item_id));
-  heif_context_get_list_of_top_level_image_IDs(ctx.get(), IDs, numImages);
+  std::vector<heif_item_id> IDs(numImages);
+  heif_context_get_list_of_top_level_image_IDs(ctx.get(), IDs.data(), numImages);
 
   for (int i = 0; i < numImages; i++) {
     struct heif_image_handle* handle;
@@ -206,16 +237,15 @@ int main(int argc, char** argv)
     // --- thumbnails
 
     int nThumbnails = heif_image_handle_get_number_of_thumbnails(handle);
-    heif_item_id* thumbnailIDs = (heif_item_id*) calloc(nThumbnails, sizeof(heif_item_id));
+    std::vector<heif_item_id> thumbnailIDs(nThumbnails);
 
-    nThumbnails = heif_image_handle_get_list_of_thumbnail_IDs(handle, thumbnailIDs, nThumbnails);
+    nThumbnails = heif_image_handle_get_list_of_thumbnail_IDs(handle, thumbnailIDs.data(), nThumbnails);
 
     for (int thumbnailIdx = 0; thumbnailIdx < nThumbnails; thumbnailIdx++) {
       heif_image_handle* thumbnail_handle;
       err = heif_image_handle_get_thumbnail(handle, thumbnailIDs[thumbnailIdx], &thumbnail_handle);
       if (err.code) {
         std::cerr << err.message << "\n";
-        free(thumbnailIDs);
         return 10;
       }
 
@@ -226,8 +256,6 @@ int main(int argc, char** argv)
 
       heif_image_handle_release(thumbnail_handle);
     }
-
-    free(thumbnailIDs);
 
 
     // --- color profile
@@ -262,7 +290,7 @@ int main(int argc, char** argv)
              heif_image_handle_get_height(depth_handle));
 
       const struct heif_depth_representation_info* depth_info;
-      if (heif_image_handle_get_depth_image_representation_info(depth_handle, depth_id, &depth_info)) {
+      if (heif_image_handle_get_depth_image_representation_info(handle, depth_id, &depth_info)) {
 
         printf("    z-near: ");
         if (depth_info->has_z_near) printf("%f\n", depth_info->z_near); else printf("undefined\n");

@@ -71,6 +71,23 @@ if [ "$WITH_X265" = "1" ]; then
         "
 fi
 
+if [ "$WITH_DAV1D" = "1" ]; then
+    INSTALL_PACKAGES="$INSTALL_PACKAGES \
+        nasm \
+        ninja-build \
+        python3-pip \
+        python3-setuptools \
+        python3-wheel \
+        "
+fi
+
+if [ "$WITH_RAV1E" = "1" ]; then
+    INSTALL_PACKAGES="$INSTALL_PACKAGES \
+        cargo \
+        nasm \
+        "
+fi
+
 if [ ! -z "$CHECK_LICENSES" ]; then
     sudo curl --location --output /usr/bin/licensecheck "https://github.com/Debian/devscripts/raw/v2.16.5/scripts/licensecheck.pl"
     sudo chmod a+x /usr/bin/licensecheck
@@ -161,4 +178,22 @@ elif [ "$MINGW" == "64" ]; then
     if [ -x "/usr/bin/x86_64-w64-mingw32-g++-posix" ]; then
         sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
     fi
+fi
+
+if [ "$WITH_DAV1D" = "1" ]; then
+    pip3 install --user meson
+
+    export PATH="$PATH:$HOME/.local/bin"
+    cd third-party
+    sh dav1d.cmd -Denable_avx512=false
+    cd ..
+fi
+
+if [ "$WITH_RAV1E" = "1" ]; then
+    cargo install --force cargo-c
+
+    export PATH="$PATH:$HOME/.cargo/bin"
+    cd third-party
+    sh rav1e.cmd
+    cd ..
 fi

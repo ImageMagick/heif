@@ -6,10 +6,16 @@
 /* Whether aom was found. */
 #undef HAVE_AOM
 
+/* Whether aom decoder was found. */
+#undef HAVE_AOM_DECODER
+
+/* Whether aom encoder was found. */
+#undef HAVE_AOM_ENCODER
+
 /* define if the compiler supports basic C++11 syntax */
 #undef HAVE_CXX11
 
-/* Whether dav1d plugin has been enabled. */
+/* Whether dav1d was found. */
 #undef HAVE_DAV1D
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
@@ -45,7 +51,7 @@
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
 
-/* Whether rav1e plugin has been enabled. */
+/* Whether rav1e was found. */
 #undef HAVE_RAV1E
 
 /* Define to 1 if stdbool.h conforms to C99. */

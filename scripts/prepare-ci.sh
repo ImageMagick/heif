@@ -24,8 +24,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 BUILD_ROOT=$ROOT/..
 
+PKG_CONFIG_PATH=
 if [ "$WITH_LIBDE265" = "2" ]; then
-    export PKG_CONFIG_PATH=$BUILD_ROOT/libde265/dist/lib/pkgconfig/
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$BUILD_ROOT/libde265/dist/lib/pkgconfig/"
+fi
+
+if [ "$WITH_RAV1E" = "1" ]; then
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$BUILD_ROOT/third-party/rav1e/dist/lib/pkgconfig/"
+fi
+
+if [ "$WITH_DAV1D" = "1" ]; then
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$BUILD_ROOT/third-party/dav1d/dist/lib/x86_64-linux-gnu/pkgconfig/"
+fi
+if [ ! -z "$PKG_CONFIG_PATH" ]; then
+    export PKG_CONFIG_PATH="$PKG_CONFIG_PATH"
 fi
 
 CONFIGURE_HOST=
@@ -60,6 +72,9 @@ if [ -z "$CHECK_LICENSES" ] && [ -z "$CPPLINT" ] && [ -z "$CMAKE" ]; then
     fi
     if [ ! -z "$TESTS" ]; then
         CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-tests"
+    fi
+    if [ "$WITH_RAV1E" = "1" ]; then
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-local-rav1e"
     fi
     ./configure $CONFIGURE_ARGS
 fi

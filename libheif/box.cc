@@ -1175,6 +1175,14 @@ Error Box_iloc::append_data(heif_item_id item_ID,
 
   Extent extent;
   extent.data = data;
+
+  if (construction_method==1) {
+    extent.offset = m_idat_offset;
+    extent.length = data.size();
+
+    m_idat_offset += (int)data.size();
+  }
+
   m_items[idx].extents.push_back(std::move(extent));
 
   return Error::Ok;
@@ -1258,6 +1266,34 @@ void Box_iloc::derive_box_version()
 
 Error Box_iloc::write(StreamWriter& writer) const
 {
+  // --- write idat
+
+  size_t sum_idat_size = 0;
+
+  for (const auto& item : m_items) {
+    if (item.construction_method == 1) {
+      for (const auto& extent : item.extents) {
+        sum_idat_size += extent.data.size();
+      }
+    }
+  }
+
+  if (sum_idat_size > 0) {
+    writer.write32((uint32_t) (sum_idat_size + 8));
+    writer.write32(fourcc("idat"));
+
+    for (auto& item : m_items) {
+      if (item.construction_method == 1) {
+        for (auto& extent : item.extents) {
+          writer.write(extent.data);
+        }
+      }
+    }
+  }
+
+
+  // --- write iloc box
+
   size_t box_start = reserve_box_header_space(writer);
 
   m_iloc_box_start = writer.get_position();
@@ -1315,13 +1351,15 @@ Error Box_iloc::write_mdat_after_iloc(StreamWriter& writer)
   writer.write32(fourcc("mdat"));
 
   for (auto& item : m_items) {
-    item.base_offset = writer.get_position();
+    if (item.construction_method == 0) {
+      item.base_offset = writer.get_position();
 
-    for (auto& extent : item.extents) {
-      extent.offset = writer.get_position() - item.base_offset;
-      extent.length = extent.data.size();
+      for (auto& extent : item.extents) {
+        extent.offset = writer.get_position() - item.base_offset;
+        extent.length = extent.data.size();
 
-      writer.write(extent.data);
+        writer.write(extent.data);
+      }
     }
   }
 
@@ -1644,7 +1682,7 @@ Error color_profile_nclx::get_nclx_color_profile(struct heif_color_profile_nclx*
     return Error(heif_error_Memory_allocation_error,
                  heif_suberror_Unspecified);
   }
-  
+
   struct heif_color_profile_nclx* nclx = *out_data;
 
   nclx->version = 1;
@@ -2260,14 +2298,20 @@ Error Box_clap::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
 
-  m_clean_aperture_width.numerator = range.read32();
-  m_clean_aperture_width.denominator = range.read32();
-  m_clean_aperture_height.numerator = range.read32();
-  m_clean_aperture_height.denominator = range.read32();
-  m_horizontal_offset.numerator = range.read32();
-  m_horizontal_offset.denominator = range.read32();
-  m_vertical_offset.numerator = range.read32();
-  m_vertical_offset.denominator = range.read32();
+  int32_t clean_aperture_width_num = range.read32();
+  int32_t clean_aperture_width_den = range.read32();
+  int32_t clean_aperture_height_num = range.read32();
+  int32_t clean_aperture_height_den = range.read32();
+  int32_t horizontal_offset_num = range.read32();
+  int32_t horizontal_offset_den = range.read32();
+  int32_t vertical_offset_num = range.read32();
+  int32_t vertical_offset_den = range.read32();
+  m_clean_aperture_width = Fraction(clean_aperture_width_num,
+                                    clean_aperture_width_den);
+  m_clean_aperture_height = Fraction(clean_aperture_height_num,
+                                     clean_aperture_height_den);
+  m_horizontal_offset = Fraction(horizontal_offset_num, horizontal_offset_den);
+  m_vertical_offset = Fraction(vertical_offset_num, vertical_offset_den);
   if (!m_clean_aperture_width.is_valid() || !m_clean_aperture_height.is_valid() ||
       !m_horizontal_offset.is_valid() || !m_vertical_offset.is_valid()) {
     return Error(heif_error_Invalid_input,
@@ -2375,8 +2419,8 @@ void Box_clap::set(uint32_t clap_width, uint32_t clap_height,
   m_clean_aperture_width = Fraction(clap_width, 1);
   m_clean_aperture_height = Fraction(clap_height, 1);
 
-  m_horizontal_offset = Fraction(-(int32_t)(image_width - clap_width), 2);
-  m_vertical_offset = Fraction(-(int32_t)(image_height - clap_height), 2);
+  m_horizontal_offset = Fraction(-(int32_t) (image_width - clap_width), 2);
+  m_vertical_offset = Fraction(-(int32_t) (image_height - clap_height), 2);
 }
 
 
@@ -2918,6 +2962,18 @@ Error Box_idat::parse(BitstreamRange& range)
   m_data_start_pos = range.get_istream()->get_position();
 
   return range.get_error();
+}
+
+
+Error Box_idat::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  writer.write(m_data_for_writing);
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
 }
 
 

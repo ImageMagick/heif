@@ -1,12 +1,12 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif], [1.9.1], [opensource@struktur.de])
+AC_INIT([libheif], [1.11.0], [opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
 # Note: do not forget to set the version in the CMakeLists.txt file accordingly
 PROJECT_VERSION_MAJOR=1
-PROJECT_VERSION_MINOR=9
-PROJECT_VERSION_PATCH=1
+PROJECT_VERSION_MINOR=11
+PROJECT_VERSION_PATCH=0
 PROJECT_VERSION_TWEAK=0
 AC_SUBST(PROJECT_VERSION_MAJOR)
 AC_SUBST(PROJECT_VERSION_MINOR)
@@ -19,9 +19,9 @@ AC_SUBST(PROJECT_VERSION_TWEAK)
 # If any interfaces have been added since the last public release, then increment age.
 # If any interfaces have been removed or changed since the last public release, then set age to 0.
 
-LIBHEIF_CURRENT=10
-LIBHEIF_REVISION=1
-LIBHEIF_AGE=9
+LIBHEIF_CURRENT=12
+LIBHEIF_REVISION=0
+LIBHEIF_AGE=11
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
 AC_SUBST(LIBHEIF_AGE)
@@ -90,36 +90,82 @@ AM_CONDITIONAL([HAVE_TESTS], [test "x$HAVE_TESTS" == "x1"])
 AM_CONDITIONAL([HAVE_VISIBILITY], [test "x$HAVE_VISIBILITY" != "x0"])
 if eval "test x$enable_visibility = x" ; then enable_visibility=yes ; fi
 
-PKG_CHECK_MODULES([aom], [aom], [
-    AC_DEFINE([HAVE_AOM], [1], [Whether aom was found.])
-    AC_SUBST(aom_CFLAGS)
-    AC_SUBST(aom_LIBS)
-    have_aom="yes"
-    have_avif_decoder="yes"
-    have_avif_encoder="yes"
-], [
+REQUIRES_PRIVATE=""
+AC_SUBST([REQUIRES_PRIVATE])
+
+PKG_PROG_PKG_CONFIG
+
+have_avif_decoder="no"
+have_avif_encoder="no"
+
+AC_ARG_ENABLE([aom], AS_HELP_STRING([--disable-aom],
+    [Disable building of aom decoder/encoder.]))
+if eval "test x$enable_aom = x" ; then enable_aom=yes ; fi
+if eval "test x$enable_aom != xno"; then
+    PKG_CHECK_MODULES([aom], [aom], [
+        AC_DEFINE([HAVE_AOM], [1], [Whether aom was found.])
+        AC_SUBST(aom_CFLAGS)
+        AC_SUBST(aom_LIBS)
+        REQUIRES_PRIVATE="$REQUIRES_PRIVATE aom"
+        have_aom="yes"
+    ], [have_aom="no"])
+
+    if eval "test x$have_aom = xyes"; then
+        AC_CHECK_HEADER([aom/aom_decoder.h], [
+            AC_DEFINE([HAVE_AOM_DECODER], [1], [Whether aom decoder was found.])
+            have_aom_decoder="yes"
+            have_avif_decoder="yes"
+        ], [have_aom_decoder="no"])
+
+        AC_CHECK_HEADER([aom/aom_encoder.h], [
+            AC_DEFINE([HAVE_AOM_ENCODER], [1], [Whether aom encoder was found.])
+            have_aom_encoder="yes"
+            have_avif_encoder="yes"
+        ], [have_aom_encoder="no"])
+    fi
+else
     have_aom="no"
-    have_avif_decoder="no"
-    have_avif_encoder="no"
-])
+    have_aom_decoder="no"
+    have_aom_encoder="no"
+fi
 AM_CONDITIONAL([HAVE_AOM], [test "x$have_aom" = "xyes"])
 AC_SUBST([have_aom])
+AM_CONDITIONAL([HAVE_AOM_DECODER], [test "x$have_aom_decoder" = "xyes"])
+AC_SUBST([have_aom_decoder])
+AM_CONDITIONAL([HAVE_AOM_ENCODER], [test "x$have_aom_encoder" = "xyes"])
+AC_SUBST([have_aom_encoder])
 
-PKG_CHECK_MODULES([libde265], [libde265], [
-    AC_DEFINE([HAVE_LIBDE265], [1], [Whether libde265 was found.])
-    AC_SUBST(libde265_CFLAGS)
-    AC_SUBST(libde265_LIBS)
-    have_libde265="yes"
-], [have_libde265="no"])
+AC_ARG_ENABLE([libde265], AS_HELP_STRING([--disable-libde265],
+    [Disable building of libde265 decoder.]))
+if eval "test x$enable_libde265 = x" ; then enable_libde265=yes ; fi
+if eval "test x$enable_libde265 != xno"; then
+    PKG_CHECK_MODULES([libde265], [libde265], [
+        AC_DEFINE([HAVE_LIBDE265], [1], [Whether libde265 was found.])
+        AC_SUBST(libde265_CFLAGS)
+        AC_SUBST(libde265_LIBS)
+        REQUIRES_PRIVATE="$REQUIRES_PRIVATE libde265"
+        have_libde265="yes"
+    ], [have_libde265="no"])
+else
+    have_libde265="no"
+fi
 AM_CONDITIONAL([HAVE_LIBDE265], [test "x$have_libde265" = "xyes"])
 AC_SUBST([have_libde265])
 
-PKG_CHECK_MODULES([x265], [x265], [
-    AC_DEFINE([HAVE_X265], [1], [Whether x265 was found.])
-    AC_SUBST(x265_CFLAGS)
-    AC_SUBST(x265_LIBS)
-    have_x265="yes"
-], [have_x265="no"])
+AC_ARG_ENABLE([x265], AS_HELP_STRING([--disable-x265],
+    [Disable building of x265 encoder.]))
+if eval "test x$enable_x265 = x" ; then enable_x265=yes ; fi
+if eval "test x$enable_x265 != xno"; then
+    PKG_CHECK_MODULES([x265], [x265], [
+        AC_DEFINE([HAVE_X265], [1], [Whether x265 was found.])
+        AC_SUBST(x265_CFLAGS)
+        AC_SUBST(x265_LIBS)
+        REQUIRES_PRIVATE="$REQUIRES_PRIVATE x265"
+        have_x265="yes"
+    ], [have_x265="no"])
+else
+    have_x265="no"
+fi
 AM_CONDITIONAL([HAVE_X265], [test "x$have_x265" = "xyes"])
 AC_SUBST([have_x265])
 
@@ -195,25 +241,33 @@ if eval "test x$have_gdkpixbuf2 = xyes"; then
     AC_SUBST([gdk_pixbuf_cache_file])
 fi
 
-AC_ARG_ENABLE([local_rav1e], AS_HELP_STRING([--enable-local-rav1e],
-    [Enable compiling with local rav1e encoder.]), [], [enable_local_rav1e=no])
-if eval "test x$enable_local_rav1e != xno"; then
-    AC_MSG_NOTICE([Enable compiling with local rav1e])
-    AC_DEFINE([HAVE_RAV1E], [1], [Whether rav1e plugin has been enabled.])
-    have_avif_encoder="yes"
+AC_ARG_ENABLE([rav1e], AS_HELP_STRING([--disable-rav1e],
+    [Disable building of rav1e encoder.]))
+if eval "test x$enable_rav1e = x" ; then enable_rav1e=yes ; fi
+if eval "test x$enable_rav1e != xno"; then
+    PKG_CHECK_MODULES([rav1e], [rav1e], [
+        AC_DEFINE([HAVE_RAV1E], [1], [Whether rav1e was found.])
+        AC_SUBST(rav1e_CFLAGS)
+        AC_SUBST(rav1e_LIBS)
+        have_avif_encoder="yes"
+        REQUIRES_PRIVATE="$REQUIRES_PRIVATE rav1e"
+        have_rav1e="yes"
+    ], [have_rav1e="no"])
+else
+    have_rav1e="no"
 fi
-AM_CONDITIONAL([ENABLE_LOCAL_RAV1E], [test "x$enable_local_rav1e" != "xno"])
-AC_SUBST(ENABLE_LOCAL_RAV1E)
+AM_CONDITIONAL([HAVE_RAV1E], [test "x$have_rav1e" = "xyes"])
+AC_SUBST([have_rav1e])
 
-AC_ARG_ENABLE([local_dav1d], AS_HELP_STRING([--enable-local-dav1d],
-    [Enable compiling with local dav1d decoder.]), [], [enable_local_dav1d=no])
-if eval "test x$enable_local_dav1d != xno"; then
-    AC_MSG_NOTICE([Enable compiling with local dav1d])
-    AC_DEFINE([HAVE_DAV1D], [1], [Whether dav1d plugin has been enabled.])
-    have_avif_encoder="yes"
-fi
-AM_CONDITIONAL([ENABLE_LOCAL_DAV1D], [test "x$enable_local_dav1d" != "xno"])
-AC_SUBST(ENABLE_LOCAL_DAV1D)
+PKG_CHECK_MODULES([dav1d], [dav1d], [
+    AC_DEFINE([HAVE_DAV1D], [1], [Whether dav1d was found.])
+    AC_SUBST(dav1d_CFLAGS)
+    AC_SUBST(dav1d_LIBS)
+    have_avif_decoder="yes"
+    REQUIRES_PRIVATE="$REQUIRES_PRIVATE dav1d"
+    have_dav1d="yes"
+], [have_dav1d="no"])
+AM_CONDITIONAL([HAVE_DAV1D], [test "x$have_dav1d" = "xyes"])
 
 AC_SUBST(have_avif_decoder)
 AC_SUBST(have_avif_encoder)
@@ -253,10 +307,10 @@ AC_C_CXX_COMPILE_FLAGS([-Wno-error=potentially-evaluated-expression])
 AC_MSG_NOTICE([---------------------------------------])
 AC_MSG_NOTICE([Multithreading: $enable_multithreading])
 AC_MSG_NOTICE([Symbol visibility: $enable_visibility])
-AC_MSG_NOTICE([libaom decoder: $have_aom])
-AC_MSG_NOTICE([libaom encoder: $have_aom])
-AC_MSG_NOTICE([rav1e encoder: $enable_local_rav1e])
-AC_MSG_NOTICE([dav1d decoder: $enable_local_dav1d])
+AC_MSG_NOTICE([libaom decoder: $have_aom_decoder])
+AC_MSG_NOTICE([libaom encoder: $have_aom_encoder])
+AC_MSG_NOTICE([rav1e encoder: $have_rav1e])
+AC_MSG_NOTICE([dav1d decoder: $have_dav1d])
 AC_MSG_NOTICE([libde265 decoder: $have_libde265])
 AC_MSG_NOTICE([libx265 encoder: $have_x265])
 AC_MSG_NOTICE([JPEG output: $have_libjpeg])

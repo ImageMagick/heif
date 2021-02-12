@@ -47,7 +47,7 @@
 using namespace heif;
 
 heif_encoder::heif_encoder(const struct heif_encoder_plugin* _plugin)
-    : plugin(_plugin)
+        : plugin(_plugin)
 {
 
 }
@@ -120,13 +120,13 @@ class ImageGrid
 public:
   Error parse(const std::vector<uint8_t>& data);
 
+  std::vector<uint8_t> write() const;
+
   std::string dump() const;
 
-  uint32_t get_width() const
-  { return m_output_width; }
+  uint32_t get_width() const { return m_output_width; }
 
-  uint32_t get_height() const
-  { return m_output_height; }
+  uint32_t get_height() const { return m_output_height; }
 
   uint16_t get_rows() const
   {
@@ -140,11 +140,23 @@ public:
     return m_columns;
   }
 
+  void set_num_tiles(uint16_t columns, uint16_t rows)
+  {
+    m_rows = rows;
+    m_columns = columns;
+  }
+
+  void set_output_size(uint32_t width, uint32_t height)
+  {
+    m_output_width = width;
+    m_output_height = height;
+  }
+
 private:
-  uint16_t m_rows;
-  uint16_t m_columns;
-  uint32_t m_output_width;
-  uint32_t m_output_height;
+  uint16_t m_rows = 0;
+  uint16_t m_columns = 0;
+  uint32_t m_output_width = 0;
+  uint32_t m_output_height = 0;
 };
 
 
@@ -194,6 +206,54 @@ Error ImageGrid::parse(const std::vector<uint8_t>& data)
 }
 
 
+std::vector<uint8_t> ImageGrid::write() const
+{
+  int field_size;
+
+  if (m_output_width > 0xFFFF ||
+      m_output_height > 0xFFFF) {
+    field_size = 32;
+  }
+  else {
+    field_size = 16;
+  }
+
+  std::vector<uint8_t> data(field_size == 16 ? 8 : 12);
+
+  data[0] = 0; // version
+
+  uint8_t flags = 0;
+  if (field_size == 32) {
+    flags |= 1;
+  }
+
+  data[1] = flags;
+  data[2] = (uint8_t) (m_rows - 1);
+  data[3] = (uint8_t) (m_columns - 1);
+
+  if (field_size == 32) {
+    data[4] = (uint8_t) ((m_output_width >> 24) & 0xFF);
+    data[5] = (uint8_t) ((m_output_width >> 16) & 0xFF);
+    data[6] = (uint8_t) ((m_output_width >> 8) & 0xFF);
+    data[7] = (uint8_t) ((m_output_width) & 0xFF);
+
+    data[8] = (uint8_t) ((m_output_height >> 24) & 0xFF);
+    data[9] = (uint8_t) ((m_output_height >> 16) & 0xFF);
+    data[10] = (uint8_t) ((m_output_height >> 8) & 0xFF);
+    data[11] = (uint8_t) ((m_output_height) & 0xFF);
+  }
+  else {
+    data[4] = (uint8_t) ((m_output_width >> 8) & 0xFF);
+    data[5] = (uint8_t) ((m_output_width) & 0xFF);
+
+    data[6] = (uint8_t) ((m_output_height >> 8) & 0xFF);
+    data[7] = (uint8_t) ((m_output_height) & 0xFF);
+  }
+
+  return data;
+}
+
+
 std::string ImageGrid::dump() const
 {
   std::ostringstream sstr;
@@ -216,14 +276,11 @@ public:
 
   void get_background_color(uint16_t col[4]) const;
 
-  uint32_t get_canvas_width() const
-  { return m_width; }
+  uint32_t get_canvas_width() const { return m_width; }
 
-  uint32_t get_canvas_height() const
-  { return m_height; }
+  uint32_t get_canvas_height() const { return m_height; }
 
-  size_t get_num_offsets() const
-  { return m_offsets.size(); }
+  size_t get_num_offsets() const { return m_offsets.size(); }
 
   void get_offset(size_t image_index, int32_t* x, int32_t* y) const;
 
@@ -341,12 +398,10 @@ HeifContext::HeifContext()
 
 HeifContext::~HeifContext()
 {
-  // Break circular references
+  // Break circular references between Images (when a faulty input image has circular image references)
   for (auto& it : m_all_images) {
     std::shared_ptr<Image> image = it.second;
-    image->get_thumbnails().clear();
-    image->set_alpha_channel(nullptr);
-    image->set_depth_channel(nullptr);
+    image->clear();
   }
 }
 
@@ -476,7 +531,6 @@ Error HeifContext::interpret_heif_file()
 
   std::vector<heif_item_id> image_IDs = m_heif_file->get_item_IDs();
 
-  bool primary_is_grid = false;
   for (heif_item_id id : image_IDs) {
     auto infe_box = m_heif_file->get_infe_box(id);
     if (!infe_box) {
@@ -492,14 +546,12 @@ Error HeifContext::interpret_heif_file()
         if (id == m_heif_file->get_primary_image_ID()) {
           image->set_primary(true);
           m_primary_image = image;
-          primary_is_grid = infe_box->get_item_type() == "grid";
         }
 
         m_top_level_images.push_back(image);
       }
     }
   }
-
 
   if (!m_primary_image) {
     return Error(heif_error_Invalid_input,
@@ -508,7 +560,74 @@ Error HeifContext::interpret_heif_file()
   }
 
 
-  // --- remove thumbnails from top-level images and assign to their respective image
+  // --- read through properties for each image and extract image resolutions
+  // Note: this has to be executed before assigning the auxiliary images below because we will only
+  // merge the alpha image with the main image when their resolutions are the same.
+
+  for (auto& pair : m_all_images) {
+    auto& image = pair.second;
+
+    std::vector<Box_ipco::Property> properties;
+
+    Error err = m_heif_file->get_properties(pair.first, properties);
+    if (err) {
+      return err;
+    }
+
+    bool ispe_read = false;
+    for (const auto& prop : properties) {
+      auto ispe = std::dynamic_pointer_cast<Box_ispe>(prop.property);
+      if (ispe) {
+        uint32_t width = ispe->get_width();
+        uint32_t height = ispe->get_height();
+
+
+        // --- check whether the image size is "too large"
+
+        if (width > m_maximum_image_width_limit ||
+            height > m_maximum_image_height_limit) {
+          std::stringstream sstr;
+          sstr << "Image size " << width << "x" << height << " exceeds the maximum image size "
+               << m_maximum_image_width_limit << "x" << m_maximum_image_height_limit << "\n";
+
+          return Error(heif_error_Memory_allocation_error,
+                       heif_suberror_Security_limit_exceeded,
+                       sstr.str());
+        }
+
+        image->set_resolution(width, height);
+        image->set_ispe_resolution(width, height);
+        ispe_read = true;
+      }
+
+      if (ispe_read) {
+        auto clap = std::dynamic_pointer_cast<Box_clap>(prop.property);
+        if (clap) {
+          image->set_resolution(clap->get_width_rounded(),
+                                clap->get_height_rounded());
+        }
+
+        auto irot = std::dynamic_pointer_cast<Box_irot>(prop.property);
+        if (irot) {
+          if (irot->get_rotation() == 90 ||
+              irot->get_rotation() == 270) {
+            // swap width and height
+            image->set_resolution(image->get_height(),
+                                  image->get_width());
+          }
+        }
+      }
+
+      auto colr = std::dynamic_pointer_cast<Box_colr>(prop.property);
+      if (colr) {
+        auto profile = colr->get_color_profile();
+        image->set_color_profile(profile);
+      }
+    }
+  }
+
+
+  // --- remove auxiliary from top-level images and assign to their respective image
 
   auto iref_box = m_heif_file->get_iref_box();
   if (iref_box) {
@@ -596,7 +715,6 @@ Error HeifContext::interpret_heif_file()
           if (auxC_property->get_aux_type() == "urn:mpeg:avc:2015:auxid:1" ||   // HEIF (avc)
               auxC_property->get_aux_type() == "urn:mpeg:hevc:2015:auxid:1" ||  // HEIF (h265)
               auxC_property->get_aux_type() == "urn:mpeg:mpegB:cicp:systems:auxiliary:alpha") { // AVIF
-            image->set_is_alpha_channel_of(refs[0]);
 
             auto master_iter = m_all_images.find(refs[0]);
             if (master_iter == m_all_images.end()) {
@@ -604,12 +722,22 @@ Error HeifContext::interpret_heif_file()
                            heif_suberror_Nonexisting_item_referenced,
                            "Non-existing alpha image referenced");
             }
-            if (image.get() == master_iter->second.get()) {
+
+            auto master_img = master_iter->second;
+
+            if (image.get() == master_img.get()) {
               return Error(heif_error_Invalid_input,
                            heif_suberror_Nonexisting_item_referenced,
                            "Recursive alpha image detected");
             }
-            master_iter->second->set_alpha_channel(image);
+
+
+            if (image->get_width() == master_img->get_width() &&
+                image->get_height() == master_img->get_height()) {
+
+              image->set_is_alpha_channel_of(refs[0], true);
+              master_img->set_alpha_channel(image);
+            }
           }
 
 
@@ -645,6 +773,25 @@ Error HeifContext::interpret_heif_file()
             }
           }
 
+
+          // --- generic aux image
+
+          image->set_is_aux_image_of(refs[0], auxC_property->get_aux_type());
+
+          auto master_iter = m_all_images.find(refs[0]);
+          if (master_iter == m_all_images.end()) {
+            return Error(heif_error_Invalid_input,
+                         heif_suberror_Nonexisting_item_referenced,
+                         "Non-existing aux image referenced");
+          }
+          if (image.get() == master_iter->second.get()) {
+            return Error(heif_error_Invalid_input,
+                         heif_suberror_Nonexisting_item_referenced,
+                         "Recursive aux image detected");
+          }
+
+          master_iter->second->add_aux_image(image);
+
           remove_top_level_image(image);
         }
         else {
@@ -675,82 +822,42 @@ Error HeifContext::interpret_heif_file()
   }
 
 
-  // --- read through properties for each image and extract image resolutions
+  // --- assign color profile from grid tiles to main image when main image has no profile assigned
 
   for (auto& pair : m_all_images) {
     auto& image = pair.second;
+    auto id = pair.first;
 
-    std::vector<Box_ipco::Property> properties;
-
-    Error err = m_heif_file->get_properties(pair.first, properties);
-    if (err) {
-      return err;
+    auto infe_box = m_heif_file->get_infe_box(id);
+    if (!infe_box) {
+      continue;
     }
 
-    bool ispe_read = false;
-    bool primary_colr_set = false;
-    for (const auto& prop : properties) {
-      auto ispe = std::dynamic_pointer_cast<Box_ispe>(prop.property);
-      if (ispe) {
-        uint32_t width = ispe->get_width();
-        uint32_t height = ispe->get_height();
+    if (!iref_box) {
+      break;
+    }
 
+    if (infe_box->get_item_type() == "grid") {
+      std::vector<heif_item_id> image_references = iref_box->get_references(id, fourcc("dimg"));
 
-        // --- check whether the image size is "too large"
-
-        if (width > m_maximum_image_width_limit ||
-            height > m_maximum_image_height_limit) {
-          std::stringstream sstr;
-          sstr << "Image size " << width << "x" << height << " exceeds the maximum image size "
-               << m_maximum_image_width_limit << "x" << m_maximum_image_height_limit << "\n";
-
-          return Error(heif_error_Memory_allocation_error,
-                       heif_suberror_Security_limit_exceeded,
-                       sstr.str());
-        }
-
-        image->set_resolution(width, height);
-        image->set_ispe_resolution(width, height);
-        ispe_read = true;
+      if (image_references.empty()) {
+        continue; // TODO: can this every happen?
       }
 
-      if (ispe_read) {
-        auto clap = std::dynamic_pointer_cast<Box_clap>(prop.property);
-        if (clap) {
-          image->set_resolution(clap->get_width_rounded(),
-                                clap->get_height_rounded());
-        }
+      auto tileId = image_references.front();
 
-        auto irot = std::dynamic_pointer_cast<Box_irot>(prop.property);
-        if (irot) {
-          if (irot->get_rotation() == 90 ||
-              irot->get_rotation() == 270) {
-            // swap width and height
-            image->set_resolution(image->get_height(),
-                                  image->get_width());
-          }
-        }
+      auto iter = m_all_images.find(tileId);
+      if (iter == m_all_images.end()) {
+        continue; // invalid grid entry
       }
 
-      auto colr = std::dynamic_pointer_cast<Box_colr>(prop.property);
-      if (colr) {
-        auto profile = colr->get_color_profile();
+      auto tile_img = iter->second;
+      if (image->get_color_profile_icc() == nullptr && tile_img->get_color_profile_icc()) {
+        image->set_color_profile(tile_img->get_color_profile_icc());
+      }
 
-        image->set_color_profile(profile);
-
-        // if this is a grid item we assign the first one's color profile
-        // to the main image which is supposed to be a grid
-
-        // TODO: this condition is not correct. It would also classify a secondary image as a 'grid item'.
-        // We have to set the grid-image color profile in another way...
-        const bool is_grid_item = !image->is_primary() && !image->is_alpha_channel() && !image->is_depth_channel();
-
-        if (primary_is_grid &&
-            !primary_colr_set &&
-            is_grid_item) {
-          m_primary_image->set_color_profile(profile);
-          primary_colr_set = true;
-        }
+      if (image->get_color_profile_nclx() == nullptr && tile_img->get_color_profile_nclx()) {
+        image->set_color_profile(tile_img->get_color_profile_nclx());
       }
     }
   }
@@ -809,8 +916,8 @@ Error HeifContext::interpret_heif_file()
 
 
 HeifContext::Image::Image(HeifContext* context, heif_item_id id)
-    : m_heif_context(context),
-      m_id(id)
+        : m_heif_context(context),
+          m_id(id)
 {
   memset(&m_depth_representation_info, 0, sizeof(m_depth_representation_info));
 }
@@ -911,7 +1018,7 @@ Error HeifContext::decode_image_user(heif_item_id ID,
   bool different_colorspace = (target_colorspace != img->get_colorspace());
 
   int bpp = (options && options->convert_hdr_to_8bit) ? 8 : 0;
-
+// TODO: check BPP changed
   if (different_chroma || different_colorspace) {
     img = convert_colorspace(img, target_colorspace, target_chroma, nullptr, bpp);
     if (!img) {
@@ -1004,9 +1111,14 @@ Error HeifContext::decode_image_planar(heif_item_id ID,
     // If there is an NCLX profile in the HEIF/AVIF metadata, use this for the color conversion.
     // Otherwise, use the profile that is stored in the image stream itself and then set the
     // (non-NCLX) profile later.
-    auto nclx = std::dynamic_pointer_cast<const color_profile_nclx>(imginfo->get_color_profile());
+    auto nclx = imginfo->get_color_profile_nclx();
     if (nclx) {
       img->set_color_profile_nclx(nclx);
+    }
+
+    auto icc = imginfo->get_color_profile_icc();
+    if (icc) {
+      img->set_color_profile_icc(icc);
     }
 
     heif_colorspace target_colorspace = (out_colorspace == heif_colorspace_undefined ?
@@ -1028,11 +1140,6 @@ Error HeifContext::decode_image_planar(heif_item_id ID,
       if (!img) {
         return Error(heif_error_Unsupported_feature, heif_suberror_Unsupported_color_conversion);
       }
-    }
-
-    auto colorProfileInMetadata = std::dynamic_pointer_cast<const color_profile_nclx>(imginfo->get_color_profile());
-    if (colorProfileInMetadata) {
-      img->set_color_profile_nclx(colorProfileInMetadata);
     }
   }
   else if (image_type == "grid") {
@@ -1123,8 +1230,8 @@ Error HeifContext::decode_image_planar(heif_item_id ID,
         if (right >= img_width) { right = img_width - 1; }
         if (bottom >= img_height) { bottom = img_height - 1; }
 
-        if (left >= right ||
-            top >= bottom) {
+        if (left > right ||
+            top > bottom) {
           return Error(heif_error_Invalid_input,
                        heif_suberror_Invalid_clean_aperture);
         }
@@ -1196,7 +1303,8 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
   if (err) {
     return err;
   }
-  // std::cout << grid.dump();
+
+  //std::cout << grid.dump();
 
 
   auto iref_box = m_heif_file->get_iref_box();
@@ -1609,25 +1717,18 @@ static std::shared_ptr<HeifPixelImage>
 create_alpha_image_from_image_alpha_channel(const std::shared_ptr<HeifPixelImage> image)
 {
   // --- generate alpha image
-  // TODO: can we directly code a monochrome image instead of the dummy color channels?
-
-  int chroma_width = (image->get_width() + 1) / 2;
-  int chroma_height = (image->get_height() + 1) / 2;
 
   std::shared_ptr<HeifPixelImage> alpha_image = std::make_shared<HeifPixelImage>();
   alpha_image->create(image->get_width(), image->get_height(),
-                      heif_colorspace_YCbCr, heif_chroma_420);
+                      heif_colorspace_monochrome, heif_chroma_monochrome);
   alpha_image->copy_new_plane_from(image, heif_channel_Alpha, heif_channel_Y);
 
-  uint8_t bpp = image->get_bits_per_pixel(heif_channel_Alpha);
-  uint16_t half_range = static_cast<uint16_t>(1 << (bpp - 1));
 
-  alpha_image->fill_new_plane(heif_channel_Cb, half_range, chroma_width, chroma_height, bpp);
-  alpha_image->fill_new_plane(heif_channel_Cr, half_range, chroma_width, chroma_height, bpp);
+  // --- set nclx profile with full-range flag
 
   auto nclx = std::make_shared<color_profile_nclx>();
   nclx->set_undefined();
-  nclx->set_full_range_flag(true); // in default, but just to be sure in case defaults change
+  nclx->set_full_range_flag(true); // this is the default, but just to be sure in case the defaults change
   alpha_image->set_color_profile_nclx(nclx);
 
   return alpha_image;
@@ -1739,19 +1840,16 @@ Error HeifContext::encode_image(std::shared_ptr<HeifPixelImage> pixel_image,
 
   m_heif_file->set_brand(encoder->plugin->compression_format);
 
-  m_heif_file->set_hdlr_library_info(encoder->plugin->get_plugin_name());
+  // TODO: the hdlr box is not the right place for comments
+  // m_heif_file->set_hdlr_library_info(encoder->plugin->get_plugin_name());
 
   switch (encoder->plugin->compression_format) {
     case heif_compression_HEVC: {
-      heif_item_id image_id = m_heif_file->add_new_image("hvc1");
-
-      out_image = std::make_shared<Image>(this, image_id);
-      m_top_level_images.push_back(out_image);
-
-      error = out_image->encode_image_as_hevc(pixel_image,
-                                              encoder,
-                                              options,
-                                              heif_image_input_class_normal);
+      error = encode_image_as_hevc(pixel_image,
+                                   encoder,
+                                   options,
+                                   heif_image_input_class_normal,
+                                   out_image);
     }
       break;
 
@@ -1776,22 +1874,14 @@ Error HeifContext::encode_image(std::shared_ptr<HeifPixelImage> pixel_image,
 }
 
 
-Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> image,
-                                               struct heif_encoder* encoder,
-                                               const struct heif_encoding_options* options,
-                                               enum heif_image_input_class input_class)
+Error HeifContext::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> image,
+                                        struct heif_encoder* encoder,
+                                        const struct heif_encoding_options* options,
+                                        enum heif_image_input_class input_class,
+                                        std::shared_ptr<Image>& out_image)
 {
-  /*
-  const struct heif_encoder_plugin* encoder_plugin = nullptr;
-
-  encoder_plugin = m_heif_context->get_encoder(heif_compression_HEVC);
-
-  if (encoder_plugin == nullptr) {
-    return Error(heif_error_Unsupported_feature,
-                 heif_suberror_Unsupported_codec);
-  }
-  */
-
+  heif_item_id image_id = m_heif_file->add_new_image("hvc1");
+  out_image = std::make_shared<Image>(this, image_id);
 
 
   // --- check whether we have to convert the image color space
@@ -1820,20 +1910,8 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
   }
 
 
-  m_width = image->get_width(heif_channel_Y);
-  m_height = image->get_height(heif_channel_Y);
-
-  // --- choose which color profile to put into 'colr' box
-
-  if (input_class == heif_image_input_class_normal || input_class == heif_image_input_class_thumbnail) {
-    auto icc_profile = image->get_color_profile_icc();
-    if (icc_profile) {
-      m_heif_context->m_heif_file->set_color_profile(m_id, icc_profile);
-    }
-    else if (nclx_profile) {
-      m_heif_context->m_heif_file->set_color_profile(m_id, nclx_profile);
-    }
-  }
+  out_image->set_size(image->get_width(heif_channel_Y),
+                      image->get_height(heif_channel_Y));
 
 
   // --- if there is an alpha channel, add it as an additional image
@@ -1849,24 +1927,21 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
 
     // --- encode the alpha image
 
-    heif_item_id alpha_image_id = m_heif_context->m_heif_file->add_new_image("hvc1");
-
     std::shared_ptr<HeifContext::Image> heif_alpha_image;
-    heif_alpha_image = std::make_shared<Image>(m_heif_context, alpha_image_id);
 
-
-    Error error = heif_alpha_image->encode_image_as_hevc(alpha_image, encoder, options,
-                                                         heif_image_input_class_alpha);
+    Error error = encode_image_as_hevc(alpha_image, encoder, options,
+                                       heif_image_input_class_alpha,
+                                       heif_alpha_image);
     if (error) {
       return error;
     }
 
-    m_heif_context->m_heif_file->add_iref_reference(alpha_image_id, fourcc("auxl"), {m_id});
-    m_heif_context->m_heif_file->set_auxC_property(alpha_image_id, "urn:mpeg:hevc:2015:auxid:1");
+    m_heif_file->add_iref_reference(heif_alpha_image->get_id(), fourcc("auxl"), {image_id});
+    m_heif_file->set_auxC_property(heif_alpha_image->get_id(), "urn:mpeg:hevc:2015:auxid:1");
   }
 
 
-  m_heif_context->m_heif_file->add_hvcC_property(m_id);
+  m_heif_file->add_hvcC_property(image_id);
 
 
   heif_image c_api_image;
@@ -1878,6 +1953,8 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
                  err.subcode,
                  err.message);
   }
+
+  int encoded_width, encoded_height;
 
   for (;;) {
     uint8_t* data;
@@ -1893,35 +1970,120 @@ Error HeifContext::Image::encode_image_as_hevc(std::shared_ptr<HeifPixelImage> i
     const uint8_t NAL_SPS = 33;
 
     if ((data[0] >> 1) == NAL_SPS) {
-      int encoded_width, encoded_height;
       Box_hvcC::configuration config;
 
       parse_sps_for_hvcC_configuration(data, size, &config, &encoded_width, &encoded_height);
 
-      m_heif_context->m_heif_file->set_hvcC_configuration(m_id, config);
-      m_heif_context->m_heif_file->add_ispe_property(m_id, m_width, m_height);
-
-      // if image size was rounded up to even size, add a 'clap' box to crop the
-      // padding border away
-
-      if (m_width != (uint32_t) encoded_width ||
-          m_height != (uint32_t) encoded_height) {
-        m_heif_context->m_heif_file->add_clap_property(m_id, m_width, m_height,
-                                                       encoded_width, encoded_height);;
-      }
+      m_heif_file->set_hvcC_configuration(image_id, config);
     }
 
     switch (data[0] >> 1) {
       case 0x20:
       case 0x21:
       case 0x22:
-        m_heif_context->m_heif_file->append_hvcC_nal_data(m_id, data, size);
+        m_heif_file->append_hvcC_nal_data(image_id, data, size);
         break;
 
       default:
-        m_heif_context->m_heif_file->append_iloc_data_with_4byte_size(m_id, data, size);
+        m_heif_file->append_iloc_data_with_4byte_size(image_id, data, size);
     }
   }
+
+
+  // if image size was rounded up to even size, add a 'clap' box to crop the
+  // padding border away
+
+  if (out_image->get_width() != encoded_width ||
+      out_image->get_height() != encoded_height) {
+    if (options->macOS_compatibility_workaround == false) {
+      m_heif_file->add_clap_property(image_id,
+                                     out_image->get_width(),
+                                     out_image->get_height(),
+                                     encoded_width,
+                                     encoded_height);
+
+      m_heif_file->add_ispe_property(image_id, out_image->get_width(), out_image->get_height());
+    }
+    else {
+      // --- wrap the encoded image in a grid image just to apply the cropping
+
+      heif_item_id grid_image_id = m_heif_file->add_new_image("grid");
+      auto grid_image = std::make_shared<Image>(this, grid_image_id);
+
+      m_heif_file->add_iref_reference(grid_image_id, fourcc("dimg"), {image_id});
+
+      ImageGrid grid;
+      grid.set_num_tiles(1, 1);
+      grid.set_output_size(image->get_width(heif_channel_Y), image->get_height(heif_channel_Y));
+      auto grid_data = grid.write();
+
+      m_heif_file->append_iloc_data(grid_image_id, grid_data, 1);
+
+      m_heif_file->add_ispe_property(grid_image_id,
+                                     image->get_width(heif_channel_Y),
+                                     image->get_height(heif_channel_Y));
+
+      m_heif_file->add_ispe_property(image_id, encoded_width, encoded_height);
+
+
+      // --- now use the grid image instead of the original image
+
+      // hide the original image
+      m_heif_file->get_infe_box(image_id)->set_hidden_item(true);
+
+      out_image = grid_image;
+
+      // now use the grid image for all further property output
+      image_id = grid_image_id;
+    }
+  }
+  else {
+    m_heif_file->add_ispe_property(image_id, out_image->get_width(), out_image->get_height());
+  }
+
+  // --- choose which color profile to put into 'colr' box
+
+  if (input_class == heif_image_input_class_normal || input_class == heif_image_input_class_thumbnail) {
+    auto icc_profile = image->get_color_profile_icc();
+    if (icc_profile) {
+      m_heif_file->set_color_profile(image_id, icc_profile);
+    }
+
+    // save nclx profile
+
+    bool save_nclx_profile = (nclx_profile != nullptr);
+
+    // if there is an ICC profile, only save NCLX when we chose to save both profiles
+    if (icc_profile && !(options->version >= 3 &&
+                         options->save_two_colr_boxes_when_ICC_and_nclx_available)) {
+      save_nclx_profile = false;
+    }
+
+    // we might have turned off nclx completely because macOS/iOS cannot read it
+    if (options->version >= 4 && options->macOS_compatibility_workaround_no_nclx_profile) {
+      save_nclx_profile = false;
+    }
+
+    if (save_nclx_profile) {
+      m_heif_file->set_color_profile(image_id, nclx_profile);
+    }
+  }
+
+
+  // --- write PIXI property
+
+  if (image->get_chroma_format() == heif_chroma_monochrome) {
+    m_heif_file->add_pixi_property(image_id,
+                                   image->get_bits_per_pixel(heif_channel_Y), 0, 0);
+  }
+  else {
+    m_heif_file->add_pixi_property(image_id,
+                                   image->get_bits_per_pixel(heif_channel_Y),
+                                   image->get_bits_per_pixel(heif_channel_Cb),
+                                   image->get_bits_per_pixel(heif_channel_Cr));
+  }
+
+  m_top_level_images.push_back(out_image);
 
   return Error::Ok;
 }
@@ -1969,7 +2131,10 @@ Error HeifContext::Image::encode_image_as_av1(std::shared_ptr<HeifPixelImage> im
     if (icc_profile) {
       m_heif_context->m_heif_file->set_color_profile(m_id, icc_profile);
     }
-    else if (nclx_profile) {
+
+    if (nclx_profile &&
+        (!icc_profile || (options->version >= 3 &&
+                          options->save_two_colr_boxes_when_ICC_and_nclx_available))) {
       m_heif_context->m_heif_file->set_color_profile(m_id, nclx_profile);
     }
   }
@@ -2052,6 +2217,9 @@ Error HeifContext::Image::encode_image_as_av1(std::shared_ptr<HeifPixelImage> im
                                                      encoded_width, encoded_height);;
     }
   }
+
+
+  // TODO: do we also need a PIXI property for AVIF images?
 
   return Error::Ok;
 }
