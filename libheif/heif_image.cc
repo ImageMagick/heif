@@ -120,6 +120,25 @@ int heif::num_interleaved_pixels_per_plane(heif_chroma chroma)
 }
 
 
+bool heif::is_integer_multiple_of_chroma_size(int width,
+                                              int height,
+                                              heif_chroma chroma)
+{
+  switch (chroma) {
+    case heif_chroma_444:
+    case heif_chroma_monochrome:
+      return true;
+    case heif_chroma_422:
+      return (width & 1) == 0;
+    case heif_chroma_420:
+      return (width & 1) == 0 && (height & 1) == 0;
+    default:
+      assert(false);
+      return false;
+  }
+}
+
+
 void HeifPixelImage::create(int width, int height, heif_colorspace colorspace, heif_chroma chroma)
 {
   m_width = width;
@@ -228,7 +247,7 @@ void heif::get_subsampled_size(int width, int height,
 }
 
 
-bool HeifPixelImage::extend_to_size(int width, int height)
+bool HeifPixelImage::extend_padding_to_size(int width, int height)
 {
   for (auto& planeIter : m_planes) {
     auto* plane = &planeIter.second;
@@ -277,13 +296,9 @@ bool HeifPixelImage::extend_to_size(int width, int height)
              &plane->mem[(plane->m_height - 1) * plane->stride],
              subsampled_width * nbytes);
     }
-
-    plane->m_width = subsampled_width;
-    plane->m_height = subsampled_height;
   }
 
-  m_width = width;
-  m_height = height;
+  // don't modify the logical image size
 
   return true;
 }
@@ -412,6 +427,8 @@ void HeifPixelImage::copy_new_plane_from(const std::shared_ptr<const HeifPixelIm
 {
   int width = src_image->get_width(src_channel);
   int height = src_image->get_height(src_channel);
+
+  assert(!has_channel(dst_channel));
 
   add_plane(dst_channel, width, height, src_image->get_bits_per_pixel(src_channel));
 

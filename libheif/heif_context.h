@@ -167,6 +167,10 @@ namespace heif {
 
       const std::shared_ptr<Image>& get_alpha_channel() const { return m_alpha_channel; }
 
+      void set_is_premultiplied_alpha(bool flag) { m_premultiplied_alpha = flag; }
+
+      bool is_premultiplied_alpha() const { return m_premultiplied_alpha; }
+
 
       // --- depth channel
 
@@ -251,14 +255,16 @@ namespace heif {
       const std::vector<std::shared_ptr<ImageMetadata>>& get_metadata() const { return m_metadata; }
 
 
+      // --- miaf
+
+      void mark_not_miaf_compatible() { m_miaf_compatible = false; }
+
+      bool is_miaf_compatible() const { return m_miaf_compatible; }
+
+
       // === writing ===
 
       void set_preencoded_hevc_image(const std::vector<uint8_t>& data);
-
-      Error encode_image_as_av1(std::shared_ptr<HeifPixelImage> image,
-                                struct heif_encoder* encoder,
-                                const struct heif_encoding_options* options,
-                                enum heif_image_input_class input_class);
 
       const std::shared_ptr<const color_profile_nclx>& get_color_profile_nclx() const { return m_color_profile_nclx; }
 
@@ -291,6 +297,7 @@ namespace heif {
       std::vector<std::shared_ptr<Image>> m_thumbnails;
 
       bool m_is_alpha_channel = false;
+      bool m_premultiplied_alpha = false;
       bool m_implicitly_consumed_alpha = false; // alpha data was integrated into main color image
       heif_item_id m_alpha_channel_ref_id = 0;
       std::shared_ptr<Image> m_alpha_channel;
@@ -311,6 +318,8 @@ namespace heif {
 
       std::shared_ptr<const color_profile_nclx> m_color_profile_nclx;
       std::shared_ptr<const color_profile_raw> m_color_profile_icc;
+
+      bool m_miaf_compatible = true;
     };
 
     std::vector<std::shared_ptr<Image>> get_top_level_images() { return m_top_level_images; }
@@ -351,6 +360,12 @@ namespace heif {
                                const struct heif_encoding_options* options,
                                enum heif_image_input_class input_class,
                                std::shared_ptr<Image>& out_image);
+
+    Error encode_image_as_av1(std::shared_ptr<HeifPixelImage> image,
+                              struct heif_encoder* encoder,
+                              const struct heif_encoding_options* options,
+                              enum heif_image_input_class input_class,
+                              std::shared_ptr<Image>& out_image);
 
     void set_primary_image(std::shared_ptr<Image> image);
 

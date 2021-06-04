@@ -667,6 +667,13 @@ struct heif_error heif_image_handle_get_auxiliary_type(const struct heif_image_h
   auto auxType = handle->image->get_aux_type();
 
   char* buf = (char*)malloc(auxType.length()+1);
+  
+  if (buf == nullptr) {
+    return Error(heif_error_Memory_allocation_error,
+                 heif_suberror_Unspecified,
+                 "Failed to allocate memory for the type string").error_struct(handle->image.get());
+  }
+  
   strcpy(buf, auxType.c_str());
   *out_type = buf;
 
@@ -756,6 +763,12 @@ int heif_image_handle_get_ispe_height(const struct heif_image_handle* handle)
 int heif_image_handle_has_alpha_channel(const struct heif_image_handle* handle)
 {
   return handle->image->get_alpha_channel() != nullptr;
+}
+
+
+int heif_image_handle_is_premultiplied_alpha(const struct heif_image_handle* handle)
+{
+  return handle->image->is_premultiplied_alpha();
 }
 
 
@@ -1077,6 +1090,27 @@ uint8_t* heif_image_get_plane(struct heif_image* image,
 }
 
 
+void heif_image_set_premultiplied_alpha(struct heif_image* image,
+                                        int is_premultiplied_alpha)
+{
+  if (image == nullptr) {
+    return;
+  }
+
+  image->image->set_premultiplied_alpha(is_premultiplied_alpha);
+}
+
+
+int heif_image_is_premultiplied_alpha(struct heif_image* image)
+{
+  if (image == nullptr) {
+    return 0;
+  }
+
+  return image->image->is_premultiplied_alpha();
+}
+
+
 struct heif_error heif_image_scale_image(const struct heif_image* input,
                                          struct heif_image** output,
                                          int width, int height,
@@ -1386,6 +1420,13 @@ struct heif_error heif_image_get_nclx_color_profile(const struct heif_image* ima
   }
 
   auto nclx_profile = image->image->get_color_profile_nclx();
+  
+  if (!nclx_profile) {
+    Error err(heif_error_Color_profile_does_not_exist,
+              heif_suberror_Unspecified);
+    return err.error_struct(image->image.get());
+  }
+  
   Error err = nclx_profile->get_nclx_color_profile(out_data);
 
   return err.error_struct(image->image.get());

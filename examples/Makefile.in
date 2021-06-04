@@ -1201,7 +1201,7 @@ uninstall-man: uninstall-man1
 @HAVE_GO_TRUE@	ln -sf ${CURDIR}/../go ${CURDIR}/src/github.com/strukturag/libheif/
 
 @HAVE_GO_TRUE@heif-test-go: gopath $(top_builddir)/libheif/libheif.la $(top_builddir)/libheif.pc heif-test.go
-@HAVE_GO_TRUE@	GOPATH=${CURDIR} PKG_CONFIG_PATH=$(abs_top_builddir):$(abs_top_builddir)/libde265/dist/lib/pkgconfig/ CGO_CFLAGS="-I$(abs_top_builddir)" CGO_LDFLAGS="-L$(abs_top_builddir)/libheif/.libs" LD_LIBRARY_PATH=$(abs_top_builddir)/libheif/.libs $(GO) build -o heif-test-go ${heif_test_go_SOURCES}
+@HAVE_GO_TRUE@	GOPATH=${CURDIR} PKG_CONFIG_PATH=${PKG_CONFIG_PATH}:$(abs_top_builddir):$(abs_top_builddir)/libde265/dist/lib/pkgconfig/ CGO_CFLAGS="-I$(abs_top_builddir)" CGO_LDFLAGS="-L$(abs_top_builddir)/libheif/.libs" LD_LIBRARY_PATH=$(abs_top_builddir)/libheif/.libs $(GO) build -o heif-test-go ${heif_test_go_SOURCES}
 
 @HAVE_GO_TRUE@format-go: ${heif_test_go_SOURCES}
 @HAVE_GO_TRUE@	$(GO) fmt ${heif_test_go_SOURCES}

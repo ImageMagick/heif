@@ -207,7 +207,7 @@ There is also a GIMP plugin using libheif [here](https://github.com/strukturag/h
 
 The program `heif-thumbnailer` can be used as an HEIF/AVIF thumbnailer for the Gnome desktop.
 The matching Gnome configuration files are in the `gnome` directory.
-Place the files `heif.xml` and 'avif.xml' into `/usr/share/mime/packages` and `heif.thumbnailer` into `/usr/share/thumbnailers`.
+Place the files `heif.xml` and `avif.xml` into `/usr/share/mime/packages` and `heif.thumbnailer` into `/usr/share/thumbnailers`.
 You may have to run `update-mime-database /usr/share/mime` to update the list of known MIME types.
 
 
@@ -235,4 +235,5 @@ The sample applications are distributed under the terms of the MIT License.
 
 See COPYING for more details.
 
-Copyright (c) 2017-2020 Struktur AG Contact: Dirk Farin farin@struktur.de
+Copyright (c) 2017-2020 Struktur AG
+Contact: Dirk Farin <dirk.farin@gmail.com>

@@ -27,6 +27,7 @@
 #include "config.h"
 #endif
 
+#include <algorithm>
 #include <cstring>
 #include <cassert>
 #include <vector>
@@ -73,7 +74,7 @@ static const char* const kParam_chroma_valid_values[] = {
 
 static const char* kParam_tune = "tune";
 static const char* const kParam_tune_valid_values[] = {
-    "psnr", "ssim"
+    "psnr", "ssim", nullptr
 };
 
 static const int AOM_PLUGIN_PRIORITY = 40;
@@ -126,7 +127,13 @@ static void aom_init_parameters()
   p->has_default = true;
   p->integer.have_minimum_maximum = true;
   p->integer.minimum = 0;
-  p->integer.maximum = 8;
+
+  if (aom_codec_version_major() >= 3) {
+    p->integer.maximum = 9;
+  }
+  else {
+    p->integer.maximum = 8;
+  }
   p->integer.valid_values = NULL;
   p->integer.num_valid_values = 0;
   d[i++] = p++;
@@ -510,8 +517,13 @@ void aom_query_input_colorspace2(void* encoder_raw, heif_colorspace* colorspace,
 {
   struct encoder_struct_aom* encoder = (struct encoder_struct_aom*) encoder_raw;
 
-  *colorspace = heif_colorspace_YCbCr;
-  *chroma = encoder->chroma;
+  if (*colorspace == heif_colorspace_monochrome) {
+    // keep the monochrome colorspace
+  }
+  else {
+    *colorspace = heif_colorspace_YCbCr;
+    *chroma = encoder->chroma;
+  }
 }
 
 
@@ -560,7 +572,7 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
                          &rounded_width,
                          &rounded_height);
 
-  bool success = image->image->extend_to_size(rounded_width, rounded_height);
+  bool success = image->image->extend_padding_to_size(rounded_width, rounded_height);
   if (!success) {
     err = {heif_error_Memory_allocation_error,
            heif_suberror_Unspecified,
@@ -582,16 +594,21 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 
   aom_img_fmt_t img_format = AOM_IMG_FMT_NONE;
 
+  int chroma_height = 0;
+
   switch (chroma) {
     case heif_chroma_420:
     case heif_chroma_monochrome:
       img_format = AOM_IMG_FMT_I420;
+      chroma_height = (source_height+1)/2;
       break;
     case heif_chroma_422:
       img_format = AOM_IMG_FMT_I422;
+      chroma_height = (source_height+1)/2;
       break;
     case heif_chroma_444:
       img_format = AOM_IMG_FMT_I444;
+      chroma_height = source_height;
       break;
     default:
       img_format = AOM_IMG_FMT_NONE;
@@ -618,12 +635,12 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 
     if (chroma == heif_chroma_monochrome && plane != 0) {
       if (bpp_y == 8) {
-        memset(buf, 128, source_height * stride);
+        memset(buf, 128, chroma_height * stride);
       }
       else {
         uint16_t* buf16 = (uint16_t*) buf;
         uint16_t half_range = (uint16_t) (1 << (bpp_y - 1));
-        for (int i = 0; i < source_height * stride / 2; i++) {
+        for (int i = 0; i < chroma_height * stride / 2; i++) {
           buf16[i] = half_range;
         }
       }
