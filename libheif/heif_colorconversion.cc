@@ -242,7 +242,9 @@ Op_RGB_to_RGB24_32::convert_colorspace(const std::shared_ptr<const HeifPixelImag
   outimg->create(width, height, heif_colorspace_RGB,
                  want_alpha ? heif_chroma_interleaved_32bit : heif_chroma_interleaved_24bit);
 
-  outimg->add_plane(heif_channel_interleaved, width, height, 8);
+  if (!outimg->add_plane(heif_channel_interleaved, width, height, 8)) {
+    return nullptr;
+  }
 
   const uint8_t* in_r, * in_g, * in_b, * in_a = nullptr;
   int in_r_stride = 0, in_g_stride = 0, in_b_stride = 0, in_a_stride = 0;
