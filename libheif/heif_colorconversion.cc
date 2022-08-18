@@ -417,9 +417,11 @@ Op_YCbCr_to_RGB<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
 
   outimg->create(width, height, heif_colorspace_RGB, heif_chroma_444);
 
-  outimg->add_plane(heif_channel_R, width, height, bpp_y);
-  outimg->add_plane(heif_channel_G, width, height, bpp_y);
-  outimg->add_plane(heif_channel_B, width, height, bpp_y);
+  if (!outimg->add_plane(heif_channel_R, width, height, bpp_y) ||
+      !outimg->add_plane(heif_channel_G, width, height, bpp_y) ||
+      !outimg->add_plane(heif_channel_B, width, height, bpp_y)) {
+    return nullptr;
+  }
 
   if (has_alpha) {
     outimg->add_plane(heif_channel_Alpha, width, height, bpp_a);
@@ -619,9 +621,11 @@ Op_RGB_to_YCbCr<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
   int cwidth = (width + subH - 1) / subH;
   int cheight = (height + subV - 1) / subV;
 
-  outimg->add_plane(heif_channel_Y, width, height, bpp);
-  outimg->add_plane(heif_channel_Cb, cwidth, cheight, bpp);
-  outimg->add_plane(heif_channel_Cr, cwidth, cheight, bpp);
+  if (!outimg->add_plane(heif_channel_Y, width, height, bpp) ||
+      !outimg->add_plane(heif_channel_Cb, cwidth, cheight, bpp) ||
+      !outimg->add_plane(heif_channel_Cr, cwidth, cheight, bpp)) {
+    return nullptr;
+  }
 
   if (has_alpha) {
     outimg->add_plane(heif_channel_Alpha, width, height, bpp);
@@ -825,7 +829,9 @@ Op_YCbCr420_to_RGB24::convert_colorspace(const std::shared_ptr<const HeifPixelIm
 
   outimg->create(width, height, heif_colorspace_RGB, heif_chroma_interleaved_24bit);
 
-  outimg->add_plane(heif_channel_interleaved, width, height, 8);
+  if (!outimg->add_plane(heif_channel_interleaved, width, height, 8)) {
+    return nullptr;
+  }
 
   auto colorProfile = input->get_color_profile_nclx();
   YCbCr_to_RGB_coefficients coeffs = YCbCr_to_RGB_coefficients::defaults();
@@ -943,7 +949,9 @@ Op_YCbCr420_to_RGB32::convert_colorspace(const std::shared_ptr<const HeifPixelIm
 
   outimg->create(width, height, heif_colorspace_RGB, heif_chroma_interleaved_32bit);
 
-  outimg->add_plane(heif_channel_interleaved, width, height, 8);
+  if (!outimg->add_plane(heif_channel_interleaved, width, height, 8)) {
+    return nullptr;
+  }
 
 
   // --- get conversion coefficients
@@ -1102,7 +1110,9 @@ Op_RGB_HDR_to_RRGGBBaa_BE::convert_colorspace(const std::shared_ptr<const HeifPi
   outimg->create(width, height, heif_colorspace_RGB,
                  output_has_alpha ? heif_chroma_interleaved_RRGGBBAA_BE : heif_chroma_interleaved_RRGGBB_BE);
 
-  outimg->add_plane(heif_channel_interleaved, width, height, input->get_bits_per_pixel(heif_channel_R));
+  if (!outimg->add_plane(heif_channel_interleaved, width, height, input->get_bits_per_pixel(heif_channel_R))) {
+    return nullptr;
+  }
 
   const uint16_t* in_r, * in_g, * in_b, * in_a = nullptr;
   int in_r_stride = 0, in_g_stride = 0, in_b_stride = 0, in_a_stride = 0;
@@ -1260,7 +1270,9 @@ Op_RGB_to_RRGGBBaa_BE::convert_colorspace(const std::shared_ptr<const HeifPixelI
   outimg->create(width, height, heif_colorspace_RGB,
                  output_has_alpha ? heif_chroma_interleaved_RRGGBBAA_BE : heif_chroma_interleaved_RRGGBB_BE);
 
-  outimg->add_plane(heif_channel_interleaved, width, height, input->get_bits_per_pixel(heif_channel_R));
+  if (!outimg->add_plane(heif_channel_interleaved, width, height, input->get_bits_per_pixel(heif_channel_R))) {
+    return nullptr;
+  }
 
   const uint8_t* in_r, * in_g, * in_b, * in_a = nullptr;
   int in_r_stride = 0, in_g_stride = 0, in_b_stride = 0, in_a_stride = 0;
@@ -1381,12 +1393,16 @@ Op_RRGGBBaa_BE_to_RGB_HDR::convert_colorspace(const std::shared_ptr<const HeifPi
 
   outimg->create(width, height, heif_colorspace_RGB, heif_chroma_444);
 
-  outimg->add_plane(heif_channel_R, width, height, input->get_bits_per_pixel(heif_channel_interleaved));
-  outimg->add_plane(heif_channel_G, width, height, input->get_bits_per_pixel(heif_channel_interleaved));
-  outimg->add_plane(heif_channel_B, width, height, input->get_bits_per_pixel(heif_channel_interleaved));
+  if (!outimg->add_plane(heif_channel_R, width, height, input->get_bits_per_pixel(heif_channel_interleaved)) ||
+      !outimg->add_plane(heif_channel_G, width, height, input->get_bits_per_pixel(heif_channel_interleaved)) ||
+      !outimg->add_plane(heif_channel_B, width, height, input->get_bits_per_pixel(heif_channel_interleaved))) {
+    return nullptr;
+  }
 
   if (has_alpha) {
-    outimg->add_plane(heif_channel_Alpha, width, height, input->get_bits_per_pixel(heif_channel_interleaved));
+    if (!outimg->add_plane(heif_channel_Alpha, width, height, input->get_bits_per_pixel(heif_channel_interleaved))) {
+      return nullptr;
+    }
   }
 
   const uint8_t* in_p;
@@ -1550,8 +1566,10 @@ Op_RRGGBBaa_swap_endianness::convert_colorspace(const std::shared_ptr<const Heif
       return nullptr;
   }
 
-  outimg->add_plane(heif_channel_interleaved, width, height,
-                    input->get_bits_per_pixel(heif_channel_interleaved));
+  if (!outimg->add_plane(heif_channel_interleaved, width, height,
+                    input->get_bits_per_pixel(heif_channel_interleaved))) {
+    return nullptr;
+  }
 
   const uint8_t* in_p = nullptr;
   int in_p_stride = 0;
@@ -1640,15 +1658,19 @@ Op_mono_to_YCbCr420::convert_colorspace(const std::shared_ptr<const HeifPixelIma
   int chroma_width = (width + 1) / 2;
   int chroma_height = (height + 1) / 2;
 
-  outimg->add_plane(heif_channel_Y, width, height, input_bpp);
-  outimg->add_plane(heif_channel_Cb, chroma_width, chroma_height, input_bpp);
-  outimg->add_plane(heif_channel_Cr, chroma_width, chroma_height, input_bpp);
+  if (!outimg->add_plane(heif_channel_Y, width, height, input_bpp) ||
+      !outimg->add_plane(heif_channel_Cb, chroma_width, chroma_height, input_bpp) ||
+      !outimg->add_plane(heif_channel_Cr, chroma_width, chroma_height, input_bpp)) {
+    return nullptr;
+  }
 
   int alpha_bpp = 0;
   bool has_alpha = input->has_channel(heif_channel_Alpha);
   if (has_alpha) {
     alpha_bpp = input->get_bits_per_pixel(heif_channel_Alpha);
-    outimg->add_plane(heif_channel_Alpha, width, height, alpha_bpp);
+    if (!outimg->add_plane(heif_channel_Alpha, width, height, alpha_bpp)) {
+      return nullptr;
+    }
   }
 
 
@@ -1811,7 +1833,9 @@ Op_mono_to_RGB24_32::convert_colorspace(const std::shared_ptr<const HeifPixelIma
     outimg->create(width, height, heif_colorspace_RGB, heif_chroma_interleaved_24bit);
   }
 
-  outimg->add_plane(heif_channel_interleaved, width, height, 8);
+  if (!outimg->add_plane(heif_channel_interleaved, width, height, 8)) {
+    return nullptr;
+  }
 
   const uint8_t* in_y, * in_a;
   int in_y_stride = 0, in_a_stride;
@@ -1967,12 +1991,16 @@ Op_RGB24_32_to_YCbCr::convert_colorspace(const std::shared_ptr<const HeifPixelIm
 
   const bool has_alpha = (input->get_chroma_format() == heif_chroma_interleaved_32bit);
 
-  outimg->add_plane(heif_channel_Y, width, height, 8);
-  outimg->add_plane(heif_channel_Cb, chroma_width, chroma_height, 8);
-  outimg->add_plane(heif_channel_Cr, chroma_width, chroma_height, 8);
+  if (!outimg->add_plane(heif_channel_Y, width, height, 8) ||
+      !outimg->add_plane(heif_channel_Cb, chroma_width, chroma_height, 8) ||
+      !outimg->add_plane(heif_channel_Cr, chroma_width, chroma_height, 8)) {
+    return nullptr;
+  }
 
   if (has_alpha) {
-    outimg->add_plane(heif_channel_Alpha, width, height, 8);
+    if (!outimg->add_plane(heif_channel_Alpha, width, height, 8)) {
+      return nullptr;
+    }
   }
 
   uint8_t* out_cb, * out_cr, * out_y, * out_a;
@@ -2154,12 +2182,16 @@ Op_RGB24_32_to_YCbCr444_GBR::convert_colorspace(const std::shared_ptr<const Heif
 
   const bool has_alpha = (input->get_chroma_format() == heif_chroma_interleaved_32bit);
 
-  outimg->add_plane(heif_channel_Y, width, height, 8);
-  outimg->add_plane(heif_channel_Cb, width, height, 8);
-  outimg->add_plane(heif_channel_Cr, width, height, 8);
+  if (!outimg->add_plane(heif_channel_Y, width, height, 8) ||
+      !outimg->add_plane(heif_channel_Cb, width, height, 8) ||
+      !outimg->add_plane(heif_channel_Cr, width, height, 8)) {
+    return nullptr;
+  }
 
   if (has_alpha) {
-    outimg->add_plane(heif_channel_Alpha, width, height, 8);
+    if (!outimg->add_plane(heif_channel_Alpha, width, height, 8)) {
+      return nullptr;
+    }
   }
 
   uint8_t* out_cb, * out_cr, * out_y, * out_a;
@@ -2465,7 +2497,9 @@ Op_to_sdr_planes::convert_colorspace(const std::shared_ptr<const HeifPixelImage>
       if (input_bits>8) {
         int width = input->get_width(channel);
         int height = input->get_height(channel);
-        outimg->add_plane(channel, width, height, 8);
+        if (!outimg->add_plane(channel, width, height, 8)) {
+          return nullptr;
+        }
 
         int shift = input_bits - 8;
 
@@ -2576,12 +2610,16 @@ Op_RRGGBBxx_HDR_to_YCbCr420::convert_colorspace(const std::shared_ptr<const Heif
   int cwidth = (width + 1) / 2;
   int cheight = (height + 1) / 2;
 
-  outimg->add_plane(heif_channel_Y, width, height, bpp);
-  outimg->add_plane(heif_channel_Cb, cwidth, cheight, bpp);
-  outimg->add_plane(heif_channel_Cr, cwidth, cheight, bpp);
+  if (!outimg->add_plane(heif_channel_Y, width, height, bpp) ||
+      !outimg->add_plane(heif_channel_Cb, cwidth, cheight, bpp) ||
+      !outimg->add_plane(heif_channel_Cr, cwidth, cheight, bpp)) {
+    return nullptr;
+  }
 
   if (has_alpha) {
-    outimg->add_plane(heif_channel_Alpha, width, height, bpp);
+    if (!outimg->add_plane(heif_channel_Alpha, width, height, bpp)) {
+      return nullptr;
+    }
   }
 
   const uint8_t* in_p;
@@ -2756,10 +2794,14 @@ Op_YCbCr420_to_RRGGBBaa::convert_colorspace(const std::shared_ptr<const HeifPixe
 
   int bytesPerPixel = has_alpha ? 8 : 6;
 
-  outimg->add_plane(heif_channel_interleaved, width, height, bpp);
+  if (!outimg->add_plane(heif_channel_interleaved, width, height, bpp)) {
+    return nullptr;
+  }
 
   if (has_alpha) {
-    outimg->add_plane(heif_channel_Alpha, width, height, bpp);
+    if (!outimg->add_plane(heif_channel_Alpha, width, height, bpp)) {
+      return nullptr;
+    }
   }
 
   uint8_t* out_p;
