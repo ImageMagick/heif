@@ -2401,7 +2401,7 @@ Op_to_hdr_planes::convert_colorspace(const std::shared_ptr<const HeifPixelImage>
       int width = input->get_width(channel);
       int height = input->get_height(channel);
       if (!outimg->add_plane(channel, width, height, target_state.bits_per_pixel)) {
-        return false;
+        return nullptr;
       }
 
       int input_bits = input->get_bits_per_pixel(channel);
