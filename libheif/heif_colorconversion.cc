@@ -424,7 +424,9 @@ Op_YCbCr_to_RGB<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
   }
 
   if (has_alpha) {
-    outimg->add_plane(heif_channel_Alpha, width, height, bpp_a);
+    if (!outimg->add_plane(heif_channel_Alpha, width, height, bpp_a)) {
+      return nullptr;
+    }
   }
 
   const Pixel* in_y, * in_cb, * in_cr, * in_a;
@@ -628,7 +630,9 @@ Op_RGB_to_YCbCr<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
   }
 
   if (has_alpha) {
-    outimg->add_plane(heif_channel_Alpha, width, height, bpp);
+    if (!outimg->add_plane(heif_channel_Alpha, width, height, bpp)) {
+      return nullptr;
+    }
   }
 
   const Pixel* in_r, * in_g, * in_b, * in_a;
