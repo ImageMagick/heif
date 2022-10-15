@@ -34,18 +34,22 @@ static void TestDecodeImage(struct heif_context* ctx,
   struct heif_error err;
 
   heif_image_handle_is_primary_image(handle);
+#ifndef NDEBUG
   int width = heif_image_handle_get_width(handle);
   int height = heif_image_handle_get_height(handle);
   assert(width >= 0);
   assert(height >= 0);
+#endif  
   int metadata_count = heif_image_handle_get_number_of_metadata_blocks(handle, nullptr);
   assert(metadata_count >= 0);
   assert(static_cast<size_t>(metadata_count) < filesize / sizeof(heif_item_id));
   heif_item_id* metadata_ids = static_cast<heif_item_id*>(malloc(metadata_count * sizeof(heif_item_id)));
   assert(metadata_ids);
+#ifndef NDEBUG
   int metadata_ids_count = heif_image_handle_get_list_of_metadata_block_IDs(handle, nullptr, metadata_ids,
                                                                             metadata_count);
   assert(metadata_count == metadata_ids_count);
+#endif
   for (int i = 0; i < metadata_count; i++) {
     heif_image_handle_get_metadata_type(handle, metadata_ids[i]);
     heif_image_handle_get_metadata_content_type(handle, metadata_ids[i]);
