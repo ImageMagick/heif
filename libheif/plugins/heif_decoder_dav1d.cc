@@ -18,10 +18,11 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "heif.h"
-#include "heif_plugin.h"
-#include "heif_limits.h"
-#include "heif_image.h"
+#include "libheif/heif.h"
+#include "libheif/heif_plugin.h"
+#include "libheif/heif_limits.h"
+#include "libheif/heif_image.h"
+#include "heif_decoder_dav1d.h"
 
 #if defined(HAVE_CONFIG_H)
 #include "config.h"
@@ -39,6 +40,7 @@ struct dav1d_decoder
   Dav1dSettings settings;
   Dav1dContext* context;
   Dav1dData data;
+  bool strict_decoding = false;
 };
 
 static const char kEmptyString[] = "";
@@ -127,6 +129,13 @@ void dav1d_free_decoder(void* decoder_raw)
 }
 
 
+void dav1d_set_strict_decoding(void* decoder_raw, int flag)
+{
+  struct dav1d_decoder* decoder = (dav1d_decoder*) decoder_raw;
+
+  decoder->strict_decoding = flag;
+}
+
 struct heif_error dav1d_push_data(void* decoder_raw, const void* frame_data, size_t frame_size)
 {
   auto* decoder = (struct dav1d_decoder*) decoder_raw;
@@ -155,7 +164,10 @@ struct heif_error dav1d_decode_image(void* decoder_raw, struct heif_image** out_
   Dav1dPicture frame;
   memset(&frame, 0, sizeof(Dav1dPicture));
 
+  bool flushed = false;
+
   for (;;) {
+
     int res = dav1d_send_data(decoder->context, &decoder->data);
     if ((res < 0) && (res != DAV1D_ERR(EAGAIN))) {
       err = {heif_error_Decoder_plugin_error,
@@ -165,11 +177,11 @@ struct heif_error dav1d_decode_image(void* decoder_raw, struct heif_image** out_
     }
 
     res = dav1d_get_picture(decoder->context, &frame);
-    if (res == DAV1D_ERR(EAGAIN)) {
-      err = {heif_error_Decoder_plugin_error,
-             heif_suberror_Unspecified,
-             kEmptyString};
-      return err;
+    if (!flushed && res == DAV1D_ERR(EAGAIN)) {
+      if (decoder->data.sz == 0) {
+        flushed = true;
+      }
+      continue;
     }
     else if (res < 0) {
       err = {heif_error_Decoder_plugin_error,
@@ -224,15 +236,15 @@ struct heif_error dav1d_decode_image(void* decoder_raw, struct heif_image** out_
   // --- read nclx parameters from decoded AV1 bitstream
 
   heif_color_profile_nclx nclx;
-  nclx.color_primaries = (heif_color_primaries) frame.seq_hdr->pri;
-  nclx.transfer_characteristics = (heif_transfer_characteristics) frame.seq_hdr->trc;
-  nclx.matrix_coefficients = (heif_matrix_coefficients) frame.seq_hdr->mtrx;
+  HEIF_WARN_OR_FAIL(decoder->strict_decoding, heif_img, heif_nclx_color_profile_set_color_primaries(&nclx, frame.seq_hdr->pri), {});
+  HEIF_WARN_OR_FAIL(decoder->strict_decoding, heif_img, heif_nclx_color_profile_set_transfer_characteristics(&nclx, frame.seq_hdr->trc), {});
+  HEIF_WARN_OR_FAIL(decoder->strict_decoding, heif_img, heif_nclx_color_profile_set_matrix_coefficients(&nclx, frame.seq_hdr->mtrx), {});
   nclx.full_range_flag = (frame.seq_hdr->color_range != 0);
   heif_image_set_nclx_color_profile(heif_img, &nclx);
 
 
 
-  // --- transfer data from aom_image_t to HeifPixelImage
+  // --- transfer data from Dav1dPicture to HeifPixelImage
 
   heif_channel channel2plane[3] = {
       heif_channel_Y,
@@ -243,11 +255,9 @@ struct heif_error dav1d_decode_image(void* decoder_raw, struct heif_image** out_
 
   // --- copy image data
 
-  for (int c = 0; c < 3; c++) {
-    if (chroma == heif_chroma_monochrome && c > 0) {
-      break;
-    }
+  int num_planes = (chroma == heif_chroma_monochrome ? 1 : 3);
 
+  for (int c = 0; c < num_planes; c++) {
     int bpp = frame.p.bpc;
 
     const uint8_t* data = (uint8_t*) frame.data[c];
@@ -285,7 +295,7 @@ struct heif_error dav1d_decode_image(void* decoder_raw, struct heif_image** out_
 
 static const struct heif_decoder_plugin decoder_dav1d
     {
-        1,
+        2,
         dav1d_plugin_name,
         dav1d_init_plugin,
         dav1d_deinit_plugin,
@@ -293,7 +303,8 @@ static const struct heif_decoder_plugin decoder_dav1d
         dav1d_new_decoder,
         dav1d_free_decoder,
         dav1d_push_data,
-        dav1d_decode_image
+        dav1d_decode_image,
+        dav1d_set_strict_decoding
     };
 
 
@@ -301,3 +312,13 @@ const struct heif_decoder_plugin* get_decoder_plugin_dav1d()
 {
   return &decoder_dav1d;
 }
+
+
+
+#if PLUGIN_DAV1D
+heif_plugin_info plugin_info {
+  1,
+  heif_plugin_type_decoder,
+  &decoder_dav1d
+};
+#endif

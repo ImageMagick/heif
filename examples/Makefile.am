@@ -15,7 +15,7 @@ heif_convert_DEPENDENCIES = ../libheif/libheif.la
 heif_convert_CXXFLAGS = -I$(top_srcdir) -I$(top_builddir)/.
 heif_convert_LDFLAGS =
 heif_convert_LDADD = ../libheif/libheif.la
-heif_convert_SOURCES = encoder.cc encoder.h heif_convert.cc encoder_y4m.cc encoder_y4m.h
+heif_convert_SOURCES = encoder.cc encoder.h heif_convert.cc encoder_y4m.cc encoder_y4m.h ../libheif/exif.h ../libheif/exif.cc
 dist_man_MANS += heif-convert.1
 
 
@@ -25,7 +25,7 @@ heif_thumbnailer_DEPENDENCIES = ../libheif/libheif.la
 heif_thumbnailer_CXXFLAGS = -I$(top_srcdir) -I$(top_builddir) $(libpng_CFLAGS)
 heif_thumbnailer_LDFLAGS = $(libpng_LIBS)
 heif_thumbnailer_LDADD = ../libheif/libheif.la
-heif_thumbnailer_SOURCES = encoder.cc encoder.h heif_thumbnailer.cc encoder_png.cc encoder_png.h
+heif_thumbnailer_SOURCES = encoder.cc encoder.h heif_thumbnailer.cc encoder_png.cc encoder_png.h ../libheif/exif.h ../libheif/exif.cc
 dist_man_MANS += heif-thumbnailer.1
 endif
 
@@ -52,7 +52,7 @@ heif_enc_DEPENDENCIES = ../libheif/libheif.la
 heif_enc_CXXFLAGS = -I$(top_srcdir) -I$(top_builddir)
 heif_enc_LDFLAGS =
 heif_enc_LDADD = ../libheif/libheif.la
-heif_enc_SOURCES = heif_enc.cc
+heif_enc_SOURCES = heif_enc.cc benchmark.cc benchmark.h ../libheif/exif.h ../libheif/exif.cc
 dist_man_MANS += heif-enc.1
 
 if HAVE_LIBJPEG

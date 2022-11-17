@@ -71,14 +71,14 @@ if [ "$MINGW" == "32" ]; then
     unset CXX
     BIN_SUFFIX=.exe
     BIN_WRAPPER=wine
-    export WINEPATH="/usr/lib/gcc/i686-w64-mingw32/7.3-posix/;/usr/i686-w64-mingw32/lib"
+    export WINEPATH="/usr/lib/gcc/i686-w64-mingw32/9.3-posix/;/usr/i686-w64-mingw32/lib"
 elif [ "$MINGW" == "64" ]; then
     # Make sure the correct compiler will be used.
     unset CC
     unset CXX
     BIN_SUFFIX=.exe
     BIN_WRAPPER=wine64
-    export WINEPATH="/usr/lib/gcc/x86_64-w64-mingw32/7.3-posix/;/usr/x86_64-w64-mingw32/lib"
+    export WINEPATH="/usr/lib/gcc/x86_64-w64-mingw32/9.3-posix/;/usr/x86_64-w64-mingw32/lib"
 elif [ ! -z "$FUZZER" ]; then
     export CC="$BUILD_ROOT/clang/bin/clang"
     export CXX="$BUILD_ROOT/clang/bin/clang++"
@@ -124,7 +124,7 @@ fi
 
 if [ ! -z "$CMAKE" ]; then
     echo "Preparing cmake build files ..."
-    CMAKE_OPTIONS=
+    CMAKE_OPTIONS="-DCMAKE_BUILD_TYPE=Release"
     if [ "$CURRENT_OS" = "osx" ] ; then
         # Make sure the homebrew installed libraries are used when building instead
         # of the libraries provided by Apple.
@@ -133,11 +133,18 @@ if [ ! -z "$CMAKE" ]; then
     if [ "$WITH_RAV1E" = "1" ]; then
         CMAKE_OPTIONS="$CMAKE_OPTIONS -DUSE_LOCAL_RAV1E=1"
     fi
+    if [ "$CLANG_TIDY" = "1" ]; then
+        CMAKE_OPTIONS="$CMAKE_OPTIONS -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    fi
 
     cmake . $CMAKE_OPTIONS
 fi
 
-if [ -z "$EMSCRIPTEN_VERSION" ] && [ -z "$CHECK_LICENSES" ] && [ -z "$TARBALL" ]; then
+if [ ! -z "$FUZZER" ] && [ "$CURRENT_OS" = "linux" ]; then
+    export ASAN_SYMBOLIZER="$BUILD_ROOT/clang/bin/llvm-symbolizer"
+fi
+
+if [ -z "$EMSCRIPTEN_VERSION" ] && [ -z "$CHECK_LICENSES" ] && [ -z "$TARBALL" ] && [ -z "$CLANG_TIDY" ]; then
     echo "Building libheif ..."
     make -j $(nproc)
     if [ "$CURRENT_OS" = "linux" ] && [ -z "$CMAKE" ] && [ -z "$MINGW" ] && [ -z "$FUZZER" ]; then
@@ -254,8 +261,8 @@ if [ ! -z "$TARBALL" ]; then
 fi
 
 if [ ! -z "$FUZZER" ] && [ "$CURRENT_OS" = "linux" ]; then
-    export ASAN_SYMBOLIZER="$BUILD_ROOT/clang/bin/llvm-symbolizer"
-    ./libheif/file-fuzzer ./fuzzing/corpus/*
+    ./libheif/color-conversion-fuzzer ./fuzzing/corpus/*color-conversion-fuzzer*
+    ./libheif/file-fuzzer ./fuzzing/corpus/*.heic
 
     echo "Running color conversion fuzzer ..."
     ./libheif/color-conversion-fuzzer -max_total_time=120

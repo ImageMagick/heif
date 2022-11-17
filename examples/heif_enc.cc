@@ -33,6 +33,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <memory>
 #include <algorithm>
 #include <vector>
@@ -61,7 +62,13 @@ extern "C" {
 #endif
 
 #include <assert.h>
+#include "benchmark.h"
+#include "libheif/exif.h"
 
+#define JPEG_EXIF_MARKER  (JPEG_APP0+1)  /* JPEG marker code for EXIF */
+#define JPEG_EXIF_MARKER_LEN 6 // "Exif/0/0"
+#define JPEG_XMP_MARKER  (JPEG_APP0+1)  /* JPEG marker code for XMP */
+#define JPEG_XMP_MARKER_ID "http://ns.adobe.com/xap/1.0/"
 #define JPEG_ICC_MARKER  (JPEG_APP0+2)  /* JPEG marker code for ICC */
 #define JPEG_ICC_OVERHEAD_LEN  14        /* size of non-profile data in APP2 */
 
@@ -70,17 +77,33 @@ int thumb_alpha = 1;
 int list_encoders = 0;
 int two_colr_boxes = 0;
 int premultiplied_alpha = 0;
+int run_benchmark = 0;
+int metadata_compression = 0;
 const char* encoderId = nullptr;
 
-int nclx_matrix_coefficients = 6;
-int nclx_colour_primaries = 2;
-int nclx_transfer_characteristic = 2;
+uint16_t nclx_matrix_coefficients = 6;
+uint16_t nclx_colour_primaries = 2;
+uint16_t nclx_transfer_characteristic = 2;
 int nclx_full_range = true;
+
+// for benchmarking
+
+#if !defined(_MSC_VER)
+#define HAVE_GETTIMEOFDAY 1  // TODO: should be set by CMake
+#endif
+
+#if HAVE_GETTIMEOFDAY
+#include <sys/time.h>
+struct timeval time_encoding_start;
+struct timeval time_encoding_end;
+#endif
 
 const int OPTION_NCLX_MATRIX_COEFFICIENTS = 1000;
 const int OPTION_NCLX_COLOUR_PRIMARIES = 1001;
 const int OPTION_NCLX_TRANSFER_CHARACTERISTIC = 1002;
 const int OPTION_NCLX_FULL_RANGE_FLAG = 1003;
+const int OPTION_PLUGIN_DIRECTORY = 1004;
+
 
 static struct option long_options[] = {
     {(char* const) "help",                    no_argument,       0,              'h'},
@@ -103,7 +126,10 @@ static struct option long_options[] = {
     {(char* const) "full_range_flag",         required_argument, 0,              OPTION_NCLX_FULL_RANGE_FLAG},
     {(char* const) "enable-two-colr-boxes",   no_argument,       &two_colr_boxes, 1},
     {(char* const) "premultiplied-alpha",     no_argument,       &premultiplied_alpha, 1},
-    {0, 0,                                                       0,              0}
+    {(char* const) "plugin-directory",        required_argument, 0,              OPTION_PLUGIN_DIRECTORY},
+    {(char* const) "benchmark",               no_argument,       &run_benchmark,  1},
+    {(char* const) "enable-metadata-compression", no_argument,       &metadata_compression,  1},
+    {0, 0,                                                       0,               0},
 };
 
 void show_help(const char* argv0)
@@ -132,21 +158,34 @@ void show_help(const char* argv0)
             << "  -b, --bit-depth # bit-depth of generated HEIF/AVIF file when using 16-bit PNG input (default: 10 bit)\n"
             << "  -p                set encoder parameter (NAME=VALUE)\n"
             << "  -A, --avif        encode as AVIF\n"
-            << "      --list-encoders   list all available encoders for the selected output format\n"
-            << "  -e, --encoder     ID select encoder to use (the IDs can be listed with --list-encoders)\n"
+            << "      --list-encoders         list all available encoders for the selected output format\n"
+            << "  -e, --encoder ID            select encoder to use (the IDs can be listed with --list-encoders)\n"
+            << "      --plugin-directory DIR  load all codec plugins in the directory\n"
             << "  -E, --even-size   [deprecated] crop images to even width and height (odd sizes are not decoded correctly by some software)\n"
             << "  --matrix_coefficients     nclx profile: color conversion matrix coefficients, default=6 (see h.273)\n"
             << "  --colour_primaries        nclx profile: color primaries (see h.273)\n"
             << "  --transfer_characteristic nclx profile: transfer characteristics (see h.273)\n"
             << "  --full_range_flag         nclx profile: full range flag, default: 1\n"
-            << "  --enable-two-colr-boxes   will write both an ICC and an nclx color profile if both a present\n"
+            << "  --enable-two-colr-boxes   will write both an ICC and an nclx color profile if both are present\n"
             << "  --premultiplied-alpha     input image has premultiplied alpha\n"
+            << "  --enable-metadata-compression   enable XMP metadata compression (experimental)\n"
+            << "  --benchmark               measure encoding time, PSNR, and output file size\n"
             << "\n"
             << "Note: to get lossless encoding, you need this set of options:\n"
             << "  -L                       switch encoder to lossless mode\n"
-            << "  -p chroma=444            switch off color subsampling\n"
+            << "  -p chroma=444            switch off chroma subsampling\n"
             << "  --matrix_coefficients=0  encode in RGB color-space\n";
 }
+
+
+
+struct InputImage
+{
+  std::shared_ptr<heif_image> image;
+  std::vector<uint8_t> xmp;
+  std::vector<uint8_t> exif;
+  heif_orientation orientation;
+};
 
 
 #if HAVE_LIBJPEG
@@ -257,8 +296,65 @@ boolean ReadICCProfileFromJPEG(j_decompress_ptr cinfo,
 }
 
 
-std::shared_ptr<heif_image> loadJPEG(const char* filename)
+static bool JPEGMarkerIsXMP(jpeg_saved_marker_ptr marker)
 {
+  return
+      marker->marker == JPEG_XMP_MARKER &&
+      marker->data_length >= strlen(JPEG_XMP_MARKER_ID) + 1 &&
+      strncmp((const char*) (marker->data), JPEG_XMP_MARKER_ID, strlen(JPEG_XMP_MARKER_ID)) == 0;
+}
+
+bool ReadXMPFromJPEG(j_decompress_ptr cinfo,
+                     std::vector<uint8_t>& xmpData)
+{
+  jpeg_saved_marker_ptr marker;
+
+  for (marker = cinfo->marker_list; marker != NULL; marker = marker->next) {
+    if (JPEGMarkerIsXMP(marker)) {
+      int length = (int)(marker->data_length - (strlen(JPEG_XMP_MARKER_ID) + 1));
+      xmpData.resize(length);
+      memcpy(xmpData.data(), marker->data + strlen(JPEG_XMP_MARKER_ID) + 1, length);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+static bool JPEGMarkerIsEXIF(jpeg_saved_marker_ptr marker)
+{
+  return marker->marker == JPEG_EXIF_MARKER &&
+         marker->data_length >= JPEG_EXIF_MARKER_LEN &&
+         GETJOCTET(marker->data[0]) == 'E' &&
+         GETJOCTET(marker->data[1]) == 'x' &&
+         GETJOCTET(marker->data[2]) == 'i' &&
+         GETJOCTET(marker->data[3]) == 'f' &&
+         GETJOCTET(marker->data[4]) == 0 &&
+         GETJOCTET(marker->data[5]) == 0;
+}
+
+bool ReadEXIFFromJPEG(j_decompress_ptr cinfo,
+                     std::vector<uint8_t>& exifData)
+{
+  jpeg_saved_marker_ptr marker;
+
+  for (marker = cinfo->marker_list; marker != NULL; marker = marker->next) {
+    if (JPEGMarkerIsEXIF(marker)) {
+      int length = (int)(marker->data_length - JPEG_EXIF_MARKER_LEN);
+      exifData.resize(length);
+      memcpy(exifData.data(), marker->data + JPEG_EXIF_MARKER_LEN, length);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+InputImage loadJPEG(const char* filename)
+{
+  InputImage img;
   struct heif_image* image = nullptr;
 
 
@@ -270,6 +366,9 @@ std::shared_ptr<heif_image> loadJPEG(const char* filename)
   // to store embedded icc profile
   uint32_t iccLen;
   uint8_t* iccBuffer = NULL;
+
+  std::vector<uint8_t> xmpData;
+  std::vector<uint8_t> exifData;
 
   // open input file
 
@@ -288,11 +387,23 @@ std::shared_ptr<heif_image> loadJPEG(const char* filename)
   jpeg_stdio_src(&cinfo, infile);
 
   /* Adding this part to prepare for icc profile reading. */
-  jpeg_save_markers(&cinfo, JPEG_APP0 + 2, 0xFFFF);
+  jpeg_save_markers(&cinfo, JPEG_ICC_MARKER, 0xFFFF);
+  jpeg_save_markers(&cinfo, JPEG_XMP_MARKER, 0xFFFF);
+  jpeg_save_markers(&cinfo, JPEG_EXIF_MARKER, 0xFFFF);
 
   jpeg_read_header(&cinfo, TRUE);
 
   boolean embeddedIccFlag = ReadICCProfileFromJPEG(&cinfo, &iccBuffer, &iccLen);
+  boolean embeddedXMPFlag = ReadXMPFromJPEG(&cinfo, xmpData);
+  if (embeddedXMPFlag) {
+    img.xmp = xmpData;
+  }
+
+  boolean embeddedEXIFFlag = ReadEXIFFromJPEG(&cinfo, exifData);
+  if (embeddedEXIFFlag) {
+    img.exif = exifData;
+    img.orientation = (heif_orientation)read_exif_orientation_tag(exifData.data(), (int)exifData.size());
+  }
 
   if (cinfo.jpeg_color_space == JCS_GRAYSCALE) {
     cinfo.out_color_space = JCS_GRAYSCALE;
@@ -408,17 +519,19 @@ std::shared_ptr<heif_image> loadJPEG(const char* filename)
 
   fclose(infile);
 
-  return std::shared_ptr<heif_image>(image,
+  img.image = std::shared_ptr<heif_image>(image,
                                      [](heif_image* img) { heif_image_release(img); });
+
+  return img;
 }
 
 #else
-std::shared_ptr<heif_image> loadJPEG(const char* filename)
+InputImage loadJPEG(const char* filename)
 {
   std::cerr << "Cannot load JPEG because libjpeg support was not compiled.\n";
   exit(1);
 
-  return nullptr;
+  return {};
 }
 #endif
 
@@ -434,7 +547,7 @@ user_read_fn(png_structp png_ptr, png_bytep data, png_size_t length)
 } // user_read_data
 
 
-std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
+InputImage loadPNG(const char* filename, int output_bit_depth)
 {
   FILE* fh = fopen(filename, "rb");
   if (!fh) {
@@ -442,6 +555,8 @@ std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
     exit(1);
   }
 
+
+  InputImage input_image;
 
   // ### Code copied from LibVideoGfx and slightly modified to use HeifPixelImage
 
@@ -578,6 +693,39 @@ std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
 
   /* read rest of file, and get additional chunks in info_ptr - REQUIRED */
   png_read_end(png_ptr, info_ptr);
+
+  // --- read EXIF data
+
+  png_bytep exifPtr = nullptr;
+  png_uint_32 exifSize = 0;
+  if (png_get_eXIf_1(png_ptr, info_ptr, &exifSize, &exifPtr) == PNG_INFO_eXIf) {
+    input_image.exif.resize(exifSize);
+    memcpy(input_image.exif.data(), exifPtr, exifSize);
+
+    // remove the EXIF orientation since it is informal only in PNG and we do not want to confuse with an orientation not matching irot/imir
+    modify_exif_orientation_tag_if_it_exists(input_image.exif.data(), (int)input_image.exif.size(), 1);
+  }
+
+  // --- read XMP data
+
+  png_textp textPtr = nullptr;
+  const png_uint_32 nTextChunks = png_get_text(png_ptr, info_ptr, &textPtr, nullptr);
+  for (png_uint_32 i = 0; i < nTextChunks; i++, textPtr++) {
+    png_size_t textLength = textPtr->text_length;
+    if ((textPtr->compression == PNG_ITXT_COMPRESSION_NONE) || (textPtr->compression == PNG_ITXT_COMPRESSION_zTXt)) {
+      textLength = textPtr->itxt_length;
+    }
+
+    if (!strcmp(textPtr->key, "XML:com.adobe.xmp")) {
+      if (textLength == 0) {
+        // TODO: error
+      }
+      else {
+        input_image.xmp.resize(textLength);
+        memcpy(input_image.xmp.data(), textPtr->text, textLength);
+      }
+    }
+  }
 
   /* clean up after the read, and free any memory allocated - REQUIRED */
   png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp) NULL);
@@ -758,17 +906,19 @@ std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
 
   delete[] row_pointers;
 
-  return std::shared_ptr<heif_image>(image,
-                                     [](heif_image* img) { heif_image_release(img); });
+  input_image.image = std::shared_ptr<heif_image>(image,
+                                                  [](heif_image* img) { heif_image_release(img); });
+
+  return input_image;
 }
 
 #else
-std::shared_ptr<heif_image> loadPNG(const char* filename, int output_bit_depth)
+InputImage loadPNG(const char* filename, int output_bit_depth)
 {
   std::cerr << "Cannot load PNG because libpng support was not compiled.\n";
   exit(1);
 
-  return nullptr;
+  return {};
 }
 #endif
 
@@ -957,9 +1107,9 @@ void list_encoder_parameters(heif_encoder* encoder)
 
         if (valid_options) {
           std::cerr << ", { ";
-          for (int i = 0; valid_options[i]; i++) {
-            if (i > 0) { std::cerr << ","; }
-            std::cerr << valid_options[i];
+          for (int k = 0; valid_options[k]; k++) {
+            if (k > 0) { std::cerr << ","; }
+            std::cerr << valid_options[k];
           }
           std::cerr << " }";
         }
@@ -972,9 +1122,9 @@ void list_encoder_parameters(heif_encoder* encoder)
 }
 
 
-void set_params(struct heif_encoder* encoder, std::vector<std::string> params)
+void set_params(struct heif_encoder* encoder, const std::vector<std::string>& params)
 {
-  for (std::string p : params) {
+  for (const std::string& p : params) {
     auto pos = p.find_first_of('=');
     if (pos == std::string::npos || pos == 0 || pos == p.size() - 1) {
       std::cerr << "Encoder parameter must be in the format 'name=value'\n";
@@ -1006,8 +1156,18 @@ static void show_list_of_encoders(const heif_encoder_descriptor*const* encoder_d
 }
 
 
+class LibHeifInitializer {
+public:
+  LibHeifInitializer() { heif_init(nullptr); }
+  ~LibHeifInitializer() { heif_deinit(); }
+};
+
+
 int main(int argc, char** argv)
 {
+  // This takes care of initializing libheif and also deinitializing it at the end to free all resources.
+  LibHeifInitializer initializer;
+
   int quality = 50;
   bool lossless = false;
   std::string output_filename;
@@ -1065,17 +1225,31 @@ int main(int argc, char** argv)
         encoderId = optarg;
         break;
       case OPTION_NCLX_MATRIX_COEFFICIENTS:
-        nclx_matrix_coefficients = atoi(optarg);
+        nclx_matrix_coefficients = (uint16_t)strtoul(optarg, nullptr, 0);
         break;
       case OPTION_NCLX_COLOUR_PRIMARIES:
-        nclx_colour_primaries = atoi(optarg);
+        nclx_colour_primaries = (uint16_t)strtoul(optarg, nullptr, 0);
         break;
       case OPTION_NCLX_TRANSFER_CHARACTERISTIC:
-        nclx_transfer_characteristic = atoi(optarg);
+        nclx_transfer_characteristic = (uint16_t)strtoul(optarg, nullptr, 0);
         break;
       case OPTION_NCLX_FULL_RANGE_FLAG:
         nclx_full_range = atoi(optarg);
         break;
+      case OPTION_PLUGIN_DIRECTORY: {
+        int nPlugins;
+        heif_error error = heif_load_plugins(optarg, nullptr, &nPlugins, 0);
+        if (error.code) {
+          std::cerr << "Error loading libheif plugins.\n";
+          return 1;
+        }
+
+        // Note: since we process the option within the loop, we can only consider the '-v' flags coming before the plugin loading option.
+        if (logging_level>0) {
+          std::cout << nPlugins << " plugins loaded from directory " << optarg << "\n";
+        }
+        break;
+      }
     }
   }
 
@@ -1091,7 +1265,6 @@ int main(int argc, char** argv)
       logging_level = 4;
     }
   }
-
 
 
   // ==============================================================================
@@ -1118,6 +1291,7 @@ int main(int argc, char** argv)
     return 0;
   }
 
+  const heif_encoder_descriptor* active_encoder_descriptor = nullptr;
   if (count > 0) {
     int idx = 0;
     if (encoderId != nullptr) {
@@ -1140,6 +1314,8 @@ int main(int argc, char** argv)
       std::cerr << error.message << "\n";
       return 5;
     }
+
+    active_encoder_descriptor = encoder_descriptors[idx];
   }
   else {
     std::cerr << "No " << (enc_av1f ? "AV1" : "HEVC") << " encoder available.\n";
@@ -1160,6 +1336,8 @@ int main(int argc, char** argv)
 
 
   struct heif_error error;
+
+  std::shared_ptr<heif_image> primary_image;
 
   for (; optind < argc; optind++) {
     std::string input_filename = argv[optind];
@@ -1200,35 +1378,67 @@ int main(int argc, char** argv)
       filetype = Y4M;
     }
 
-    std::shared_ptr<heif_image> image;
+    InputImage input_image;
     if (filetype == PNG) {
-      image = loadPNG(input_filename.c_str(), output_bit_depth);
+      input_image = loadPNG(input_filename.c_str(), output_bit_depth);
     }
     else if (filetype == Y4M) {
-      image = loadY4M(input_filename.c_str());
+      input_image.image = loadY4M(input_filename.c_str());
     }
     else {
-      image = loadJPEG(input_filename.c_str());
+      input_image = loadJPEG(input_filename.c_str());
     }
 
+    std::shared_ptr<heif_image> image = input_image.image;
+
+    if (!primary_image) {
+      primary_image = image;
+    }
+
+#if HAVE_GETTIMEOFDAY
+    if (run_benchmark) {
+      gettimeofday(&time_encoding_start, nullptr);
+    }
+#endif
+
     heif_color_profile_nclx nclx;
-    nclx.matrix_coefficients = (heif_matrix_coefficients) nclx_matrix_coefficients;
-    nclx.transfer_characteristics = (heif_transfer_characteristics) nclx_transfer_characteristic;
-    nclx.color_primaries = (heif_color_primaries) nclx_colour_primaries;
+    error = heif_nclx_color_profile_set_matrix_coefficients(&nclx, nclx_matrix_coefficients);
+    if (error.code) {
+      std::cerr << "Invalid matrix coefficients specified.\n";
+      exit(5);
+    }
+    error = heif_nclx_color_profile_set_transfer_characteristics(&nclx, nclx_transfer_characteristic);
+    if (error.code) {
+      std::cerr << "Invalid transfer characteristics specified.\n";
+      exit(5);
+    }
+    error = heif_nclx_color_profile_set_color_primaries(&nclx, nclx_colour_primaries);
+    if (error.code) {
+      std::cerr << "Invalid color primaries specified.\n";
+      exit(5);
+    }
     nclx.full_range_flag = (uint8_t) nclx_full_range;
 
     //heif_image_set_nclx_color_profile(image.get(), &nclx);
 
+    if (lossless) {
+      if (heif_encoder_descriptor_supportes_lossless_compression(active_encoder_descriptor)) {
+        heif_encoder_set_lossless(encoder, lossless);
+      }
+      else {
+        std::cerr << "Warning: the selected encoder does not support lossless encoding. Encoding in lossy mode.\n";
+      }
+    }
+
     heif_encoder_set_lossy_quality(encoder, quality);
-    heif_encoder_set_lossless(encoder, lossless);
     heif_encoder_set_logging_level(encoder, logging_level);
 
     set_params(encoder, raw_params);
-
     struct heif_encoding_options* options = heif_encoding_options_alloc();
     options->save_alpha_channel = (uint8_t) master_alpha;
     options->save_two_colr_boxes_when_ICC_and_nclx_available = (uint8_t)two_colr_boxes;
     options->output_nclx_profile = &nclx;
+    options->image_orientation = input_image.orientation;
 
     if (crop_to_even_size) {
       if (heif_image_get_primary_width(image.get()) == 1 ||
@@ -1267,6 +1477,32 @@ int main(int argc, char** argv)
       return 1;
     }
 
+    // write EXIF to HEIC
+    if (!input_image.exif.empty()) {
+      // Note: we do not modify the EXIF Orientation here because we want it to match the HEIF transforms.
+      // TODO: is this a good choice? Or should we set it to 1 (normal) so that other, faulty software will not transform it once more?
+
+      error = heif_context_add_exif_metadata(context.get(), handle,
+                                             input_image.exif.data(), (int) input_image.exif.size());
+      if (error.code != 0) {
+        heif_encoding_options_free(options);
+        std::cerr << "Could not write EXIF metadata: " << error.message << "\n";
+        return 1;
+      }
+    }
+
+    // write XMP to HEIC
+    if (!input_image.xmp.empty()) {
+      error = heif_context_add_XMP_metadata2(context.get(), handle,
+                                     input_image.xmp.data(), (int) input_image.xmp.size(),
+                                     metadata_compression ? heif_metadata_compression_deflate : heif_metadata_compression_off);
+      if (error.code != 0) {
+        heif_encoding_options_free(options);
+        std::cerr << "Could not write XMP metadata: " << error.message << "\n";
+        return 1;
+      }
+    }
+
     if (thumbnail_bbox_size > 0) {
       // encode thumbnail
 
@@ -1292,6 +1528,12 @@ int main(int argc, char** argv)
       }
     }
 
+#if HAVE_GETTIMEOFDAY
+    if (run_benchmark) {
+      gettimeofday(&time_encoding_end, nullptr);
+    }
+#endif
+
     heif_image_handle_release(handle);
     heif_encoding_options_free(options);
   }
@@ -1302,6 +1544,21 @@ int main(int argc, char** argv)
   if (error.code) {
     std::cerr << error.message << "\n";
     return 5;
+  }
+
+  if (run_benchmark) {
+    double psnr = compute_psnr(primary_image.get(), output_filename);
+    std::cout << "PSNR: " << std::setprecision(2) << std::fixed << psnr << " ";
+
+#if HAVE_GETTIMEOFDAY
+    double t = (double)(time_encoding_end.tv_sec - time_encoding_start.tv_sec) + (double)(time_encoding_end.tv_usec - time_encoding_start.tv_usec)/1000000.0;
+    std::cout << "time: " << std::setprecision(1) << std::fixed << t << " ";
+#endif
+
+    std::ifstream istr(output_filename.c_str());
+    istr.seekg(0, std::ios_base::end);
+    std::streamoff size = istr.tellg();
+    std::cout << "size: " << size << "\n";
   }
 
   return 0;

@@ -18,10 +18,11 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "heif.h"
-#include "heif_plugin.h"
-#include "heif_avif.h"
-#include "heif_api_structs.h"
+#include "libheif/heif.h"
+#include "libheif/heif_plugin.h"
+#include "libheif/heif_avif.h"
+#include "libheif/heif_api_structs.h"
+#include "heif_encoder_rav1e.h"
 
 #if defined(HAVE_CONFIG_H)
 #include "config.h"
@@ -58,7 +59,7 @@ struct encoder_struct_rav1e
   bool data_read = false;
 };
 
-static const char* kError_out_of_memory = "Out of memory";
+//static const char* kError_out_of_memory = "Out of memory";
 
 static const char* kParam_min_q = "min-q";
 static const char* kParam_threads = "threads";
@@ -75,7 +76,7 @@ static struct heif_error heif_error_codec_library_error = {heif_error_Encoder_pl
                                                            heif_suberror_Unspecified,
                                                            "rav1e error"};
 
-static const int RAV1E_PLUGIN_PRIORITY = 50;
+static const int RAV1E_PLUGIN_PRIORITY = 20;
 
 #define MAX_PLUGIN_NAME_LENGTH 80
 
@@ -478,57 +479,36 @@ void rav1e_query_input_colorspace2(void* encoder_raw, heif_colorspace* colorspac
 }
 
 
-void rav1e_query_encoded_size(void* encoder, uint32_t input_width, uint32_t input_height,
-                              uint32_t* encoded_width, uint32_t* encoded_height)
-{
-  *encoded_width = std::max(input_width, 16U);
-  *encoded_height = std::max(input_height, 16U);
-}
-
-
 struct heif_error rav1e_encode_image(void* encoder_raw, const struct heif_image* image,
                                      heif_image_input_class input_class)
 {
   auto* encoder = (struct encoder_struct_rav1e*) encoder_raw;
 
-  // --- round image size to minimum size
-
-  uint32_t rounded_width, rounded_height;
-  rav1e_query_encoded_size(encoder,
-                           image->image->get_width(),
-                           image->image->get_height(),
-                           &rounded_width,
-                           &rounded_height);
-
-  bool success = image->image->extend_padding_to_size(rounded_width, rounded_height);
-  if (!success) {
-    struct heif_error err = {
-        heif_error_Memory_allocation_error,
-        heif_suberror_Unspecified,
-        kError_out_of_memory
-    };
-    return err;
-  }
-
-
   const heif_chroma chroma = heif_image_get_chroma_format(image);
 
   uint8_t yShift = 0;
   RaChromaSampling chromaSampling;
+  RaChromaSamplePosition chromaPosition;
   RaPixelRange rav1eRange;
+
   if (input_class == heif_image_input_class_alpha) {
     chromaSampling = RA_CHROMA_SAMPLING_CS420; // I can't seem to get RA_CHROMA_SAMPLING_CS400 to work right now, unfortunately
+    chromaPosition = RA_CHROMA_SAMPLE_POSITION_UNKNOWN; // TODO: set to CENTER when AV1 and rav1e supports this
+    yShift = 1;
   }
   else {
     switch (chroma) {
       case heif_chroma_444:
         chromaSampling = RA_CHROMA_SAMPLING_CS444;
+        chromaPosition = RA_CHROMA_SAMPLE_POSITION_COLOCATED;
         break;
       case heif_chroma_422:
         chromaSampling = RA_CHROMA_SAMPLING_CS422;
+        chromaPosition = RA_CHROMA_SAMPLE_POSITION_COLOCATED;
         break;
       case heif_chroma_420:
         chromaSampling = RA_CHROMA_SAMPLING_CS420;
+        chromaPosition = RA_CHROMA_SAMPLE_POSITION_UNKNOWN; // TODO: set to CENTER when AV1 and rav1e supports this
         yShift = 1;
         break;
       default:
@@ -548,8 +528,7 @@ struct heif_error rav1e_encode_image(void* encoder_raw, const struct heif_image*
   auto rav1eConfigRaw = rav1e_config_default();
   auto rav1eConfig = std::shared_ptr<RaConfig>(rav1eConfigRaw, [](RaConfig* c) { rav1e_config_unref(c); });
 
-  if (rav1e_config_set_pixel_format(rav1eConfig.get(), (uint8_t) bitDepth, chromaSampling,
-                                    RA_CHROMA_SAMPLE_POSITION_UNKNOWN, rav1eRange) < 0) {
+  if (rav1e_config_set_pixel_format(rav1eConfig.get(), (uint8_t) bitDepth, chromaSampling, chromaPosition, rav1eRange) < 0) {
     return heif_error_codec_library_error;
   }
 
@@ -698,7 +677,7 @@ static const struct heif_encoder_plugin encoder_plugin_rav1e
         /* id_name */ "rav1e",
         /* priority */ RAV1E_PLUGIN_PRIORITY,
         /* supports_lossy_compression */ true,
-        /* supports_lossless_compression */ true,
+        /* supports_lossless_compression */ false,
         /* get_plugin_name */ rav1e_plugin_name,
         /* init_plugin */ rav1e_init_plugin,
         /* cleanup_plugin */ rav1e_cleanup_plugin,
@@ -721,10 +700,19 @@ static const struct heif_encoder_plugin encoder_plugin_rav1e
         /* encode_image */ rav1e_encode_image,
         /* get_compressed_data */ rav1e_get_compressed_data,
         /* query_input_colorspace (v2) */ rav1e_query_input_colorspace2,
-        /* query_encoded_size (v3) */ rav1e_query_encoded_size
+        /* query_encoded_size (v3) */ nullptr
     };
 
 const struct heif_encoder_plugin* get_encoder_plugin_rav1e()
 {
   return &encoder_plugin_rav1e;
 }
+
+
+#if PLUGIN_RAV1E
+heif_plugin_info plugin_info {
+  1,
+  heif_plugin_type_encoder,
+  &encoder_plugin_rav1e
+};
+#endif

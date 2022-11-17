@@ -18,15 +18,17 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "heif.h"
-#include "heif_plugin.h"
-#include "heif_colorconversion.h"
-#include "heif_api_structs.h"
+#include "libheif/heif.h"
+#include "libheif/heif_plugin.h"
+#include "libheif/heif_colorconversion.h"
+#include "libheif/heif_api_structs.h"
+#include "heif_decoder_libde265.h"
 
 #if defined(HAVE_CONFIG_H)
 #include "config.h"
 #endif
 
+#include <assert.h>
 #include <memory>
 #include <cstring>
 
@@ -38,6 +40,7 @@ using namespace heif;
 struct libde265_decoder
 {
   de265_decoder_context* ctx;
+  bool strict_decoding = false;
 };
 
 static const char kEmptyString[] = "";
@@ -110,9 +113,9 @@ static struct heif_error convert_libde265_image_to_heif_image(struct libde265_de
 
   int bpp = de265_get_bits_per_pixel(de265img, 0);
 
-  int nPlanes = (is_mono ? 1 : 3);
+  int num_planes = (is_mono ? 1 : 3);
 
-  for (int c = 0; c < nPlanes; c++) {
+  for (int c = 0; c < num_planes; c++) {
     if (de265_get_bits_per_pixel(de265img, c) != bpp) {
       struct heif_error err = {heif_error_Unsupported_feature,
                                heif_suberror_Unsupported_color_conversion,
@@ -185,6 +188,14 @@ static void libde265_free_decoder(void* decoder_raw)
   (void) err;
 
   delete decoder;
+}
+
+
+void libde265_set_strict_decoding(void* decoder_raw, int flag)
+{
+  struct libde265_decoder* decoder = (libde265_decoder*) decoder_raw;
+
+  decoder->strict_decoding = flag;
 }
 
 
@@ -329,14 +340,15 @@ static struct heif_error libde265_v1_decode_image(void* decoder_raw,
         return err;
       }
 
-      auto nclx = std::make_shared<color_profile_nclx>();
+      struct heif_color_profile_nclx* nclx = heif_nclx_color_profile_alloc();
 #if LIBDE265_NUMERIC_VERSION >= 0x01000700
-      nclx->set_full_range_flag(de265_get_image_full_range_flag(image));
-      nclx->set_matrix_coefficients((uint16_t)de265_get_image_matrix_coefficients(image));
-      nclx->set_colour_primaries((uint16_t)de265_get_image_colour_primaries(image));
-      nclx->set_transfer_characteristics((uint16_t)de265_get_image_transfer_characteristics(image));
+      HEIF_WARN_OR_FAIL(decoder->strict_decoding, *out_img, heif_nclx_color_profile_set_color_primaries(nclx, (uint16_t)de265_get_image_colour_primaries(image)), { heif_nclx_color_profile_free(nclx);});
+      HEIF_WARN_OR_FAIL(decoder->strict_decoding, *out_img, heif_nclx_color_profile_set_transfer_characteristics(nclx, (uint16_t)de265_get_image_transfer_characteristics(image)), { heif_nclx_color_profile_free(nclx);});
+      HEIF_WARN_OR_FAIL(decoder->strict_decoding, *out_img, heif_nclx_color_profile_set_matrix_coefficients(nclx, (uint16_t)de265_get_image_matrix_coefficients(image)), { heif_nclx_color_profile_free(nclx);});
+      nclx->full_range_flag = (bool)de265_get_image_full_range_flag(image);
 #endif
-      (*out_img)->image->set_color_profile_nclx(nclx);
+      heif_image_set_nclx_color_profile(*out_img, nclx);
+      heif_nclx_color_profile_free(nclx);
 
       de265_release_next_picture(decoder->ctx);
     }
@@ -368,7 +380,7 @@ static const struct heif_decoder_plugin decoder_libde265
 
 static const struct heif_decoder_plugin decoder_libde265
     {
-        1,
+        2,
         libde265_plugin_name,
         libde265_init_plugin,
         libde265_deinit_plugin,
@@ -376,7 +388,8 @@ static const struct heif_decoder_plugin decoder_libde265
         libde265_new_decoder,
         libde265_free_decoder,
         libde265_v1_push_data,
-        libde265_v1_decode_image
+        libde265_v1_decode_image,
+        libde265_set_strict_decoding
     };
 
 #endif
@@ -385,3 +398,13 @@ const struct heif_decoder_plugin* get_decoder_plugin_libde265()
 {
   return &decoder_libde265;
 }
+
+
+
+#if PLUGIN_LIBDE265
+heif_plugin_info plugin_info {
+  1,
+  heif_plugin_type_decoder,
+  &decoder_libde265
+};
+#endif

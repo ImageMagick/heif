@@ -95,8 +95,19 @@ void show_help(const char* argv0)
   fprintf(stderr, "  -h, --help           show help\n");
 }
 
+
+class LibHeifInitializer {
+public:
+  LibHeifInitializer() { heif_init(nullptr); }
+  ~LibHeifInitializer() { heif_deinit(); }
+};
+
+
 int main(int argc, char** argv)
 {
+  // This takes care of initializing libheif and also deinitializing it at the end to free all resources.
+  LibHeifInitializer initializer;
+
   bool dump_boxes = false;
 
   bool write_raw_image = false;
@@ -335,6 +346,36 @@ int main(int argc, char** argv)
 
       heif_image_handle_release(depth_handle);
     }
+
+    // --- metadata
+
+    int numMetadata = heif_image_handle_get_number_of_metadata_blocks(handle, nullptr);
+    printf("metadata:\n");
+    if (numMetadata>0) {
+      std::vector<heif_item_id> ids(numMetadata);
+      heif_image_handle_get_list_of_metadata_block_IDs(handle, nullptr, ids.data(), numMetadata);
+
+      for (int n=0;n<numMetadata;n++) {
+        std::string itemtype = heif_image_handle_get_metadata_type(handle, ids[n]);
+        std::string contenttype = heif_image_handle_get_metadata_content_type(handle, ids[n]);
+        std::string ID{"unknown"};
+        if (itemtype=="Exif") {
+          ID = itemtype;
+        }
+        else if (contenttype=="application/rdf+xml") {
+          ID = "XMP";
+        }
+        else {
+          ID = itemtype + "/" + contenttype;
+        }
+
+        printf("  %s: %zu bytes\n",ID.c_str(), heif_image_handle_get_metadata_size(handle,ids[n]));
+      }
+    }
+    else {
+      printf("  none\n");
+    }
+
 
     heif_image_handle_release(handle);
   }

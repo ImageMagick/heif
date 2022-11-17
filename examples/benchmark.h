@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2022 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -18,9 +18,15 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBHEIF_HEIF_DECODER_DAV1D_H
-#define LIBHEIF_HEIF_DECODER_DAV1D_H
 
-const struct heif_decoder_plugin* get_decoder_plugin_dav1d();
+#ifndef LIBHEIF_BENCHMARK_H
+#define LIBHEIF_BENCHMARK_H
 
-#endif
+#include <memory>
+#include <string>
+
+struct heif_image;
+
+double compute_psnr(heif_image* original_image, const std::string& encoded_file);
+
+#endif //LIBHEIF_BENCHMARK_H

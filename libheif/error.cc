@@ -27,16 +27,15 @@ const char heif::Error::kSuccess[] = "Success";
 const char* cUnknownError = "Unknown error";
 
 
-heif::Error::Error()
-    : error_code(heif_error_Ok),
-      sub_error_code(heif_suberror_Unspecified)
-{
-}
+heif::Error heif::Error::Ok(heif_error_Ok);
+
+
+heif::Error::Error() = default;
 
 
 heif::Error::Error(heif_error_code c,
                    heif_suberror_code sc,
-                   std::string msg)
+                   const std::string& msg)
     : error_code(c),
       sub_error_code(sc),
       message(msg)
@@ -69,6 +68,8 @@ const char* heif::Error::get_error_string(heif_error_code err)
       return "Error during encoding or writing output file";
     case heif_error_Color_profile_does_not_exist:
       return "Color profile does not exist";
+    case heif_error_Plugin_loading_error:
+      return "Error while loading plugin";
   }
 
   assert(false);
@@ -149,6 +150,12 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
       return "Invalid pixi box";
     case heif_suberror_Wrong_tile_image_pixel_depth:
       return "Wrong tile image pixel depth";
+    case heif_suberror_Unknown_NCLX_color_primaries:
+      return "Unknown NCLX color primaries";
+    case heif_suberror_Unknown_NCLX_transfer_characteristics:
+      return "Unknown NCLX transfer characteristics";
+    case heif_suberror_Unknown_NCLX_matrix_coefficients:
+      return "Unknown NCLX matrix coefficients";
 
 
       // --- Memory_allocation_error ---
@@ -185,6 +192,8 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
       return "Unsupported color conversion";
     case heif_suberror_Unsupported_item_construction_method:
       return "Unsupported item construction method";
+    case heif_suberror_Unsupported_header_compression_method:
+      return "Unsupported header compression method";
 
       // --- Encoder_plugin_error --
 
@@ -195,6 +204,15 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
 
     case heif_suberror_Cannot_write_output_data:
       return "Cannot write output data";
+
+      // --- Plugin_loading_error ---
+
+    case heif_suberror_Plugin_loading_error:
+      return "Plugin file cannot be loaded";
+    case heif_suberror_Plugin_is_not_loaded:
+      return "Trying to remove a plugin that is not loaded";
+    case heif_suberror_Cannot_read_plugin_directory:
+      return "Error while scanning the directory for plugins";
   }
 
   assert(false);

@@ -43,7 +43,8 @@ extern "C" {
 //  1.9.2        1             2            2             1             1            1
 //  1.10         1             2            3             1             1            1
 //  1.11         1             2            4             1             1            1
-
+//  1.13         1             3            4             1             1            1
+//  1.14         1             3            5             1             1            1
 
 #if defined(_MSC_VER) && !defined(LIBHEIF_STATIC_BUILD)
 #ifdef LIBHEIF_EXPORTS
@@ -120,7 +121,10 @@ enum heif_error_code
   heif_error_Encoding_error = 9,
 
   // Application has asked for a color profile type that does not exist
-  heif_error_Color_profile_does_not_exist = 10
+  heif_error_Color_profile_does_not_exist = 10,
+
+  // Error loading a dynamic plugin
+  heif_error_Plugin_loading_error = 11
 };
 
 
@@ -207,6 +211,12 @@ enum heif_suberror_code
 
   heif_suberror_Wrong_tile_image_pixel_depth = 132,
 
+  heif_suberror_Unknown_NCLX_color_primaries = 133,
+
+  heif_suberror_Unknown_NCLX_transfer_characteristics = 134,
+
+  heif_suberror_Unknown_NCLX_matrix_coefficients = 135,
+
 
   // --- Memory_allocation_error ---
 
@@ -255,6 +265,8 @@ enum heif_suberror_code
 
   heif_suberror_Unsupported_item_construction_method = 3004,
 
+  heif_suberror_Unsupported_header_compression_method = 3005,
+
 
   // --- Encoder_plugin_error ---
 
@@ -264,6 +276,13 @@ enum heif_suberror_code
   // --- Encoding_error ---
 
   heif_suberror_Cannot_write_output_data = 5000,
+
+
+  // --- Plugin loading error ---
+
+  heif_suberror_Plugin_loading_error = 6000,        // a specific plugin file cannot be loaded
+  heif_suberror_Plugin_is_not_loaded = 6001,        // trying to remove a plugin that is not loaded
+  heif_suberror_Cannot_read_plugin_directory = 6002 // error while scanning the directory for plugins
 };
 
 
@@ -284,6 +303,60 @@ typedef uint32_t heif_item_id;
 
 
 
+// ========================= library initialization ======================
+
+// You should call heif_init() when you start using libheif and heif_deinit() when you are finished.
+// These calls are reference counted. Each call to heif_init() should be matched by one call to heif_deinit().
+// For backwards compatibility, it is not really necessary to call heif_init(), but if you don't, the plugins
+// registered by default may not be freed correctly.
+// However, this should not be mixed, i.e. one part of your program does use heif_init()/heif_deinit() and another doesn't.
+// If in doubt, enclose everything with init/deinit.
+
+struct heif_init_params
+{
+  int version;
+
+  // currently no parameters
+};
+
+
+// You may pass nullptr to get default parameters. Currently, no parameters are supported.
+LIBHEIF_API
+struct heif_error heif_init(struct heif_init_params*);
+
+LIBHEIF_API
+void heif_deinit();
+
+
+// --- Plugins are currently only supported on Unix platforms.
+
+enum heif_plugin_type
+{
+  heif_plugin_type_encoder,
+  heif_plugin_type_decoder
+};
+
+struct heif_plugin_info
+{
+  int version; // version of this info struct
+  enum heif_plugin_type type;
+  const void* plugin;
+  void* internal_handle; // for internal use only
+};
+
+LIBHEIF_API
+struct heif_error heif_load_plugin(const char* filename, struct heif_plugin_info const** out_plugin);
+
+LIBHEIF_API
+struct heif_error heif_load_plugins(const char* directory,
+                                    const struct heif_plugin_info** out_plugins,
+                                    int* out_nPluginsLoaded,
+                                    int output_array_size);
+
+LIBHEIF_API
+struct heif_error heif_unload_plugin(const struct heif_plugin_info* plugin);
+
+
 // ========================= file type check ======================
 
 enum heif_filetype_result
@@ -297,6 +370,9 @@ enum heif_filetype_result
 // input data should be at least 12 bytes
 LIBHEIF_API
 enum heif_filetype_result heif_check_filetype(const uint8_t* data, int len);
+
+LIBHEIF_API
+int heif_check_jpeg_filetype(const uint8_t* data, int len);
 
 
 // DEPRECATED, use heif_brand2 instead
@@ -494,6 +570,9 @@ void heif_context_debug_dump_boxes_to_file(struct heif_context* ctx, int fd);
 LIBHEIF_API
 void heif_context_set_maximum_image_size_limit(struct heif_context* ctx, int maximum_width);
 
+LIBHEIF_API
+void heif_context_set_max_decoding_threads(struct heif_context* ctx, int max_threads);
+
 
 // ========================= heif_image_handle =========================
 
@@ -661,8 +740,8 @@ struct heif_error heif_image_handle_get_auxiliary_image_handle(const struct heif
 
 // ------------------------- metadata (Exif / XMP) -------------------------
 
-// How many metadata blocks are attached to an image. Usually, the only metadata is
-// an "Exif" block.
+// How many metadata blocks are attached to an image. If you only want to get EXIF data,
+// set the type_filter to "Exif". Otherwise, set the type_filter to NULL.
 LIBHEIF_API
 int heif_image_handle_get_number_of_metadata_blocks(const struct heif_image_handle* handle,
                                                     const char* type_filter);
@@ -682,6 +761,8 @@ LIBHEIF_API
 const char* heif_image_handle_get_metadata_type(const struct heif_image_handle* handle,
                                                 heif_item_id metadata_id);
 
+// For EXIF, the content type is empty.
+// For XMP, the content type is "application/rdf+xml".
 LIBHEIF_API
 const char* heif_image_handle_get_metadata_content_type(const struct heif_image_handle* handle,
                                                         heif_item_id metadata_id);
@@ -799,6 +880,15 @@ struct heif_color_profile_nclx
   float color_primary_blue_x, color_primary_blue_y;
   float color_primary_white_x, color_primary_white_y;
 };
+
+LIBHEIF_API
+struct heif_error heif_nclx_color_profile_set_color_primaries(struct heif_color_profile_nclx* nclx, uint16_t cp);
+
+LIBHEIF_API
+struct heif_error heif_nclx_color_profile_set_transfer_characteristics(struct heif_color_profile_nclx* nclx, uint16_t transfer_characteristics);
+
+LIBHEIF_API
+struct heif_error heif_nclx_color_profile_set_matrix_coefficients(struct heif_color_profile_nclx* nclx, uint16_t matrix_coefficients);
 
 // Returns 'heif_error_Color_profile_does_not_exist' when there is no NCLX profile.
 // TODO: This function does currently not return an NCLX profile if it is stored in the image bitstream.
@@ -922,6 +1012,12 @@ struct heif_decoding_options
   // version 2 options
 
   uint8_t convert_hdr_to_8bit;
+
+  // version 3 options
+
+  // When enabled, an error is returned for invalid input. Otherwise, it will try its best and
+  // add decoding warnings to the decoded heif_image. Default is non-strict.
+  uint8_t strict_decoding;
 };
 
 
@@ -1039,6 +1135,23 @@ struct heif_error heif_image_set_nclx_color_profile(struct heif_image* image,
 // TODO: this function does not make any sense yet, since we currently cannot modify existing HEIF files.
 //LIBHEIF_API
 //void heif_image_remove_color_profile(struct heif_image* image);
+
+// Fills the image decoding warnings into the provided 'out_warnings' array.
+// The size of the array has to be provided in max_output_buffer_entries.
+// If max_output_buffer_entries==0, the number of decoder warnings is returned.
+// The function fills the warnings into the provided buffer, starting with 'first_warning_idx'.
+// It returns the number of warnings filled into the buffer.
+// Note: you can iterate through all warnings by using 'max_output_buffer_entries=1' and iterate 'first_warning_idx'.
+LIBHEIF_API
+int heif_image_get_decoding_warnings(struct heif_image* image,
+                                     int first_warning_idx,
+                                     struct heif_error* out_warnings,
+                                     int max_output_buffer_entries);
+
+// This function is only for decoder plugin implementors.
+LIBHEIF_API
+void heif_image_add_decoding_warning(struct heif_image* image,
+                                     struct heif_error err);
 
 // Release heif_image.
 LIBHEIF_API
@@ -1291,6 +1404,20 @@ int heif_encoder_has_default(struct heif_encoder*,
                              const char* parameter_name);
 
 
+// The orientation values are defined equal to the EXIF Orientation tag.
+enum heif_orientation
+{
+  heif_orientation_normal = 1,
+  heif_orientation_flip_horizontally = 2,
+  heif_orientation_rotate_180 = 3,
+  heif_orientation_flip_vertically = 4,
+  heif_orientation_rotate_90_cw_then_flip_horizontally = 5,
+  heif_orientation_rotate_90_cw = 6,
+  heif_orientation_rotate_90_cw_then_flip_vertically = 7,
+  heif_orientation_rotate_270_cw = 8
+};
+
+
 struct heif_encoding_options
 {
   uint8_t version;
@@ -1317,6 +1444,11 @@ struct heif_encoding_options
   struct heif_color_profile_nclx* output_nclx_profile;
 
   uint8_t macOS_compatibility_workaround_no_nclx_profile;
+
+  // version 5 options
+
+  // libheif will generate irot/imir boxes to match these orientations
+  enum heif_orientation image_orientation;
 };
 
 LIBHEIF_API
@@ -1358,6 +1490,13 @@ struct heif_error heif_context_encode_thumbnail(struct heif_context*,
                                                 int bbox_size,
                                                 struct heif_image_handle** out_thumb_image_handle);
 
+enum heif_metadata_compression
+{
+  heif_metadata_compression_off,
+  heif_metadata_compression_auto,
+  heif_metadata_compression_deflate
+};
+
 // Assign 'thumbnail_image' as the thumbnail image of 'master_image'.
 LIBHEIF_API
 struct heif_error heif_context_assign_thumbnail(struct heif_context*,
@@ -1376,10 +1515,17 @@ struct heif_error heif_context_add_XMP_metadata(struct heif_context*,
                                                 const struct heif_image_handle* image_handle,
                                                 const void* data, int size);
 
+// New version of heif_context_add_XMP_metadata() with data compression (experimental).
+LIBHEIF_API
+struct heif_error heif_context_add_XMP_metadata2(struct heif_context*,
+                                                 const struct heif_image_handle* image_handle,
+                                                 const void* data, int size,
+                                                 enum heif_metadata_compression compression);
+
 // Add generic, proprietary metadata to an image. You have to specify an 'item_type' that will
 // identify your metadata. 'content_type' can be an additional type, or it can be NULL.
 // For example, this function can be used to add IPTC metadata (IIM stream, not XMP) to an image.
-// Even not standard, we propose to store IPTC data with item type="iptc", content_type=NULL.
+// Although not standard, we propose to store IPTC data with item type="iptc", content_type=NULL.
 LIBHEIF_API
 struct heif_error heif_context_add_generic_metadata(struct heif_context* ctx,
                                                     const struct heif_image_handle* image_handle,
@@ -1431,8 +1577,6 @@ struct heif_error heif_register_decoder_plugin(const struct heif_decoder_plugin*
 
 LIBHEIF_API
 struct heif_error heif_register_encoder_plugin(const struct heif_encoder_plugin*);
-
-
 
 // DEPRECATED, typo in function name
 LIBHEIF_API

@@ -3,23 +3,9 @@ include(CMakePackageConfigHelpers)
 configure_file(heif_version.h.in ${CMAKE_CURRENT_BINARY_DIR}/heif_version.h)
 
 set(libheif_headers
-    bitstream.h
-    box.h
-    error.h
-    heif_api_structs.h
-    heif_context.h
-    heif_cxx.h
-    heif_file.h
     heif.h
-    heif_image.h
-    heif_hevc.h
-    heif_avif.h
-    heif_colorconversion.h
-    heif_plugin_registry.h
-    heif_limits.h
+    heif_cxx.h
     heif_plugin.h
-    nclx.h
-    logging.h
     ${CMAKE_CURRENT_BINARY_DIR}/heif_version.h)
 
 add_library(heif
@@ -36,8 +22,25 @@ add_library(heif
     heif_plugin_registry.cc
     heif_plugin.cc
     nclx.cc
+    bitstream.h
+    box.h
+    error.h
+    heif_api_structs.h
+    heif_context.h
+    heif_file.h
+    heif_image.h
+    heif_hevc.h
+    heif_avif.h
+    heif_colorconversion.h
+    heif_plugin_registry.h
+    heif_limits.h
+    heif_init.cc heif_init.h
+    nclx.h
+    logging.h
+    metadata_compression.cc
+    metadata_compression.h
     ${libheif_headers}
-)
+    )
 
 # Needed to find libheif/heif_version.h while compiling the library
 target_include_directories(heif PRIVATE ${libheif_BINARY_DIR} ${libheif_SOURCE_DIR})
@@ -59,102 +62,17 @@ target_compile_definitions(heif
                                LIBHEIF_EXPORTS
                                HAVE_VISIBILITY)
 
-if(LIBDE265_FOUND)
-    target_compile_definitions(heif PRIVATE HAVE_LIBDE265=1)
-    target_sources(heif
-                   PRIVATE
-                       heif_decoder_libde265.cc
-                       heif_decoder_libde265.h)
+add_subdirectory(plugins)
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LIBDE265_CFLAGS}")
-
-    if (NOT "${LIBDE265_LIBRARY_DIRS}" STREQUAL "")
-        set(LIBDE265_LINKDIR "-L${LIBDE265_LIBRARY_DIRS}")
-    endif()
-
-    include_directories(SYSTEM ${LIBDE265_INCLUDE_DIR})
-    target_link_libraries(heif PRIVATE ${LIBDE265_LIBRARIES} ${LIBDE265_LINKDIR})
-
-    install(FILES heif_decoder_libde265.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME})
+if (ENABLE_PLUGIN_LOADING AND UNIX)
+    target_compile_definitions(heif PRIVATE ENABLE_PLUGIN_LOADING=1)
+    target_link_libraries(heif PRIVATE dl)
 endif()
 
-if(X265_FOUND)
-    target_compile_definitions(heif PRIVATE HAVE_X265=1)
-    target_sources(heif PRIVATE
-        heif_encoder_x265.cc
-        heif_encoder_x265.h
-    )
-
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${X265_CFLAGS}")
-
-    if (NOT "${X265_LIBRARY_DIRS}" STREQUAL "")
-        set(X265_LINKDIR "-L${X265_LIBRARY_DIRS}")
-    endif()
-
-    include_directories(SYSTEM ${X265_INCLUDE_DIR})
-    target_link_libraries(heif PRIVATE ${X265_LIBRARIES} ${X265_LINKDIR})
-
-    install(FILES heif_encoder_x265.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME})
-endif()
-
-if(AOM_ENCODER_FOUND OR AOM_DECODER_FOUND)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${AOM_CFLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${AOM_CFLAGS}")
-
-  if (NOT "${AOM_LIBRARY_DIRS}" STREQUAL "")
-    set(AOM_LINKDIR "-L${AOM_LIBRARY_DIRS}")
-  endif()
-
-  include_directories(SYSTEM ${AOM_INCLUDE_DIR})
-  target_link_libraries(heif PRIVATE ${AOM_LIBRARIES} ${AOM_LINKDIR})
-endif()
-if(AOM_ENCODER_FOUND)
-  target_compile_definitions(heif PRIVATE HAVE_AOM_ENCODER=1)
-  target_sources(heif PRIVATE
-    heif_encoder_aom.cc
-    heif_encoder_aom.h
-  )
-endif()
-if(AOM_DECODER_FOUND)
-  target_compile_definitions(heif PRIVATE HAVE_AOM_DECODER=1)
-  target_sources(heif PRIVATE
-    heif_decoder_aom.cc
-    heif_decoder_aom.h
-  )
-endif()
-
-if(RAV1E_FOUND)
-    target_compile_definitions(heif PRIVATE HAVE_RAV1E=1)
-    target_sources(heif PRIVATE
-            heif_encoder_rav1e.cc
-            heif_encoder_rav1e.h
-            )
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RAV1E_CFLAGS}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RAV1E_CFLAGS}")
-
-    if (NOT "${RAV1E_LIBRARY_DIRS}" STREQUAL "")
-        set(RAV1E_LINKDIR "-L${RAV1E_LIBRARY_DIRS}")
-    endif()
-
-    include_directories(SYSTEM ${RAV1E_INCLUDE_DIR})
-    target_link_libraries(heif PRIVATE ${RAV1E_LIBRARIES} ${RAV1E_LINKDIR})
-endif()
-
-if(DAV1D_FOUND)
-    target_compile_definitions(heif PRIVATE HAVE_DAV1D=1)
-    target_sources(heif PRIVATE
-            heif_decoder_dav1d.cc
-            heif_decoder_dav1d.h
-            )
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${DAV1D_CFLAGS}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${DAV1D_CFLAGS}")
-
-    if (NOT "${DAV1D_LIBRARY_DIRS}" STREQUAL "")
-        set(DAV1D_LINKDIR "-L${DAV1D_LIBRARY_DIRS}")
-    endif()
-
-    include_directories(SYSTEM ${DAV1D_INCLUDE_DIR})
-    target_link_libraries(heif PRIVATE ${DAV1D_LIBRARIES} ${DAV1D_LINKDIR})
+if (WITH_DEFLATE_HEADER_COMPRESSION)
+    find_library(z-lib z)
+    target_link_libraries(heif PRIVATE ${z-lib})
+    target_compile_definitions(heif PRIVATE WITH_DEFLATE_HEADER_COMPRESSION=1)
 endif ()
 
 write_basic_package_version_file(${PROJECT_NAME}-config-version.cmake COMPATIBILITY ExactVersion)

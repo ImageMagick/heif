@@ -1,9 +1,9 @@
-cmake_minimum_required (VERSION 3.13)
+cmake_minimum_required (VERSION 3.0)
 
-project(libheif LANGUAGES C CXX VERSION 1.12.0.0)
+project(libheif LANGUAGES C CXX VERSION 1.14.0.0)
 
 # https://cmake.org/cmake/help/v3.1/policy/CMP0054.html
-cmake_policy(SET CMP0054 NEW)
+cmake_policy(VERSION 3.0...3.22)
 include(GNUInstallDirs)
 
 # The version number.
@@ -29,6 +29,10 @@ if(NOT MSVC)
   add_definitions(-Wno-error=conversion)
   add_definitions(-Wno-error=unused-parameter)
   add_definitions(-Wno-error=deprecated-declarations)
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+      add_definitions(-Wno-error=tautological-compare)
+      add_definitions(-Wno-error=tautological-constant-out-of-range-compare)
+  endif ()
 endif()
 
 set(CMAKE_CXX_STANDARD 11)
@@ -53,69 +57,41 @@ endif()
 
 LIST (APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules")
 
-option(WITH_LIBDE265 "Build libde265 decoder" ON)
-if (WITH_LIBDE265)
-    find_package(Libde265)
-endif ()
+option(ENABLE_PLUGIN_LOADING "Support loading of plugins" ON)
+set(PLUGIN_DIRECTORY "/usr/local/lib/libheif" CACHE STRING "Plugin install directory")
 
-option(WITH_X265 "Build x265 encoder" ON)
-if (WITH_X265)
-    find_package(X265)
-endif ()
+macro(plugin_option variableName packageName displayName displayType defaultPlugin)
+    option(WITH_${variableName} "Build ${displayName} ${displayType}" ON)
+    option(WITH_${variableName}_PLUGIN "Build ${displayName} as a plugin" ${defaultPlugin})
+    if (WITH_${variableName})
+        find_package(${packageName})
+    endif ()
 
-option(WITH_AOM "Build aom encoder/decoder" ON)
-if (WITH_AOM)
-    find_package(LibAOM)
-endif()
+    if (${variableName}_FOUND AND WITH_${variableName}_PLUGIN)
+        set(msg "found (plugin)")
+    elseif (${variableName}_FOUND)
+        set(msg "found (built-in)")
+    elseif (WITH_${variableName})
+        set(msg "not found")
+    else()
+        set(msg "disabled")
+    endif ()
 
-option(WITH_RAV1E "Build rav1e encoder" ON)
-if (WITH_RAV1E)
-    find_package(Rav1e)
-endif ()
+    message("${displayName} (${displayType}): ${msg}")
+    unset(msg)
+endmacro()
 
-option(WITH_DAV1D "Build dav1d decoder" ON)
-if (WITH_DAV1D)
-    find_package(Dav1d)
-endif ()
-
-if (LIBDE265_FOUND)
-    message("HEIF decoder, libde265: found")
-else ()
-    message("HEIF decoder, libde265: not found")
-endif ()
-
-if (X265_FOUND)
-    message("HEIF encoder, x265: found")
-else ()
-    message("HEIF encoder, x265: not found")
-endif ()
-
-if (AOM_ENCODER_FOUND)
-    message("AVIF encoder, aom: found")
-else ()
-    message("AVIF encoder, aom: not found")
-endif ()
-
-if (AOM_DECODER_FOUND)
-    message("AVIF decoder, aom: found")
-else ()
-    message("AVIF decoder, aom: not found")
-endif ()
-
-if (RAV1E_FOUND)
-    message("AVIF encoder, rav1e: found")
-else ()
-    message("AVIF encoder, rav1e: not found")
-endif ()
-
-if (DAV1D_FOUND)
-    message("AVIF decoder, dav1d: found")
-else ()
-    message("AVIF decoder, dav1d: not found")
-endif ()
+plugin_option(LIBDE265 LIBDE265 "libde265" "HEIC decoder" OFF)
+plugin_option(X265 X265 "x265" "HEIC encoder" OFF)
+plugin_option(DAV1D DAV1D "Dav1d" "AVIF decoder" OFF)
+plugin_option(AOM_ENCODER AOM "aom" "AVIF encoder" OFF)
+plugin_option(AOM_DECODER AOM "aom" "AVIF decoder" OFF)
+plugin_option(SvtEnc SvtEnc "Svt-av1" "AVIF encoder" ON)
+plugin_option(RAV1E RAV1E "Rav1e" "AVIF encoder" ON)
 
 
-# Create libheif pkgconfig file
+# --- Create libheif pkgconfig file
+
 set(prefix ${CMAKE_INSTALL_PREFIX})
 set(exec_prefix ${CMAKE_INSTALL_PREFIX})
 set(libdir ${CMAKE_INSTALL_FULL_LIBDIR})
@@ -141,6 +117,9 @@ endif()
 if (RAV1E_FOUND)
     list(APPEND REQUIRES_PRIVATE "rav1e")
 endif()
+if (SvtEnc_FOUND)
+    list(APPEND REQUIRES_PRIVATE "SvtEnc")
+endif()
 if (AOM_DECODER_FOUND OR DAV1D_FOUND)
     set(have_avif_decoder yes)
 else()
@@ -159,10 +138,40 @@ configure_file(libheif.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libheif.pc @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libheif.pc
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
+# ---
+
 option(WITH_EXAMPLES "Build examples" ON)
+
+option(WITH_DEFLATE_HEADER_COMPRESSION OFF)
 
 if(WITH_EXAMPLES)
     add_subdirectory (examples)
 endif()
 add_subdirectory (libheif)
 add_subdirectory (gdk-pixbuf)
+add_subdirectory (gnome)
+
+
+# --- packaging (source code)
+
+set(CPACK_VERBATIM_VARIABLES YES)
+set(CPACK_SOURCE_IGNORE_FILES
+/.git/
+/.github/
+/.gitignore$
+/build/
+/cmake-build.*/
+/.deps/
+/.idea/
+/.clang-tidy
+~$
+/third-party/.*/ # only exclude the sub-directories, but keep the *.cmd files
+/Testing/
+/logos/
+/Makefile$
+/libtool$
+/libheif.pc$
+/config.h$
+stamp-h1$
+)
+include(CPack)

@@ -23,18 +23,16 @@
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 */
-#include <assert.h>
-#include <errno.h>
-#include <math.h>
+#include <cerrno>
 #include <png.h>
-#include <string.h>
-#include <stdlib.h>
+#include <cstring>
+#include <cstdlib>
+#include <vector>
 
 #include "encoder_png.h"
+#include "libheif/exif.h"
 
-PngEncoder::PngEncoder()
-{}
-
+PngEncoder::PngEncoder() = default;
 
 bool PngEncoder::Encode(const struct heif_image_handle* handle,
                         const struct heif_image* image, const std::string& filename)
@@ -89,6 +87,9 @@ bool PngEncoder::Encode(const struct heif_image_handle* handle,
   png_set_IHDR(png_ptr, info_ptr, width, height, bitDepth, colorType,
                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
 
+
+  // --- write ICC profile
+
   size_t profile_size = heif_image_handle_get_raw_color_profile_size(handle);
   if (profile_size > 0) {
     uint8_t* profile_data = static_cast<uint8_t*>(malloc(profile_size));
@@ -103,6 +104,43 @@ bool PngEncoder::Encode(const struct heif_image_handle* handle,
                  (png_uint_32) profile_size);
     free(profile_data);
   }
+
+
+  // --- write EXIF metadata
+
+  size_t exifsize = 0;
+  uint8_t* exifdata = GetExifMetaData(handle, &exifsize);
+  if (exifdata) {
+    if (exifsize > 4) {
+      uint32_t skip = (exifdata[0]<<24) | (exifdata[1]<<16) | (exifdata[2]<<8) | exifdata[3];
+      skip += 4;
+
+      uint8_t* ptr = exifdata + skip;
+      size_t size = exifsize - skip;
+
+      // libheif by default normalizes the image orientation, so that we have to set the EXIF Orientation to "Horizontal (normal)"
+      modify_exif_orientation_tag_if_it_exists(ptr, (int)size, 1);
+
+      png_set_eXIf_1(png_ptr, info_ptr, (png_uint_32)size, ptr);
+    }
+
+    free(exifdata);
+  }
+
+
+  // --- write XMP metadata
+
+  // spec: https://raw.githubusercontent.com/adobe/xmp-docs/master/XMPSpecifications/XMPSpecificationPart3.pdf
+  std::vector<uint8_t> xmp = get_xmp_metadata(handle);
+  if (!xmp.empty()) {
+    png_text xmp_text;
+    xmp_text.compression = PNG_ITXT_COMPRESSION_NONE;
+    xmp_text.key = (char*) "XML:com.adobe.xmp";
+    xmp_text.text = (char*) xmp.data();
+    xmp_text.text_length = xmp.size();
+    png_set_text(png_ptr, info_ptr, &xmp_text, 1);
+  }
+
   png_write_info(png_ptr, info_ptr);
 
   uint8_t** row_pointers = new uint8_t* [height];
@@ -134,6 +172,7 @@ bool PngEncoder::Encode(const struct heif_image_handle* handle,
 
 
   png_write_image(png_ptr, row_pointers);
+
   png_write_end(png_ptr, nullptr);
   png_destroy_write_struct(&png_ptr, &info_ptr);
   delete[] row_pointers;

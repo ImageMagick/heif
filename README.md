@@ -9,7 +9,7 @@ HEIF and AVIF are new image file formats employing HEVC (h.265) or AV1 image cod
 best compression ratios currently possible.
 
 libheif makes use of [libde265](https://github.com/strukturag/libde265) for HEIF image decoding and x265 for encoding.
-For AVIF, libaom, dav1d, or rav1e are used as codecs.
+For AVIF, libaom, dav1d, svt-av1, or rav1e are used as codecs.
 
 
 ## Supported features
@@ -87,6 +87,18 @@ heif_encoder_release(encoder);
 heif_context_write_to_file(context, "output.heic");
 ```
 
+Get the EXIF data from an HEIF file:
+```C
+heif_item_id exif_id;
+
+int n = heif_image_handle_get_list_of_metadata_block_IDs(image_handle, "Exif", &exif_id, 1);
+if (n==1) {
+  size_t exifSize = heif_image_handle_get_metadata_size(image_handle, exif_id);
+  uint8_t* exifData = malloc(exifSize);
+  struct heif_error error = heif_image_handle_get_metadata(image_handle, exif_id, exifData);
+}
+```
+
 See the header file `heif.h` for the complete C API.
 
 There is also a C++ API which is a header-only wrapper to the C API.
@@ -100,26 +112,31 @@ There is also an experimental Go API, but this is not stable yet.
 
 This library uses either a standard autoconf/automake build system or CMake.
 
+Using autoconf/automake for compilation is deprectated.
+Starting with v1.14.0, CMake is the preferred build tool.
+While autoconf/automake might still work for some time to come, not all options are available for it.
+
 When using autoconf, run `./autogen.sh` to build the configuration scripts,
 then call `./configure` and `make`.
+
+**Note: compiling with autotools is now deprecated. Please use cmake instead. This section has to be updated...**
+
 Make sure that you compile and install [libde265](https://github.com/strukturag/libde265)
 first, so that the configuration script will find this.
 Preferably, download the `frame-parallel` branch of libde265, as this uses a
 more recent API than the version in the `master` branch.
 Also install x265 and its development files if you want to use HEIF encoding.
 
-For AVIF support, make sure that libaom is installed.
-
 ### macOS
 
 1. Install dependencies with Homebrew
 
     ```
-    brew install automake make pkg-config x265 libde265 libjpeg
+    brew install automake make pkg-config x265 libde265 libjpeg libtool
     ```
 
 
-1. Configure and build project
+2. Configure and build project
 
     ```
     ./autogen.sh
@@ -129,7 +146,26 @@ For AVIF support, make sure that libaom is installed.
 
 ### Windows
 
-Libheif is included in [Vcpkg](https://github.com/Microsoft/vcpkg/).
+You can build and install libheif using the [vcpkg](https://github.com/Microsoft/vcpkg/) dependency manager:
+
+```
+git clone https://github.com/Microsoft/vcpkg.git
+cd vcpkg
+./bootstrap-vcpkg.sh
+./vcpkg integrate install
+./vcpkg install libheif
+```
+
+The libheif port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
+
+
+### Adding libaom encoder/decoder for AVIF
+
+* Run the `aom.cmd` script in the `third-party` directory to download libaom and
+  compile it.
+
+When running `cmake` or `configure`, make sure that the environment variable
+`PKG_CONFIG_PATH` includes the absolute path to `third-party/aom/dist/lib/pkgconfig`.
 
 
 ### Adding rav1e encoder for AVIF
@@ -139,7 +175,8 @@ Libheif is included in [Vcpkg](https://github.com/Microsoft/vcpkg/).
 ```
 cargo install --force cargo-c
 ```
-* Run the `rav1e.cmd` script in directory `third-party` to download rav1e and compile it.
+* Run the `rav1e.cmd` script in the `third-party` directory to download rav1e
+  and compile it.
 
 When running `cmake` or `configure`, make sure that the environment variable
 `PKG_CONFIG_PATH` includes the absolute path to `third-party/rav1e/dist/lib/pkgconfig`.
@@ -148,10 +185,42 @@ When running `cmake` or `configure`, make sure that the environment variable
 ### Adding dav1d decoder for AVIF
 
 * Install [`meson`](https://mesonbuild.com/).
-* Run the `dav1d.cmd` script in directory `third-party` to download dav1d and compile it.
+* Run the `dav1d.cmd` script in the `third-party` directory to download dav1d
+  and compile it.
 
 When running `cmake` or `configure`, make sure that the environment variable
 `PKG_CONFIG_PATH` includes the absolute path to `third-party/dav1d/dist/lib/x86_64-linux-gnu/pkgconfig`.
+
+
+### Adding SVT-AV1 encoder for AVIF
+
+You can either use the SVT-AV1 encoder libraries installed in the system or use a self-compiled current version.
+If you want to compile SVT-AV1 yourself,
+
+* Run the `svt.cmd` script in the `third-party` directory to download SVT-AV1
+  and compile it.
+
+When running `cmake` or `configure`, make sure that the environment variable
+`PKG_CONFIG_PATH` includes the absolute path to `third-party/SVT-AV1/Build/linux/Release`.
+You may have to replace `linux` in this path with your system's identifier.
+
+You have to enable SVT-AV1 with CMake. It is not built with autotools.
+
+## Codec plugins
+
+Starting with v1.14.0, each codec backend can be compiled statically into libheif or as a dynamically loaded plugin (currently Linux only).
+You can choose this individually for each codec backend in the CMake settings.
+Compiling a codec backend as dynamic plugin will generate a shared library that is installed in the system together with libheif.
+The advantage is that only the required plugins have to be installed and libheif has fewer dependencies.
+
+The plugins are loaded from the colon-separated list of directories stored in the environment variable `LIBHEIF_PLUGIN_PATH`.
+If this variable is empty, they are loaded from a directory specified in the CMake configuration.
+You can also add plugin directories programmatically.
+
+## Encoder benchmark
+
+A current benchmark of the AVIF encoders (as of 14 Oct 2022) can be found in the Wiki page
+[AVIF encoding benchmark](https://github.com/strukturag/libheif/wiki/AVIF-Encoder-Benchmark).
 
 
 ## Language bindings
@@ -161,8 +230,9 @@ When running `cmake` or `configure`, make sure that the environment variable
 * Go: part of libheif
 * JavaScript: by compilation with emscripten (see below)
 * NodeJS module: [libheif-js](https://www.npmjs.com/package/libheif-js)
-* Python: [pyheif](https://pypi.org/project/pyheif/)
+* Python: [pyheif](https://pypi.org/project/pyheif/), [pillow_heif](https://pypi.org/project/pillow-heif/)
 * Rust: [libheif-sys](https://github.com/Cykooz/libheif-sys)
+* Swift: [libheif-Xcode](https://swiftpackageregistry.com/SDWebImage/libheif-Xcode)
 
 Languages that can directly interface with C libraries (e.g., Swift, C#) should work out of the box.
 
@@ -220,13 +290,26 @@ to update the gdk-pixbuf loader database.
 
 ## Software using libheif
 
-* GIMP
-* Krita
-* ImageMagick
-* digiKam 7.0.0
-* libvips
+* [GIMP](https://www.gimp.org/)
+* [Krita](https://krita.org)
+* [ImageMagick](https://imagemagick.org/)
+* [darktable](https://www.darktable.org)
+* [digiKam 7.0.0](https://www.digikam.org/)
+* [libvips](https://github.com/libvips/libvips)
 * [Kodi HEIF image decoder plugin](https://kodi.wiki/view/Add-on:HEIF_image_decoder)
+* [bimg](https://github.com/h2non/bimg)
+* [GDAL](https://gdal.org/drivers/raster/heif.html)
+* [OpenImageIO](https://sites.google.com/site/openimageio/)
 
+## Sponsors
+
+Since I work as an independent developer, I need your support to be able to allocate time for libheif.
+You can [sponsor](https://github.com/sponsors/farindk) the development using the link in the right hand column.
+
+A big thank you goes to these major sponsors for supporting the development of libheif:
+
+* Shopify <img src="logos/sponsors/shopify.svg" alt="shopify-logo" height="20"/>
+* StrukturAG
 
 ## License
 
@@ -235,5 +318,6 @@ The sample applications are distributed under the terms of the MIT License.
 
 See COPYING for more details.
 
-Copyright (c) 2017-2020 Struktur AG
+Copyright (c) 2017-2020 Struktur AG</br>
+Copyright (c) 2017-2022 Dirk Farin</br>
 Contact: Dirk Farin <dirk.farin@gmail.com>

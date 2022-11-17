@@ -28,27 +28,31 @@
 #include "heif_plugin_registry.h"
 
 #if HAVE_LIBDE265
-#include "heif_decoder_libde265.h"
+#include "libheif/plugins/heif_decoder_libde265.h"
 #endif
 
 #if HAVE_X265
-#include "heif_encoder_x265.h"
+#include "libheif/plugins/heif_encoder_x265.h"
 #endif
 
 #if HAVE_AOM_ENCODER
-#include "heif_encoder_aom.h"
+#include "libheif/plugins/heif_encoder_aom.h"
 #endif
 
 #if HAVE_AOM_DECODER
-#include "heif_decoder_aom.h"
+#include "libheif/plugins/heif_decoder_aom.h"
 #endif
 
 #if HAVE_RAV1E
-#include "heif_encoder_rav1e.h"
+#include "libheif/plugins/heif_encoder_rav1e.h"
 #endif
 
 #if HAVE_DAV1D
-#include "heif_decoder_dav1d.h"
+#include "libheif/plugins/heif_decoder_dav1d.h"
+#endif
+
+#if HAVE_SvtEnc
+#include "libheif/plugins/heif_encoder_svt.h"
 #endif
 
 
@@ -57,51 +61,51 @@ using namespace heif;
 
 std::set<const struct heif_decoder_plugin*> heif::s_decoder_plugins;
 
+std::multiset<std::unique_ptr<struct heif_encoder_descriptor>,
+         encoder_descriptor_priority_order> heif::s_encoder_descriptors;
 
-struct encoder_descriptor_priority_order
-{
-  bool operator()(const std::unique_ptr<struct heif_encoder_descriptor>& a,
-                  const std::unique_ptr<struct heif_encoder_descriptor>& b) const
-  {
-    return a->plugin->priority > b->plugin->priority;  // highest priority first
-  }
-};
-
-
-std::set<std::unique_ptr<struct heif_encoder_descriptor>,
-         encoder_descriptor_priority_order> s_encoder_descriptors;
-
-
+// Note: we cannot move this to 'heif_init' because we have to make sure that this is initialized
+// AFTER the two global std::set above.
 static class Register_Default_Plugins
 {
 public:
   Register_Default_Plugins()
   {
+    register_default_plugins();
+  }
+} dummy;
+
+
+void heif::register_default_plugins()
+{
 #if HAVE_LIBDE265
-    heif::register_decoder(get_decoder_plugin_libde265());
+  heif::register_decoder(get_decoder_plugin_libde265());
 #endif
 
 #if HAVE_X265
-    heif::register_encoder(get_encoder_plugin_x265());
+  heif::register_encoder(get_encoder_plugin_x265());
 #endif
 
 #if HAVE_AOM_ENCODER
-    heif::register_encoder(get_encoder_plugin_aom());
+  heif::register_encoder(get_encoder_plugin_aom());
 #endif
 
 #if HAVE_AOM_DECODER
-    heif::register_decoder(get_decoder_plugin_aom());
+  heif::register_decoder(get_decoder_plugin_aom());
 #endif
 
 #if HAVE_RAV1E
-    heif::register_encoder(get_encoder_plugin_rav1e());
+  heif::register_encoder(get_encoder_plugin_rav1e());
 #endif
 
 #if HAVE_DAV1D
-    heif::register_decoder(get_decoder_plugin_dav1d());
+  heif::register_decoder(get_decoder_plugin_dav1d());
 #endif
-  }
-} dummy;
+
+#if HAVE_SvtEnc
+  heif::register_encoder(get_encoder_plugin_svt());
+#endif
+}
 
 
 void heif::register_decoder(const heif_decoder_plugin* decoder_plugin)

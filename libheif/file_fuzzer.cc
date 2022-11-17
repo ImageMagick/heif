@@ -30,26 +30,23 @@ static const enum heif_chroma kFuzzChroma = heif_chroma_420;
 static void TestDecodeImage(struct heif_context* ctx,
                             const struct heif_image_handle* handle, size_t filesize)
 {
-  struct heif_image* image;
+  struct heif_image* image = nullptr;
   struct heif_error err;
 
-  heif_image_handle_is_primary_image(handle);
-#ifndef NDEBUG
+  bool primary = heif_image_handle_is_primary_image(handle);
+  (void) primary;
   int width = heif_image_handle_get_width(handle);
   int height = heif_image_handle_get_height(handle);
   assert(width >= 0);
   assert(height >= 0);
-#endif  
   int metadata_count = heif_image_handle_get_number_of_metadata_blocks(handle, nullptr);
   assert(metadata_count >= 0);
   assert(static_cast<size_t>(metadata_count) < filesize / sizeof(heif_item_id));
   heif_item_id* metadata_ids = static_cast<heif_item_id*>(malloc(metadata_count * sizeof(heif_item_id)));
   assert(metadata_ids);
-#ifndef NDEBUG
   int metadata_ids_count = heif_image_handle_get_list_of_metadata_block_IDs(handle, nullptr, metadata_ids,
                                                                             metadata_count);
   assert(metadata_count == metadata_ids_count);
-#endif
   for (int i = 0; i < metadata_count; i++) {
     heif_image_handle_get_metadata_type(handle, metadata_ids[i]);
     heif_image_handle_get_metadata_content_type(handle, metadata_ids[i]);
@@ -64,6 +61,7 @@ static void TestDecodeImage(struct heif_context* ctx,
 
   err = heif_decode_image(handle, &image, kFuzzColorSpace, kFuzzChroma, nullptr);
   if (err.code != heif_error_Ok) {
+    heif_image_release(image);
     return;
   }
 
@@ -84,7 +82,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
   struct heif_context* ctx;
   struct heif_error err;
-  struct heif_image_handle* primary_handle;
+  struct heif_image_handle* primary_handle = nullptr;
   int images_count;
   heif_item_id* image_IDs = NULL;
 
@@ -105,6 +103,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     assert(heif_image_handle_is_primary_image(primary_handle));
     TestDecodeImage(ctx, primary_handle, size);
     heif_image_handle_release(primary_handle);
+    primary_handle = nullptr;
   }
 
   images_count = heif_context_get_number_of_top_level_images(ctx);
@@ -122,9 +121,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
   }
 
   for (int i = 0; i < images_count; ++i) {
-    struct heif_image_handle* image_handle;
+    struct heif_image_handle* image_handle = nullptr;
     err = heif_context_get_image_handle(ctx, image_IDs[i], &image_handle);
     if (err.code != heif_error_Ok) {
+      heif_image_handle_release(image_handle);
       // Ignore, we are only interested in crashes here.
       continue;
     }
@@ -145,6 +145,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
   }
 
   quit:
+  heif_image_handle_release(primary_handle);
   heif_context_free(ctx);
   free(image_IDs);
   return 0;

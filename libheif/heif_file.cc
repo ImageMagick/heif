@@ -27,14 +27,16 @@
 #include <cstring>
 #include <cassert>
 
-#ifdef _MSC_VER
+#if defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)
 
 #ifndef NOMINMAX
 #define NOMINMAX 1
 #endif
 
-#include <Windows.h>
+#include <windows.h>
 #endif
+
+#include "metadata_compression.h"
 
 using namespace heif;
 
@@ -42,15 +44,9 @@ using namespace heif;
 #define STRICT_PARSING false
 
 
-HeifFile::HeifFile()
-{
-}
+HeifFile::HeifFile() = default;
 
-
-HeifFile::~HeifFile()
-{
-}
-
+HeifFile::~HeifFile() = default;
 
 std::vector<heif_item_id> HeifFile::get_item_IDs() const
 {
@@ -66,7 +62,7 @@ std::vector<heif_item_id> HeifFile::get_item_IDs() const
 
 Error HeifFile::read_from_file(const char* input_filename)
 {
-#ifdef _MSC_VER
+#if defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)
   auto input_stream_istr = std::unique_ptr<std::istream>(new std::ifstream(convert_utf8_path_to_utf16(input_filename).c_str(), std::ios_base::binary));
 #else
   auto input_stream_istr = std::unique_ptr<std::istream>(new std::ifstream(input_filename, std::ios_base::binary));
@@ -90,7 +86,7 @@ Error HeifFile::read_from_memory(const void* data, size_t size, bool copy)
 }
 
 
-Error HeifFile::read(std::shared_ptr<StreamReader> reader)
+Error HeifFile::read(const std::shared_ptr<StreamReader>& reader)
 {
   m_input_stream = reader;
 
@@ -289,11 +285,15 @@ Error HeifFile::parse_heif_file(BitstreamRange& range)
                  heif_suberror_No_ipco_box);
   }
 
-  m_ipma_box = std::dynamic_pointer_cast<Box_ipma>(m_iprp_box->get_child_box(fourcc("ipma")));
-  if (!m_ipma_box) {
+  auto ipma_boxes = m_iprp_box->get_typed_child_boxes<Box_ipma>(fourcc("ipma"));
+  if (ipma_boxes.empty()) {
     return Error(heif_error_Invalid_input,
                  heif_suberror_No_ipma_box);
   }
+  for (size_t i=1;i<ipma_boxes.size();i++) {
+    ipma_boxes[0]->insert_entries_from_other_ipma_box(*ipma_boxes[i]);
+  }
+  m_ipma_box = ipma_boxes[0];
 
   m_iloc_box = std::dynamic_pointer_cast<Box_iloc>(m_meta_box->get_child_box(fourcc("iloc")));
   if (!m_iloc_box) {
@@ -624,7 +624,27 @@ Error HeifFile::get_compressed_image_data(heif_item_id ID, std::vector<uint8_t>*
            item_type == "iovl" ||
            item_type == "Exif" ||
            (item_type == "mime" && content_type == "application/rdf+xml")) {
-    error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, data);
+
+    bool read_uncompressed = true;
+    if (item_type == "mime") {
+      std::string encoding = infe_box->get_content_encoding();
+      if (encoding == "deflate") {
+#if WITH_DEFLATE_HEADER_COMPRESSION
+        read_uncompressed = false;
+        std::vector<uint8_t> compressed_data;
+        error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, &compressed_data);
+        *data = inflate(compressed_data);
+#else
+        return Error(heif_error_Unsupported_feature,
+                     heif_suberror_Unsupported_header_compression_method,
+                     encoding);
+#endif
+      }
+    }
+
+    if (read_uncompressed) {
+      error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, data);
+    }
   }
 
   if (error != Error::Ok) {
@@ -701,6 +721,65 @@ void HeifFile::add_clap_property(heif_item_id id, uint32_t clap_width, uint32_t 
   int index = m_ipco_box->append_child_box(clap);
 
   m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{true, uint16_t(index + 1)});
+}
+
+
+void HeifFile::add_orientation_properties(heif_item_id id, heif_orientation orientation)
+{
+  int rotation_ccw = 0;
+  Box_imir::MirrorDirection mirror;
+  bool has_mirror = false;
+
+  switch (orientation) {
+    case heif_orientation_normal:
+      break;
+    case heif_orientation_flip_horizontally:
+      mirror = Box_imir::MirrorDirection::Horizontal;
+      has_mirror = true;
+      break;
+    case heif_orientation_rotate_180:
+      rotation_ccw = 180;
+      break;
+    case heif_orientation_flip_vertically:
+      mirror = Box_imir::MirrorDirection::Vertical;
+      has_mirror = true;
+      break;
+    case heif_orientation_rotate_90_cw_then_flip_horizontally:
+      rotation_ccw = 270;
+      mirror = Box_imir::MirrorDirection::Horizontal;
+      has_mirror = true;
+      break;
+    case heif_orientation_rotate_90_cw:
+      rotation_ccw = 270;
+      break;
+    case heif_orientation_rotate_90_cw_then_flip_vertically:
+      rotation_ccw = 270;
+      mirror = Box_imir::MirrorDirection::Vertical;
+      has_mirror = true;
+      break;
+    case heif_orientation_rotate_270_cw:
+      rotation_ccw = 90;
+      break;
+  }
+
+  // omit rotation when angle is 0
+  if (rotation_ccw!=0) {
+    auto irot = std::make_shared<Box_irot>();
+    irot->set_rotation_ccw(rotation_ccw);
+
+    int index = m_ipco_box->append_child_box(irot);
+
+    m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{false, uint16_t(index + 1)});
+  }
+
+  if (has_mirror) {
+    auto imir = std::make_shared<Box_imir>();
+    imir->set_mirror_direction(mirror);
+
+    int index = m_ipco_box->append_child_box(imir);
+
+    m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{false, uint16_t(index + 1)});
+  }
 }
 
 
@@ -837,7 +916,7 @@ void HeifFile::set_primary_item_id(heif_item_id id)
 }
 
 void HeifFile::add_iref_reference(uint32_t type, heif_item_id from,
-                                  std::vector<heif_item_id> to)
+                                  const std::vector<heif_item_id>& to)
 {
   if (!m_iref_box) {
     m_iref_box = std::make_shared<Box_iref>();
@@ -847,7 +926,7 @@ void HeifFile::add_iref_reference(uint32_t type, heif_item_id from,
   m_iref_box->add_reference(type, from, to);
 }
 
-void HeifFile::set_auxC_property(heif_item_id id, std::string type)
+void HeifFile::set_auxC_property(heif_item_id id, const std::string& type)
 {
   auto auxC = std::make_shared<Box_auxC>();
   auxC->set_aux_type(type);
@@ -857,7 +936,7 @@ void HeifFile::set_auxC_property(heif_item_id id, std::string type)
   m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{true, uint16_t(index + 1)});
 }
 
-void HeifFile::set_color_profile(heif_item_id id, const std::shared_ptr<const color_profile> profile)
+void HeifFile::set_color_profile(heif_item_id id, const std::shared_ptr<const color_profile>& profile)
 {
   auto colr = std::make_shared<Box_colr>();
   colr->set_color_profile(profile);
@@ -868,7 +947,7 @@ void HeifFile::set_color_profile(heif_item_id id, const std::shared_ptr<const co
 
 
 // TODO: the hdlr box is probably not the right place for this. Into which box should we write comments?
-void HeifFile::set_hdlr_library_info(std::string encoder_plugin_version)
+void HeifFile::set_hdlr_library_info(const std::string& encoder_plugin_version)
 {
   std::stringstream sstr;
   sstr << "libheif (" << LIBHEIF_VERSION << ") / " << encoder_plugin_version;
@@ -876,15 +955,15 @@ void HeifFile::set_hdlr_library_info(std::string encoder_plugin_version)
 }
 
 
-#ifdef _MSC_VER
+#if defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)
 std::wstring HeifFile::convert_utf8_path_to_utf16(std::string str)
 {
   std::wstring ret;
-  int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), str.length(), NULL, 0);
+  int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), NULL, 0);
   if (len > 0)
   {
     ret.resize(len);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), str.length(), &ret[0], len);
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), &ret[0], len);
   }
   return ret;
 }

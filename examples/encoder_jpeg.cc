@@ -31,9 +31,14 @@
 #include <errno.h>
 #include <string.h>
 
-#include <iostream>
+#include <vector>
 
 #include "encoder_jpeg.h"
+#include "libheif/exif.h"
+
+#define JPEG_XMP_MARKER  (JPEG_APP0+1)  /* JPEG marker code for XMP */
+#define JPEG_XMP_MARKER_ID "http://ns.adobe.com/xap/1.0/"
+
 
 JpegEncoder::JpegEncoder(int quality) : quality_(quality)
 {
@@ -46,7 +51,7 @@ void JpegEncoder::UpdateDecodingOptions(const struct heif_image_handle* handle,
                                         struct heif_decoding_options* options) const
 {
   if (HasExifMetaData(handle)) {
-    options->ignore_transformations = 1;
+    options->ignore_transformations = 0;
   }
 
   options->convert_hdr_to_8bit = 1;
@@ -59,11 +64,12 @@ void JpegEncoder::OnJpegError(j_common_ptr cinfo)
   longjmp(handler->setjmp_buffer, 1);
 }
 
+#define MAX_BYTES_IN_MARKER  65533      /* maximum data len of a JPEG marker */
+
 #if !defined(HAVE_JPEG_WRITE_ICC_PROFILE)
 
 #define ICC_MARKER  (JPEG_APP0 + 2)     /* JPEG marker code for ICC */
 #define ICC_OVERHEAD_LEN  14            /* size of non-profile data in APP2 */
-#define MAX_BYTES_IN_MARKER  65533      /* maximum data len of a JPEG marker */
 #define MAX_DATA_BYTES_IN_MARKER (MAX_BYTES_IN_MARKER - ICC_OVERHEAD_LEN)
 
 /*
@@ -164,14 +170,73 @@ bool JpegEncoder::Encode(const struct heif_image_handle* handle,
   static const boolean kWriteAllTables = TRUE;
   jpeg_start_compress(&cinfo, kWriteAllTables);
 
+  // --- Write EXIF
+
   size_t exifsize = 0;
   uint8_t* exifdata = GetExifMetaData(handle, &exifsize);
-  if (exifdata && exifsize > 4) {
-    static const uint8_t kExifMarker = JPEG_APP0 + 1;
-    jpeg_write_marker(&cinfo, kExifMarker, exifdata + 4,
-                      static_cast<unsigned int>(exifsize - 4));
+  if (exifdata) {
+    if (exifsize > 4) {
+      static const uint8_t kExifMarker = JPEG_APP0 + 1;
+
+      uint32_t skip = (exifdata[0]<<24) | (exifdata[1]<<16) | (exifdata[2]<<8) | exifdata[3];
+      skip += 4;
+
+      uint8_t* ptr = exifdata + skip;
+      size_t size = exifsize - skip;
+
+      // libheif by default normalizes the image orientation, so that we have to set the EXIF Orientation to "Horizontal (normal)"
+      modify_exif_orientation_tag_if_it_exists(ptr, (int)size, 1);
+
+      // We have to limit the size for the memcpy, otherwise GCC warns that we exceed the maximum size.
+      if (size>0x1000000) {
+        size = 0x1000000;
+      }
+
+      std::vector<uint8_t> jpegExifMarkerData(6+size);
+      memcpy(jpegExifMarkerData.data()+6, ptr, size);
+      jpegExifMarkerData[0]='E';
+      jpegExifMarkerData[1]='x';
+      jpegExifMarkerData[2]='i';
+      jpegExifMarkerData[3]='f';
+      jpegExifMarkerData[4]=0;
+      jpegExifMarkerData[5]=0;
+
+      ptr = jpegExifMarkerData.data();
+      size = jpegExifMarkerData.size();
+
+      while (size > MAX_BYTES_IN_MARKER) {
+        jpeg_write_marker(&cinfo, kExifMarker, ptr,
+                          static_cast<unsigned int>(MAX_BYTES_IN_MARKER));
+
+        ptr += MAX_BYTES_IN_MARKER;
+        size -= MAX_BYTES_IN_MARKER;
+      }
+
+      jpeg_write_marker(&cinfo, kExifMarker, ptr,
+                        static_cast<unsigned int>(size));
+    }
+
     free(exifdata);
   }
+
+  // --- Write XMP
+
+  // spec: https://raw.githubusercontent.com/adobe/xmp-docs/master/XMPSpecifications/XMPSpecificationPart3.pdf
+
+  auto xmp = get_xmp_metadata(handle);
+  if (xmp.size() > 65502) {
+    fprintf(stderr, "XMP data too large, ExtendedXMP is not supported yet.\n");
+  }
+  else if (!xmp.empty()) {
+    std::vector<uint8_t> xmpWithId;
+    xmpWithId.resize(xmp.size() + strlen(JPEG_XMP_MARKER_ID)+1);
+    strcpy((char*)xmpWithId.data(), JPEG_XMP_MARKER_ID);
+    memcpy(xmpWithId.data() + strlen(JPEG_XMP_MARKER_ID) + 1, xmp.data(), xmp.size());
+
+    jpeg_write_marker(&cinfo, JPEG_XMP_MARKER, xmpWithId.data(), static_cast<unsigned int>(xmpWithId.size()));
+  }
+
+  // --- Write ICC
 
   size_t profile_size = heif_image_handle_get_raw_color_profile_size(handle);
   if (profile_size > 0) {

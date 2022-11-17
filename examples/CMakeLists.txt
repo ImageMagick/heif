@@ -7,6 +7,8 @@ set (heif_convert_sources
   encoder_y4m.cc
   encoder_y4m.h
   heif_convert.cc
+  ../libheif/exif.cc
+  ../libheif/exif.cc
 )
 
 set (additional_link_directories)
@@ -65,7 +67,7 @@ if(UNIX OR MINGW)
       ${heif_convert_sources}
       encoder_png.cc
       encoder_png.h
-    )
+            benchmark.h benchmark.cc)
     set (additional_link_directories
       ${additional_link_directories}
       ${LIBPNG_LIBRARY_DIRS}
@@ -87,6 +89,10 @@ set (heif_info_sources
 
 set (heif_enc_sources
   heif_enc.cc
+  ../libheif/exif.cc
+  ../libheif/exif.cc
+  benchmark.h
+  benchmark.cc
 )
 
 set (heif_test_sources
@@ -107,16 +113,19 @@ target_link_directories (heif-convert PRIVATE ${additional_link_directories})
 target_link_libraries (heif-convert heif ${additional_libraries})
 target_include_directories(heif-convert PRIVATE ${additional_includes})
 install(TARGETS heif-convert RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES heif-convert.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
 add_executable (heif-info ${heif_info_sources} ${getopt_sources})
 target_link_libraries (heif-info heif)
 install(TARGETS heif-info RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES heif-info.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
 add_executable (heif-enc ${heif_enc_sources} ${getopt_sources})
 target_link_directories (heif-enc PRIVATE ${additional_link_directories})
 target_link_libraries (heif-enc heif ${additional_libraries})
 target_include_directories(heif-enc PRIVATE ${additional_includes})
 install(TARGETS heif-enc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES heif-enc.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
 add_executable (heif-test ${heif_test_sources} ${getopt_sources})
 target_link_libraries (heif-test heif)
@@ -129,6 +138,8 @@ if(LIBPNG_FOUND)
     heif_thumbnailer.cc
     encoder_png.cc
     encoder_png.h
+    ../libheif/exif.h
+    ../libheif/exif.cc
     )
 
   add_executable (heif-thumbnailer ${heif_thumbnailer_sources})
@@ -136,4 +147,5 @@ if(LIBPNG_FOUND)
   target_link_libraries (heif-thumbnailer heif ${LIBPNG_LINK_LIBRARIES} ${LIBPNG_LIBRARIES})
   target_include_directories(heif-thumbnailer PRIVATE ${LIBPNG_INCLUDE_DIRS})
   install(TARGETS heif-thumbnailer RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  install(FILES heif-thumbnailer.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 endif()

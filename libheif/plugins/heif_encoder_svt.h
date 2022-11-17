@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2022, Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -18,10 +18,16 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBHEIF_HEIF_ENCODER_RAV1E_H
-#define LIBHEIF_HEIF_ENCODER_RAV1E_H
+#ifndef LIBHEIF_HEIF_ENCODER_SVT_H
+#define LIBHEIF_HEIF_ENCODER_SVT_H
 
 
-const struct heif_encoder_plugin* get_encoder_plugin_rav1e();
+const struct heif_encoder_plugin* get_encoder_plugin_svt();
+
+#if PLUGIN_SvtEnc
+extern "C" {
+__attribute__((unused)) LIBHEIF_API extern heif_plugin_info plugin_info;
+}
+#endif
 
 #endif

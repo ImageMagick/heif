@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2022 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -17,10 +17,16 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
+#ifndef LIBHEIF_METADATA_COMPRESSION_H
+#define LIBHEIF_METADATA_COMPRESSION_H
 
-#ifndef LIBHEIF_HEIF_DECODER_DE265_H
-#define LIBHEIF_HEIF_DECODER_DE265_H
+#include <vector>
+#include <cinttypes>
 
-const struct heif_decoder_plugin* get_decoder_plugin_libde265();
+#if WITH_DEFLATE_HEADER_COMPRESSION
+std::vector<uint8_t> deflate(const uint8_t* input, int size);
 
+std::vector<uint8_t> inflate(const std::vector<uint8_t>&);
 #endif
+
+#endif //LIBHEIF_METADATA_COMPRESSION_H

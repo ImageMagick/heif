@@ -52,7 +52,7 @@ namespace heif {
 
     ~HeifFile();
 
-    Error read(std::shared_ptr<StreamReader> reader);
+    Error read(const std::shared_ptr<StreamReader>& reader);
 
     Error read_from_file(const char* input_filename);
 
@@ -137,6 +137,9 @@ namespace heif {
     void add_clap_property(heif_item_id id, uint32_t clap_width, uint32_t clap_height,
                            uint32_t image_width, uint32_t image_height);
 
+    // set irot/imir according to heif_orientation
+    void add_orientation_properties(heif_item_id id, heif_orientation);
+
     void add_pixi_property(heif_item_id id, uint8_t c1, uint8_t c2=0, uint8_t c3=0);
 
     void append_iloc_data(heif_item_id id, const std::vector<uint8_t>& nal_packets, uint8_t construction_method = 0);
@@ -146,16 +149,16 @@ namespace heif {
     void set_primary_item_id(heif_item_id id);
 
     void add_iref_reference(heif_item_id from, uint32_t type,
-                            std::vector<heif_item_id> to);
+                            const std::vector<heif_item_id>& to);
 
-    void set_auxC_property(heif_item_id id, std::string type);
+    void set_auxC_property(heif_item_id id, const std::string& type);
 
-    void set_color_profile(heif_item_id id, const std::shared_ptr<const color_profile> profile);
+    void set_color_profile(heif_item_id id, const std::shared_ptr<const color_profile>& profile);
 
     // TODO: the hdlr box is probably not the right place for this. Into which box should we write comments?
-    void set_hdlr_library_info(std::string encoder_plugin_version);
+    void set_hdlr_library_info(const std::string& encoder_plugin_version);
 
-#ifdef _MSC_VER
+#if defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)
     static std::wstring convert_utf8_path_to_utf16(std::string pathutf8);
 #endif
 
