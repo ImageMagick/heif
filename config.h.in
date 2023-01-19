@@ -1,5 +1,8 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
+/* Whether multithreading is supported. */
+#undef ENABLE_MULTITHREADING_SUPPORT
+
 /* Whether we enable multithreaded decoding. */
 #undef ENABLE_PARALLEL_TILE_DECODING
 

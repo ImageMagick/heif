@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.0)
 
-project(libheif LANGUAGES C CXX VERSION 1.14.0.0)
+project(libheif LANGUAGES C CXX VERSION 1.14.2)
 
 # https://cmake.org/cmake/help/v3.1/policy/CMP0054.html
 cmake_policy(VERSION 3.0...3.22)
@@ -58,7 +58,15 @@ endif()
 LIST (APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules")
 
 option(ENABLE_PLUGIN_LOADING "Support loading of plugins" ON)
-set(PLUGIN_DIRECTORY "/usr/local/lib/libheif" CACHE STRING "Plugin install directory")
+set(PLUGIN_DIRECTORY "${CMAKE_INSTALL_FULL_LIBDIR}/libheif" CACHE STRING "Plugin install directory")
+
+if (ENABLE_PLUGIN_LOADING AND UNIX)
+    set(PLUGIN_LOADING_SUPPORTED_AND_ENABLED TRUE)
+    install(DIRECTORY DESTINATION ${PLUGIN_DIRECTORY} DIRECTORY_PERMISSIONS 
+        OWNER_WRITE OWNER_READ OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE)
+endif()
 
 macro(plugin_option variableName packageName displayName displayType defaultPlugin)
     option(WITH_${variableName} "Build ${displayName} ${displayType}" ON)
@@ -67,7 +75,7 @@ macro(plugin_option variableName packageName displayName displayType defaultPlug
         find_package(${packageName})
     endif ()
 
-    if (${variableName}_FOUND AND WITH_${variableName}_PLUGIN)
+    if (${variableName}_FOUND AND WITH_${variableName}_PLUGIN AND PLUGIN_LOADING_SUPPORTED_AND_ENABLED)
         set(msg "found (plugin)")
     elseif (${variableName}_FOUND)
         set(msg "found (built-in)")
@@ -93,9 +101,17 @@ plugin_option(RAV1E RAV1E "Rav1e" "AVIF encoder" ON)
 # --- Create libheif pkgconfig file
 
 set(prefix ${CMAKE_INSTALL_PREFIX})
-set(exec_prefix ${CMAKE_INSTALL_PREFIX})
-set(libdir ${CMAKE_INSTALL_FULL_LIBDIR})
-set(includedir ${CMAKE_INSTALL_FULL_INCLUDEDIR})
+set(exec_prefix "\${prefix}")
+if(IS_ABSOLUTE "${CMAKE_INSTALL_LIBDIR}")
+    set(libdir "${CMAKE_INSTALL_LIBDIR}")
+else()
+    set(libdir "\${exec_prefix}/${CMAKE_INSTALL_LIBDIR}")
+endif()
+if(IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
+    set(includedir "${CMAKE_INSTALL_INCLUDEDIR}")
+else()
+    set(includedir "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+endif()
 if (LIBDE265_FOUND)
     list(APPEND REQUIRES_PRIVATE "libde265")
     set(have_libde265 yes)
@@ -118,7 +134,7 @@ if (RAV1E_FOUND)
     list(APPEND REQUIRES_PRIVATE "rav1e")
 endif()
 if (SvtEnc_FOUND)
-    list(APPEND REQUIRES_PRIVATE "SvtEnc")
+    list(APPEND REQUIRES_PRIVATE "SvtAv1Enc")
 endif()
 if (AOM_DECODER_FOUND OR DAV1D_FOUND)
     set(have_avif_decoder yes)
@@ -143,6 +159,8 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libheif.pc
 option(WITH_EXAMPLES "Build examples" ON)
 
 option(WITH_DEFLATE_HEADER_COMPRESSION OFF)
+option(ENABLE_MULTITHREADING_SUPPORT "Switch off for platforms without multithreading support" ON)
+option(ENABLE_PARALLEL_TILE_DECODING "Will launch multiple decoders to decode tiles in parallel (requires ENABLE_MULTITHREADING_SUPPORT)" ON)
 
 if(WITH_EXAMPLES)
     add_subdirectory (examples)

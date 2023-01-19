@@ -1547,7 +1547,8 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
   };
 
   std::deque<tile_data> tiles;
-  tiles.resize(grid.get_rows() * grid.get_columns() );
+  if (m_max_decoding_threads > 0)
+    tiles.resize(grid.get_rows() * grid.get_columns() );
 
   std::deque<std::future<Error> > errs;
 #endif
@@ -1572,13 +1573,18 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
       int src_height = tileImg->get_height();
 
 #if ENABLE_PARALLEL_TILE_DECODING
-      tiles[x+y*grid.get_columns()] = tile_data { tileID, x0,y0 };
+      if ( m_max_decoding_threads > 0)
+         tiles[x+y*grid.get_columns()] = tile_data { tileID, x0,y0 };
+      else
 #else
-      Error err = decode_and_paste_tile_image(tileID, img, x0, y0);
-      if (err) {
-        return err;
-      }
+      if (1)
 #endif
+      {
+        Error err = decode_and_paste_tile_image(tileID, img, x0, y0);
+        if (err) {
+          return err;
+        }
+      }
 
       x0 += src_width;
       tile_height = src_height; // TODO: check that all tiles have the same height
@@ -1590,14 +1596,37 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
   }
 
 #if ENABLE_PARALLEL_TILE_DECODING
-  // Process all tiles in a set of background threads.
-  // Do not start more than the maximum number of threads.
+  if (m_max_decoding_threads > 0) {
+    // Process all tiles in a set of background threads.
+    // Do not start more than the maximum number of threads.
 
-  while (tiles.empty()==false) {
+    while (tiles.empty()==false) {
 
-    // If maximum number of threads running, wait until first thread finishes
+      // If maximum number of threads running, wait until first thread finishes
 
-    if (errs.size() >= (size_t)m_max_decoding_threads) {
+      if (errs.size() >= (size_t)m_max_decoding_threads) {
+        Error e = errs.front().get();
+        if (e) {
+          return e;
+        }
+
+        errs.pop_front();
+      }
+
+
+      // Start a new decoding thread
+
+      tile_data data = tiles.front();
+      tiles.pop_front();
+
+      errs.push_back( std::async(std::launch::async,
+                                 &HeifContext::decode_and_paste_tile_image, this,
+                                 data.tileID, img, data.x_origin,data.y_origin) );
+    }
+
+    // check for decoding errors in remaining tiles
+
+    while (errs.empty() == false) {
       Error e = errs.front().get();
       if (e) {
         return e;
@@ -1605,27 +1634,6 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
 
       errs.pop_front();
     }
-
-
-    // Start a new decoding thread
-
-    tile_data data = tiles.front();
-    tiles.pop_front();
-
-    errs.push_back( std::async(std::launch::async,
-                               &HeifContext::decode_and_paste_tile_image, this,
-                               data.tileID, img, data.x_origin,data.y_origin) );
-  }
-
-  // check for decoding errors in remaining tiles
-
-  while (errs.empty() == false) {
-    Error e = errs.front().get();
-    if (e) {
-      return e;
-    }
-
-    errs.pop_front();
   }
 #endif
 
@@ -1666,7 +1674,21 @@ Error HeifContext::decode_and_paste_tile_image(heif_item_id tileID,
   // --- add alpha plane if we discovered a tile with alpha
 
   if (tile_img->has_alpha() && !img->has_alpha()) {
-    img->fill_new_plane(heif_channel_Alpha, 255, w, h, tile_img->get_bits_per_pixel(heif_channel_Alpha));
+#if ENABLE_PARALLEL_TILE_DECODING
+    // The mutex should probably be a member of heif_context, but since this is so infrequently locked, it probably doesn't matter.
+    static std::mutex m;
+    std::lock_guard<std::mutex> lock(m);
+    if (!img->has_channel(heif_channel_Alpha))	// check again, after locking
+#endif
+    {
+      int alpha_bpp = tile_img->get_bits_per_pixel(heif_channel_Alpha);
+
+      assert(alpha_bpp <= 16);
+
+      uint16_t alpha_default_value = static_cast<uint16_t>((1UL << alpha_bpp) - 1UL);
+
+      img->fill_new_plane(heif_channel_Alpha, alpha_default_value, w, h, alpha_bpp);
+    }
   }
 
   std::set<enum heif_channel> channels = tile_img->get_channel_set();
@@ -2158,7 +2180,7 @@ Error HeifContext::encode_image_as_hevc(const std::shared_ptr<HeifPixelImage>& i
         grid_image->mark_not_miaf_compatible();
       }
 
-      if ((encoded_width % 64) != 0 &&
+      if ((encoded_width % 64) != 0 ||
           (encoded_height % 64) != 0) {
         grid_image->mark_not_miaf_compatible();
       }
@@ -2369,7 +2391,12 @@ Error HeifContext::encode_image_as_av1(const std::shared_ptr<HeifPixelImage>& im
   heif_image c_api_image;
   c_api_image.image = src_image;
 
-  encoder->plugin->encode_image(encoder->encoder, &c_api_image, input_class);
+  struct heif_error err = encoder->plugin->encode_image(encoder->encoder, &c_api_image, input_class);
+  if (err.code) {
+    return Error(err.code,
+                 err.subcode,
+                 err.message);
+  }
 
   for (;;) {
     uint8_t* data;

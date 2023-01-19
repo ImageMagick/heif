@@ -41,9 +41,13 @@ struct encoder_struct_svt
 {
   int speed = 12; // 0-13
 
-  //int quality; // TODO: not sure yet how to map quality to min/max q
-  //int min_q, max_q;  // for VBR
-  int qp = 50; // for CBR
+  int quality;
+
+  int min_q = 0;
+  int max_q = 63;
+  int qp = -1;
+  bool qp_set = false;
+
   int threads = 4;
 
   int tile_rows = 1; // 1,2,4,8,16,32,64
@@ -59,8 +63,8 @@ struct encoder_struct_svt
 
 //static const char* kError_out_of_memory = "Out of memory";
 
-//static const char* kParam_min_q = "min-q";
-//static const char* kParam_max_q = "max-q";
+static const char* kParam_min_q = "min-q";
+static const char* kParam_max_q = "max-q";
 static const char* kParam_qp = "qp";
 static const char* kParam_threads = "threads";
 static const char* kParam_speed = "speed";
@@ -97,6 +101,7 @@ static const char* svt_plugin_name()
 int int_log2(int pow2_value)
 {
   int input_value = pow2_value;
+  (void) input_value;
 
   int v = 0;
   while (pow2_value > 1) {
@@ -170,7 +175,6 @@ static void svt_init_parameters()
   d[i++] = p++;
 
 
-  /*
   assert(i < MAX_NPARAMETERS);
   p->version = 2;
   p->name = heif_encoder_parameter_name_quality;
@@ -183,7 +187,6 @@ static void svt_init_parameters()
   p->integer.valid_values = NULL;
   p->integer.num_valid_values = 0;
   d[i++] = p++;
-*/
 
   /*
   assert(i < MAX_NPARAMETERS);
@@ -209,7 +212,7 @@ static void svt_init_parameters()
   p->name = kParam_qp;
   p->type = heif_encoder_parameter_type_integer;
   p->integer.default_value = 50;
-  p->has_default = true;
+  p->has_default = false;
   p->integer.have_minimum_maximum = true;
   p->integer.minimum = 0;
   p->integer.maximum = 63;
@@ -217,7 +220,6 @@ static void svt_init_parameters()
   p->integer.num_valid_values = 0;
   d[i++] = p++;
 
-  /*
   assert(i < MAX_NPARAMETERS);
   p->version = 2;
   p->name = kParam_min_q;
@@ -227,7 +229,7 @@ static void svt_init_parameters()
   p->integer.have_minimum_maximum = true;
   p->integer.minimum = 0;
   p->integer.maximum = 63;
-  p->integer.valid_values = NULL;
+  p->integer.valid_values = nullptr;
   p->integer.num_valid_values = 0;
   d[i++] = p++;
 
@@ -240,10 +242,9 @@ static void svt_init_parameters()
   p->integer.have_minimum_maximum = true;
   p->integer.minimum = 0;
   p->integer.maximum = 63;
-  p->integer.valid_values = NULL;
+  p->integer.valid_values = nullptr;
   p->integer.num_valid_values = 0;
   d[i++] = p++;
-*/
 
   d[i++] = nullptr;
 }
@@ -288,7 +289,6 @@ void svt_free_encoder(void* encoder_raw)
 
 struct heif_error svt_set_parameter_quality(void* encoder_raw, int quality)
 {
-#if 0
   auto* encoder = (struct encoder_struct_svt*) encoder_raw;
 
   if (quality < 0 || quality > 100) {
@@ -296,17 +296,16 @@ struct heif_error svt_set_parameter_quality(void* encoder_raw, int quality)
   }
 
   encoder->quality = quality;
-#endif
+
   return heif_error_ok;
 }
 
 struct heif_error svt_get_parameter_quality(void* encoder_raw, int* quality)
 {
-#if 0
   auto* encoder = (struct encoder_struct_svt*) encoder_raw;
 
   *quality = encoder->quality;
-#endif
+
   return heif_error_ok;
 }
 
@@ -315,9 +314,11 @@ struct heif_error svt_set_parameter_lossless(void* encoder_raw, int enable)
   auto* encoder = (struct encoder_struct_svt*) encoder_raw;
 
   if (enable) {
-    //encoder->min_q = 0;
-    //encoder->max_q = 0;
+    encoder->min_q = 0;
+    encoder->max_q = 0;
     encoder->qp = 0;
+    encoder->qp_set = true;
+    encoder->quality = 100; // not really required, but to be consistent
   }
 
   return heif_error_ok;
@@ -327,8 +328,8 @@ struct heif_error svt_get_parameter_lossless(void* encoder_raw, int* enable)
 {
   auto* encoder = (struct encoder_struct_svt*) encoder_raw;
 
-  //*enable = (encoder->min_q == 0 && encoder->max_q == 0);
-  *enable = (encoder->qp == 0);
+  *enable = (encoder->min_q == 0 && encoder->max_q == 0 &&
+             ((encoder->qp_set && encoder->qp == 0) || encoder->quality == 100));
 
   return heif_error_ok;
 }
@@ -375,10 +376,14 @@ struct heif_error svt_set_parameter_integer(void* encoder_raw, const char* name,
   else if (strcmp(name, heif_encoder_parameter_name_lossless) == 0) {
     return svt_set_parameter_lossless(encoder, value);
   }
+  else if (strcmp(name, kParam_qp) == 0) {
+    encoder->qp = value;
+    encoder->qp_set = true;
+    return heif_error_ok;
+  }
 
-  //set_value(kParam_min_q, min_q);
-  //set_value(kParam_max_q, max_q);
-  set_value(kParam_qp, qp);
+  set_value(kParam_min_q, min_q);
+  set_value(kParam_max_q, max_q);
   set_value(kParam_threads, threads);
   set_value(kParam_speed, speed);
   set_value("tile-rows", tile_rows);
@@ -398,9 +403,9 @@ struct heif_error svt_get_parameter_integer(void* encoder_raw, const char* name,
     return svt_get_parameter_lossless(encoder, value);
   }
 
-  //get_value(kParam_min_q, min_q);
-  //get_value(kParam_max_q, max_q);
-  get_value(kParam_qp, qp);
+  get_value(kParam_min_q, min_q);
+  get_value(kParam_max_q, max_q);
+  get_value(kParam_qp, qp);  // TODO: what if qp was not set ?
   get_value(kParam_threads, threads);
   get_value(kParam_speed, speed);
   get_value("tile-rows", tile_rows);
@@ -475,19 +480,21 @@ struct heif_error svt_get_parameter_string(void* encoder_raw, const char* name,
 {
   auto* encoder = (struct encoder_struct_svt*) encoder_raw;
 
-  switch (encoder->chroma) {
-    case heif_chroma_420:
-      save_strcpy(value, value_size, "420");
-      break;
-    case heif_chroma_422:
-      save_strcpy(value, value_size, "422");
-      break;
-    case heif_chroma_444:
-      save_strcpy(value, value_size, "444");
-      break;
-    default:
-      assert(false);
-      return heif_error_invalid_parameter_value;
+  if (strcmp(name, kParam_chroma) == 0) {
+    switch (encoder->chroma) {
+      case heif_chroma_420:
+        save_strcpy(value, value_size, "420");
+        break;
+      case heif_chroma_422:
+        save_strcpy(value, value_size, "422");
+        break;
+      case heif_chroma_444:
+        save_strcpy(value, value_size, "444");
+        break;
+      default:
+        assert(false);
+        return heif_error_invalid_parameter_value;
+    }
   }
 
   return heif_error_unsupported_parameter;
@@ -539,14 +546,20 @@ void svt_query_encoded_size(void* encoder_raw, uint32_t input_width, uint32_t in
 
   // SVT-AV1 (as of version 1.2.1) can only create image sizes matching the chroma format. Add padding if necessary.
 
-  if (encoder->chroma == heif_chroma_420 && (input_width & 1) == 1) {
+  if (input_width < 64) {
+    *encoded_width = 64;
+  }
+  else if (encoder->chroma == heif_chroma_420 && (input_width & 1) == 1) {
     *encoded_width = input_width + 1;
   }
   else {
     *encoded_width = input_width;
   }
 
-  if (encoder->chroma != heif_chroma_444 && (input_height & 1) == 1) {
+  if (input_height < 64) {
+    *encoded_height = 64;
+  }
+  else if (encoder->chroma != heif_chroma_444 && (input_height & 1) == 1) {
     *encoded_height = input_height + 1;
   }
   else {
@@ -565,7 +578,7 @@ struct heif_error svt_encode_image(void* encoder_raw, const struct heif_image* i
   int h = heif_image_get_height(image, heif_channel_Y);
 
   uint32_t encoded_width, encoded_height;
-  svt_query_encoded_size(encoder_raw, w,h, &encoded_width, &encoded_height);
+  svt_query_encoded_size(encoder_raw, w, h, &encoded_width, &encoded_height);
 
   image->image->extend_padding_to_size(encoded_width, encoded_height);
 
@@ -653,7 +666,16 @@ struct heif_error svt_encode_image(void* encoder_raw, const struct heif_image* i
 
   svt_config.rate_control_mode = 0; // constant rate factor
   //svt_config.enable_adaptive_quantization = 0;   // 2 is CRF (the default), 0 would be CQP
-  svt_config.qp = encoder->qp;
+  int qp;
+  if (encoder->qp_set) {
+    qp = encoder->qp;
+  }
+  else {
+    qp = ((100 - encoder->quality) * 63 + 50) / 100;
+  }
+  svt_config.qp = qp;
+  svt_config.min_qp_allowed = encoder->min_q;
+  svt_config.max_qp_allowed = encoder->max_q;
 
   svt_config.tile_rows = int_log2(encoder->tile_rows);
   svt_config.tile_columns = int_log2(encoder->tile_cols);

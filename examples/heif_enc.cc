@@ -184,7 +184,7 @@ struct InputImage
   std::shared_ptr<heif_image> image;
   std::vector<uint8_t> xmp;
   std::vector<uint8_t> exif;
-  heif_orientation orientation;
+  heif_orientation orientation = heif_orientation_normal;
 };
 
 
@@ -1422,7 +1422,7 @@ int main(int argc, char** argv)
     //heif_image_set_nclx_color_profile(image.get(), &nclx);
 
     if (lossless) {
-      if (heif_encoder_descriptor_supportes_lossless_compression(active_encoder_descriptor)) {
+      if (heif_encoder_descriptor_supports_lossless_compression(active_encoder_descriptor)) {
         heif_encoder_set_lossless(encoder, lossless);
       }
       else {

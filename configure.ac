@@ -1,12 +1,12 @@
 AC_PREREQ([2.68])
-AC_INIT([libheif],[1.14.0],[opensource@struktur.de])
+AC_INIT([libheif],[1.14.2],[opensource@struktur.de])
 AC_CONFIG_SRCDIR([libheif/box.cc])
 AC_CONFIG_HEADERS([config.h])
 
 # Note: do not forget to set the version in the CMakeLists.txt file accordingly
 PROJECT_VERSION_MAJOR=1
 PROJECT_VERSION_MINOR=14
-PROJECT_VERSION_PATCH=0
+PROJECT_VERSION_PATCH=2
 PROJECT_VERSION_TWEAK=0
 AC_SUBST(PROJECT_VERSION_MAJOR)
 AC_SUBST(PROJECT_VERSION_MINOR)
@@ -20,7 +20,7 @@ AC_SUBST(PROJECT_VERSION_TWEAK)
 # If any interfaces have been removed or changed since the last public release, then set age to 0.
 
 LIBHEIF_CURRENT=15
-LIBHEIF_REVISION=0
+LIBHEIF_REVISION=2
 LIBHEIF_AGE=14
 AC_SUBST(LIBHEIF_CURRENT)
 AC_SUBST(LIBHEIF_REVISION)
@@ -319,8 +319,10 @@ AC_ARG_ENABLE([multithreading], AS_HELP_STRING([--disable-multithreading],
 if eval "test x$enable_multithreading = x" ; then enable_multithreading=yes ; fi
 if eval "test x$enable_multithreading != xno"; then
     AC_MSG_NOTICE([Enable multithreading])
+    AC_DEFINE([ENABLE_MULTITHREADING_SUPPORT], [1], [Whether multithreading is supported.])
     AC_DEFINE([ENABLE_PARALLEL_TILE_DECODING], [1], [Whether we enable multithreaded decoding.])
 fi
+AC_SUBST(ENABLE_MULTITHREADING_SUPPORT)
 AC_SUBST(ENABLE_PARALLEL_TILE_DECODING)
 
 WARNING_FLAGS="-Wall -Werror -Wsign-compare -Wconversion -Wno-sign-conversion -Wno-error=conversion -Wno-error=unused-parameter -Wno-error=deprecated-declarations"
@@ -347,6 +349,11 @@ AC_MSG_NOTICE([PNG output: $have_libpng])
 AC_MSG_NOTICE([GdkPixbuf2 loader: $have_gdkpixbuf2])
 AC_MSG_NOTICE([Examples: $enable_examples])
 AC_MSG_NOTICE([Tests: $enable_tests (tests will cause 'visibility' to be turned off)])
+AC_MSG_NOTICE([---------------------------------------])
+AC_MSG_NOTICE([DEPRECATION WARNING])
+AC_MSG_NOTICE([The autotools build scripts are deprecated in favor of CMake.])
+AC_MSG_NOTICE([Please switch to a CMake building process.])
+AC_MSG_NOTICE([The 'configure' script will be removed in a future release.])
 AC_MSG_NOTICE([---------------------------------------])
 
 AC_CONFIG_FILES([Makefile])

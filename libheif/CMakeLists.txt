@@ -62,18 +62,28 @@ target_compile_definitions(heif
                                LIBHEIF_EXPORTS
                                HAVE_VISIBILITY)
 
-add_subdirectory(plugins)
-
-if (ENABLE_PLUGIN_LOADING AND UNIX)
+if (PLUGIN_LOADING_SUPPORTED_AND_ENABLED)
     target_compile_definitions(heif PRIVATE ENABLE_PLUGIN_LOADING=1)
     target_link_libraries(heif PRIVATE dl)
 endif()
 
+add_subdirectory(plugins)
+
 if (WITH_DEFLATE_HEADER_COMPRESSION)
-    find_library(z-lib z)
-    target_link_libraries(heif PRIVATE ${z-lib})
-    target_compile_definitions(heif PRIVATE WITH_DEFLATE_HEADER_COMPRESSION=1)
+   find_package(ZLIB REQUIRED)
+   if (ZLIB_FOUND)
+     target_link_libraries(heif PRIVATE ${ZLIB_LIBRARY})
+     target_include_directories(heif PRIVATE ${ZLIB_INCLUDE_DIRS})
+     target_compile_definitions(heif PRIVATE WITH_DEFLATE_HEADER_COMPRESSION=1)
+   endif ()
 endif ()
+
+if (ENABLE_MULTITHREADING_SUPPORT)
+    target_compile_definitions(heif PRIVATE ENABLE_MULTITHREADING_SUPPORT=1)
+    if (ENABLE_PARALLEL_TILE_DECODING)
+        target_compile_definitions(heif PRIVATE ENABLE_PARALLEL_TILE_DECODING=1)
+    endif()
+endif()
 
 write_basic_package_version_file(${PROJECT_NAME}-config-version.cmake COMPATIBILITY ExactVersion)
 

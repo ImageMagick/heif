@@ -2881,8 +2881,8 @@ Op_RRGGBBxx_HDR_to_YCbCr420::convert_colorspace(const std::shared_ptr<const Heif
       float cr = r * coeffs.c[2][0] + g * coeffs.c[2][1] + b * coeffs.c[2][2];
 
       if (!full_range_flag) {
-        cb = cb * 0.85547f;  // 0.85547 = 219/256
-        cr = cr * 0.85547f;  // 0.85547 = 219/256
+        cb = cb * 0.8750f;  // 0.8750 = 224/256
+        cr = cr * 0.8750f;  // 0.8750 = 224/256
       }
 
       out_cb[(y / 2) * out_cb_stride + (x / 2)] = clip_f_u16(halfRange + cb, fullRange);
@@ -3274,7 +3274,7 @@ std::shared_ptr<HeifPixelImage> ColorConversionPipeline::convert_image(const std
 
     out->set_premultiplied_alpha(in->is_premultiplied_alpha());
 
-    auto warnings = in->get_warnings();
+    const auto& warnings = in->get_warnings();
     for (const auto& warning : warnings) {
       out->add_warning(warning);
     }
