@@ -221,9 +221,10 @@ am__libheif_la_SOURCES_DIST = bitstream.h bitstream.cc box.h box.cc \
 	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
 	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
 	logging.h metadata_compression.h metadata_compression.cc \
-	nclx.cc nclx.h plugins/heif_decoder_aom.cc \
-	plugins/heif_decoder_aom.h plugins/heif_encoder_aom.cc \
-	plugins/heif_encoder_aom.h plugins/heif_decoder_libde265.cc \
+	nclx.cc nclx.h common_utils.cc common_utils.h \
+	plugins/heif_decoder_aom.cc plugins/heif_decoder_aom.h \
+	plugins/heif_encoder_aom.cc plugins/heif_encoder_aom.h \
+	plugins/heif_decoder_libde265.cc \
 	plugins/heif_decoder_libde265.h plugins/heif_encoder_rav1e.cc \
 	plugins/heif_encoder_rav1e.h plugins/heif_decoder_dav1d.cc \
 	plugins/heif_decoder_dav1d.h plugins/heif_encoder_svt.cc \
@@ -251,9 +252,9 @@ am_libheif_la_OBJECTS = libheif_la-bitstream.lo libheif_la-box.lo \
 	libheif_la-heif_plugin_registry.lo libheif_la-heif_plugin.lo \
 	libheif_la-heif_colorconversion.lo \
 	libheif_la-metadata_compression.lo libheif_la-nclx.lo \
-	$(am__objects_1) $(am__objects_2) $(am__objects_3) \
-	$(am__objects_4) $(am__objects_5) $(am__objects_6) \
-	$(am__objects_7)
+	libheif_la-common_utils.lo $(am__objects_1) $(am__objects_2) \
+	$(am__objects_3) $(am__objects_4) $(am__objects_5) \
+	$(am__objects_6) $(am__objects_7)
 libheif_la_OBJECTS = $(am_libheif_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -270,9 +271,10 @@ am__box_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h box.cc \
 	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
 	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
 	logging.h metadata_compression.h metadata_compression.cc \
-	nclx.cc nclx.h plugins/heif_decoder_aom.cc \
-	plugins/heif_decoder_aom.h plugins/heif_encoder_aom.cc \
-	plugins/heif_encoder_aom.h plugins/heif_decoder_libde265.cc \
+	nclx.cc nclx.h common_utils.cc common_utils.h \
+	plugins/heif_decoder_aom.cc plugins/heif_decoder_aom.h \
+	plugins/heif_encoder_aom.cc plugins/heif_encoder_aom.h \
+	plugins/heif_decoder_libde265.cc \
 	plugins/heif_decoder_libde265.h plugins/heif_encoder_rav1e.cc \
 	plugins/heif_encoder_rav1e.h plugins/heif_decoder_dav1d.cc \
 	plugins/heif_decoder_dav1d.h plugins/heif_encoder_svt.cc \
@@ -295,9 +297,10 @@ am__objects_15 = box_fuzzer-bitstream.$(OBJEXT) \
 	box_fuzzer-heif_plugin.$(OBJEXT) \
 	box_fuzzer-heif_colorconversion.$(OBJEXT) \
 	box_fuzzer-metadata_compression.$(OBJEXT) \
-	box_fuzzer-nclx.$(OBJEXT) $(am__objects_8) $(am__objects_9) \
-	$(am__objects_10) $(am__objects_11) $(am__objects_12) \
-	$(am__objects_13) $(am__objects_14)
+	box_fuzzer-nclx.$(OBJEXT) box_fuzzer-common_utils.$(OBJEXT) \
+	$(am__objects_8) $(am__objects_9) $(am__objects_10) \
+	$(am__objects_11) $(am__objects_12) $(am__objects_13) \
+	$(am__objects_14)
 am_box_fuzzer_OBJECTS = $(am__objects_15) \
 	box_fuzzer-box_fuzzer.$(OBJEXT)
 box_fuzzer_OBJECTS = $(am_box_fuzzer_OBJECTS)
@@ -312,9 +315,10 @@ am__color_conversion_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc \
 	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
 	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
 	logging.h metadata_compression.h metadata_compression.cc \
-	nclx.cc nclx.h plugins/heif_decoder_aom.cc \
-	plugins/heif_decoder_aom.h plugins/heif_encoder_aom.cc \
-	plugins/heif_encoder_aom.h plugins/heif_decoder_libde265.cc \
+	nclx.cc nclx.h common_utils.cc common_utils.h \
+	plugins/heif_decoder_aom.cc plugins/heif_decoder_aom.h \
+	plugins/heif_encoder_aom.cc plugins/heif_encoder_aom.h \
+	plugins/heif_decoder_libde265.cc \
 	plugins/heif_decoder_libde265.h plugins/heif_encoder_rav1e.cc \
 	plugins/heif_encoder_rav1e.h plugins/heif_decoder_dav1d.cc \
 	plugins/heif_decoder_dav1d.h plugins/heif_encoder_svt.cc \
@@ -341,9 +345,11 @@ am__objects_23 = color_conversion_fuzzer-bitstream.$(OBJEXT) \
 	color_conversion_fuzzer-heif_plugin.$(OBJEXT) \
 	color_conversion_fuzzer-heif_colorconversion.$(OBJEXT) \
 	color_conversion_fuzzer-metadata_compression.$(OBJEXT) \
-	color_conversion_fuzzer-nclx.$(OBJEXT) $(am__objects_16) \
-	$(am__objects_17) $(am__objects_18) $(am__objects_19) \
-	$(am__objects_20) $(am__objects_21) $(am__objects_22)
+	color_conversion_fuzzer-nclx.$(OBJEXT) \
+	color_conversion_fuzzer-common_utils.$(OBJEXT) \
+	$(am__objects_16) $(am__objects_17) $(am__objects_18) \
+	$(am__objects_19) $(am__objects_20) $(am__objects_21) \
+	$(am__objects_22)
 am_color_conversion_fuzzer_OBJECTS = $(am__objects_23) \
 	color_conversion_fuzzer-color_conversion_fuzzer.$(OBJEXT)
 color_conversion_fuzzer_OBJECTS =  \
@@ -360,9 +366,10 @@ am__encoder_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h \
 	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
 	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
 	logging.h metadata_compression.h metadata_compression.cc \
-	nclx.cc nclx.h plugins/heif_decoder_aom.cc \
-	plugins/heif_decoder_aom.h plugins/heif_encoder_aom.cc \
-	plugins/heif_encoder_aom.h plugins/heif_decoder_libde265.cc \
+	nclx.cc nclx.h common_utils.cc common_utils.h \
+	plugins/heif_decoder_aom.cc plugins/heif_decoder_aom.h \
+	plugins/heif_encoder_aom.cc plugins/heif_encoder_aom.h \
+	plugins/heif_decoder_libde265.cc \
 	plugins/heif_decoder_libde265.h plugins/heif_encoder_rav1e.cc \
 	plugins/heif_encoder_rav1e.h plugins/heif_decoder_dav1d.cc \
 	plugins/heif_decoder_dav1d.h plugins/heif_encoder_svt.cc \
@@ -388,7 +395,8 @@ am__objects_31 = encoder_fuzzer-bitstream.$(OBJEXT) \
 	encoder_fuzzer-heif_plugin.$(OBJEXT) \
 	encoder_fuzzer-heif_colorconversion.$(OBJEXT) \
 	encoder_fuzzer-metadata_compression.$(OBJEXT) \
-	encoder_fuzzer-nclx.$(OBJEXT) $(am__objects_24) \
+	encoder_fuzzer-nclx.$(OBJEXT) \
+	encoder_fuzzer-common_utils.$(OBJEXT) $(am__objects_24) \
 	$(am__objects_25) $(am__objects_26) $(am__objects_27) \
 	$(am__objects_28) $(am__objects_29) $(am__objects_30)
 am_encoder_fuzzer_OBJECTS = $(am__objects_31) \
@@ -406,9 +414,10 @@ am__file_fuzzer_SOURCES_DIST = bitstream.h bitstream.cc box.h box.cc \
 	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
 	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
 	logging.h metadata_compression.h metadata_compression.cc \
-	nclx.cc nclx.h plugins/heif_decoder_aom.cc \
-	plugins/heif_decoder_aom.h plugins/heif_encoder_aom.cc \
-	plugins/heif_encoder_aom.h plugins/heif_decoder_libde265.cc \
+	nclx.cc nclx.h common_utils.cc common_utils.h \
+	plugins/heif_decoder_aom.cc plugins/heif_decoder_aom.h \
+	plugins/heif_encoder_aom.cc plugins/heif_encoder_aom.h \
+	plugins/heif_decoder_libde265.cc \
 	plugins/heif_decoder_libde265.h plugins/heif_encoder_rav1e.cc \
 	plugins/heif_encoder_rav1e.h plugins/heif_decoder_dav1d.cc \
 	plugins/heif_decoder_dav1d.h plugins/heif_encoder_svt.cc \
@@ -433,9 +442,10 @@ am__objects_39 = file_fuzzer-bitstream.$(OBJEXT) \
 	file_fuzzer-heif_plugin.$(OBJEXT) \
 	file_fuzzer-heif_colorconversion.$(OBJEXT) \
 	file_fuzzer-metadata_compression.$(OBJEXT) \
-	file_fuzzer-nclx.$(OBJEXT) $(am__objects_32) $(am__objects_33) \
-	$(am__objects_34) $(am__objects_35) $(am__objects_36) \
-	$(am__objects_37) $(am__objects_38)
+	file_fuzzer-nclx.$(OBJEXT) file_fuzzer-common_utils.$(OBJEXT) \
+	$(am__objects_32) $(am__objects_33) $(am__objects_34) \
+	$(am__objects_35) $(am__objects_36) $(am__objects_37) \
+	$(am__objects_38)
 am_file_fuzzer_OBJECTS = $(am__objects_39) \
 	file_fuzzer-file_fuzzer.$(OBJEXT)
 file_fuzzer_OBJECTS = $(am_file_fuzzer_OBJECTS)
@@ -460,6 +470,7 @@ am__maybe_remake_depfiles = depfiles
 am__depfiles_remade = ./$(DEPDIR)/box_fuzzer-bitstream.Po \
 	./$(DEPDIR)/box_fuzzer-box.Po \
 	./$(DEPDIR)/box_fuzzer-box_fuzzer.Po \
+	./$(DEPDIR)/box_fuzzer-common_utils.Po \
 	./$(DEPDIR)/box_fuzzer-error.Po ./$(DEPDIR)/box_fuzzer-heif.Po \
 	./$(DEPDIR)/box_fuzzer-heif_avif.Po \
 	./$(DEPDIR)/box_fuzzer-heif_colorconversion.Po \
@@ -475,6 +486,7 @@ am__depfiles_remade = ./$(DEPDIR)/box_fuzzer-bitstream.Po \
 	./$(DEPDIR)/color_conversion_fuzzer-bitstream.Po \
 	./$(DEPDIR)/color_conversion_fuzzer-box.Po \
 	./$(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Po \
+	./$(DEPDIR)/color_conversion_fuzzer-common_utils.Po \
 	./$(DEPDIR)/color_conversion_fuzzer-error.Po \
 	./$(DEPDIR)/color_conversion_fuzzer-heif.Po \
 	./$(DEPDIR)/color_conversion_fuzzer-heif_avif.Po \
@@ -491,6 +503,7 @@ am__depfiles_remade = ./$(DEPDIR)/box_fuzzer-bitstream.Po \
 	./$(DEPDIR)/color_conversion_fuzzer.Po \
 	./$(DEPDIR)/encoder_fuzzer-bitstream.Po \
 	./$(DEPDIR)/encoder_fuzzer-box.Po \
+	./$(DEPDIR)/encoder_fuzzer-common_utils.Po \
 	./$(DEPDIR)/encoder_fuzzer-encoder_fuzzer.Po \
 	./$(DEPDIR)/encoder_fuzzer-error.Po \
 	./$(DEPDIR)/encoder_fuzzer-heif.Po \
@@ -508,6 +521,7 @@ am__depfiles_remade = ./$(DEPDIR)/box_fuzzer-bitstream.Po \
 	./$(DEPDIR)/encoder_fuzzer.Po \
 	./$(DEPDIR)/file_fuzzer-bitstream.Po \
 	./$(DEPDIR)/file_fuzzer-box.Po \
+	./$(DEPDIR)/file_fuzzer-common_utils.Po \
 	./$(DEPDIR)/file_fuzzer-error.Po \
 	./$(DEPDIR)/file_fuzzer-file_fuzzer.Po \
 	./$(DEPDIR)/file_fuzzer-heif.Po \
@@ -524,6 +538,7 @@ am__depfiles_remade = ./$(DEPDIR)/box_fuzzer-bitstream.Po \
 	./$(DEPDIR)/file_fuzzer-nclx.Po ./$(DEPDIR)/file_fuzzer.Po \
 	./$(DEPDIR)/libheif_la-bitstream.Plo \
 	./$(DEPDIR)/libheif_la-box.Plo \
+	./$(DEPDIR)/libheif_la-common_utils.Plo \
 	./$(DEPDIR)/libheif_la-error.Plo \
 	./$(DEPDIR)/libheif_la-heif.Plo \
 	./$(DEPDIR)/libheif_la-heif_avif.Plo \
@@ -853,9 +868,9 @@ libheif_la_SOURCES = bitstream.h bitstream.cc box.h box.cc error.h \
 	heif_plugin_registry.h heif_plugin_registry.cc heif_plugin.h \
 	heif_plugin.cc heif_colorconversion.h heif_colorconversion.cc \
 	logging.h metadata_compression.h metadata_compression.cc \
-	nclx.cc nclx.h $(am__append_8) $(am__append_9) \
-	$(am__append_10) $(am__append_11) $(am__append_12) \
-	$(am__append_13) $(am__append_14)
+	nclx.cc nclx.h common_utils.cc common_utils.h $(am__append_8) \
+	$(am__append_9) $(am__append_10) $(am__append_11) \
+	$(am__append_12) $(am__append_13) $(am__append_14)
 libheif_la_HEADERS = \
   heif.h \
   heif_plugin.h \
@@ -892,9 +907,15 @@ file_fuzzer_CXXFLAGS = $(libde265_CFLAGS)
 file_fuzzer_LDFLAGS = $(FUZZING_ENGINE)
 file_fuzzer_LDADD = $(ADDITIONAL_LIBS)
 file_fuzzer_SOURCES = $(libheif_la_SOURCES) file_fuzzer.cc
+
+# hack, plugin_*.h files are not used by autotools, because our autotools build scripts don't support plugins, but we need it anyways
 EXTRA_DIST = \
   CMakeLists.txt \
-  plugins/CMakeLists.txt
+  plugins/CMakeLists.txt \
+  plugins_unix.h \
+  plugins_unix.cc \
+  plugins_windows.h \
+  plugins_windows.cc
 
 all: all-am
 
@@ -1130,6 +1151,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-bitstream.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-box.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-box_fuzzer.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-common_utils.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-error.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/box_fuzzer-heif_avif.Po@am__quote@ # am--include-marker
@@ -1147,6 +1169,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-bitstream.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-box.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-common_utils.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-error.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer-heif_avif.Po@am__quote@ # am--include-marker
@@ -1163,6 +1186,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/color_conversion_fuzzer.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-bitstream.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-box.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-common_utils.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-encoder_fuzzer.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-error.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer-heif.Po@am__quote@ # am--include-marker
@@ -1180,6 +1204,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/encoder_fuzzer.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-bitstream.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-box.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-common_utils.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-error.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-file_fuzzer.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer-heif.Po@am__quote@ # am--include-marker
@@ -1197,6 +1222,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_fuzzer.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-bitstream.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-box.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-common_utils.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-error.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libheif_la-heif_avif.Plo@am__quote@ # am--include-marker
@@ -1380,6 +1406,13 @@ libheif_la-nclx.lo: nclx.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='nclx.cc' object='libheif_la-nclx.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -c -o libheif_la-nclx.lo `test -f 'nclx.cc' || echo '$(srcdir)/'`nclx.cc
+
+libheif_la-common_utils.lo: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -MT libheif_la-common_utils.lo -MD -MP -MF $(DEPDIR)/libheif_la-common_utils.Tpo -c -o libheif_la-common_utils.lo `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/libheif_la-common_utils.Tpo $(DEPDIR)/libheif_la-common_utils.Plo
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='libheif_la-common_utils.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -c -o libheif_la-common_utils.lo `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
 
 plugins/libheif_la-heif_decoder_aom.lo: plugins/heif_decoder_aom.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libheif_la_CPPFLAGS) $(CPPFLAGS) $(libheif_la_CXXFLAGS) $(CXXFLAGS) -MT plugins/libheif_la-heif_decoder_aom.lo -MD -MP -MF plugins/$(DEPDIR)/libheif_la-heif_decoder_aom.Tpo -c -o plugins/libheif_la-heif_decoder_aom.lo `test -f 'plugins/heif_decoder_aom.cc' || echo '$(srcdir)/'`plugins/heif_decoder_aom.cc
@@ -1639,6 +1672,20 @@ box_fuzzer-nclx.obj: nclx.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='nclx.cc' object='box_fuzzer-nclx.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-nclx.obj `if test -f 'nclx.cc'; then $(CYGPATH_W) 'nclx.cc'; else $(CYGPATH_W) '$(srcdir)/nclx.cc'; fi`
+
+box_fuzzer-common_utils.o: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-common_utils.o -MD -MP -MF $(DEPDIR)/box_fuzzer-common_utils.Tpo -c -o box_fuzzer-common_utils.o `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-common_utils.Tpo $(DEPDIR)/box_fuzzer-common_utils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='box_fuzzer-common_utils.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-common_utils.o `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+
+box_fuzzer-common_utils.obj: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT box_fuzzer-common_utils.obj -MD -MP -MF $(DEPDIR)/box_fuzzer-common_utils.Tpo -c -o box_fuzzer-common_utils.obj `if test -f 'common_utils.cc'; then $(CYGPATH_W) 'common_utils.cc'; else $(CYGPATH_W) '$(srcdir)/common_utils.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/box_fuzzer-common_utils.Tpo $(DEPDIR)/box_fuzzer-common_utils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='box_fuzzer-common_utils.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o box_fuzzer-common_utils.obj `if test -f 'common_utils.cc'; then $(CYGPATH_W) 'common_utils.cc'; else $(CYGPATH_W) '$(srcdir)/common_utils.cc'; fi`
 
 plugins/box_fuzzer-heif_decoder_aom.o: plugins/heif_decoder_aom.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(box_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT plugins/box_fuzzer-heif_decoder_aom.o -MD -MP -MF plugins/$(DEPDIR)/box_fuzzer-heif_decoder_aom.Tpo -c -o plugins/box_fuzzer-heif_decoder_aom.o `test -f 'plugins/heif_decoder_aom.cc' || echo '$(srcdir)/'`plugins/heif_decoder_aom.cc
@@ -1962,6 +2009,20 @@ color_conversion_fuzzer-nclx.obj: nclx.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-nclx.obj `if test -f 'nclx.cc'; then $(CYGPATH_W) 'nclx.cc'; else $(CYGPATH_W) '$(srcdir)/nclx.cc'; fi`
 
+color_conversion_fuzzer-common_utils.o: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-common_utils.o -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-common_utils.Tpo -c -o color_conversion_fuzzer-common_utils.o `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-common_utils.Tpo $(DEPDIR)/color_conversion_fuzzer-common_utils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='color_conversion_fuzzer-common_utils.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-common_utils.o `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+
+color_conversion_fuzzer-common_utils.obj: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT color_conversion_fuzzer-common_utils.obj -MD -MP -MF $(DEPDIR)/color_conversion_fuzzer-common_utils.Tpo -c -o color_conversion_fuzzer-common_utils.obj `if test -f 'common_utils.cc'; then $(CYGPATH_W) 'common_utils.cc'; else $(CYGPATH_W) '$(srcdir)/common_utils.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/color_conversion_fuzzer-common_utils.Tpo $(DEPDIR)/color_conversion_fuzzer-common_utils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='color_conversion_fuzzer-common_utils.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o color_conversion_fuzzer-common_utils.obj `if test -f 'common_utils.cc'; then $(CYGPATH_W) 'common_utils.cc'; else $(CYGPATH_W) '$(srcdir)/common_utils.cc'; fi`
+
 plugins/color_conversion_fuzzer-heif_decoder_aom.o: plugins/heif_decoder_aom.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(color_conversion_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT plugins/color_conversion_fuzzer-heif_decoder_aom.o -MD -MP -MF plugins/$(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Tpo -c -o plugins/color_conversion_fuzzer-heif_decoder_aom.o `test -f 'plugins/heif_decoder_aom.cc' || echo '$(srcdir)/'`plugins/heif_decoder_aom.cc
 @am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) plugins/$(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Tpo plugins/$(DEPDIR)/color_conversion_fuzzer-heif_decoder_aom.Po
@@ -2283,6 +2344,20 @@ encoder_fuzzer-nclx.obj: nclx.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='nclx.cc' object='encoder_fuzzer-nclx.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-nclx.obj `if test -f 'nclx.cc'; then $(CYGPATH_W) 'nclx.cc'; else $(CYGPATH_W) '$(srcdir)/nclx.cc'; fi`
+
+encoder_fuzzer-common_utils.o: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-common_utils.o -MD -MP -MF $(DEPDIR)/encoder_fuzzer-common_utils.Tpo -c -o encoder_fuzzer-common_utils.o `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-common_utils.Tpo $(DEPDIR)/encoder_fuzzer-common_utils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='encoder_fuzzer-common_utils.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-common_utils.o `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+
+encoder_fuzzer-common_utils.obj: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT encoder_fuzzer-common_utils.obj -MD -MP -MF $(DEPDIR)/encoder_fuzzer-common_utils.Tpo -c -o encoder_fuzzer-common_utils.obj `if test -f 'common_utils.cc'; then $(CYGPATH_W) 'common_utils.cc'; else $(CYGPATH_W) '$(srcdir)/common_utils.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/encoder_fuzzer-common_utils.Tpo $(DEPDIR)/encoder_fuzzer-common_utils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='encoder_fuzzer-common_utils.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o encoder_fuzzer-common_utils.obj `if test -f 'common_utils.cc'; then $(CYGPATH_W) 'common_utils.cc'; else $(CYGPATH_W) '$(srcdir)/common_utils.cc'; fi`
 
 plugins/encoder_fuzzer-heif_decoder_aom.o: plugins/heif_decoder_aom.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(encoder_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT plugins/encoder_fuzzer-heif_decoder_aom.o -MD -MP -MF plugins/$(DEPDIR)/encoder_fuzzer-heif_decoder_aom.Tpo -c -o plugins/encoder_fuzzer-heif_decoder_aom.o `test -f 'plugins/heif_decoder_aom.cc' || echo '$(srcdir)/'`plugins/heif_decoder_aom.cc
@@ -2606,6 +2681,20 @@ file_fuzzer-nclx.obj: nclx.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-nclx.obj `if test -f 'nclx.cc'; then $(CYGPATH_W) 'nclx.cc'; else $(CYGPATH_W) '$(srcdir)/nclx.cc'; fi`
 
+file_fuzzer-common_utils.o: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-common_utils.o -MD -MP -MF $(DEPDIR)/file_fuzzer-common_utils.Tpo -c -o file_fuzzer-common_utils.o `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-common_utils.Tpo $(DEPDIR)/file_fuzzer-common_utils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='file_fuzzer-common_utils.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-common_utils.o `test -f 'common_utils.cc' || echo '$(srcdir)/'`common_utils.cc
+
+file_fuzzer-common_utils.obj: common_utils.cc
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT file_fuzzer-common_utils.obj -MD -MP -MF $(DEPDIR)/file_fuzzer-common_utils.Tpo -c -o file_fuzzer-common_utils.obj `if test -f 'common_utils.cc'; then $(CYGPATH_W) 'common_utils.cc'; else $(CYGPATH_W) '$(srcdir)/common_utils.cc'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/file_fuzzer-common_utils.Tpo $(DEPDIR)/file_fuzzer-common_utils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='common_utils.cc' object='file_fuzzer-common_utils.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -c -o file_fuzzer-common_utils.obj `if test -f 'common_utils.cc'; then $(CYGPATH_W) 'common_utils.cc'; else $(CYGPATH_W) '$(srcdir)/common_utils.cc'; fi`
+
 plugins/file_fuzzer-heif_decoder_aom.o: plugins/heif_decoder_aom.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(file_fuzzer_CXXFLAGS) $(CXXFLAGS) -MT plugins/file_fuzzer-heif_decoder_aom.o -MD -MP -MF plugins/$(DEPDIR)/file_fuzzer-heif_decoder_aom.Tpo -c -o plugins/file_fuzzer-heif_decoder_aom.o `test -f 'plugins/heif_decoder_aom.cc' || echo '$(srcdir)/'`plugins/heif_decoder_aom.cc
 @am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) plugins/$(DEPDIR)/file_fuzzer-heif_decoder_aom.Tpo plugins/$(DEPDIR)/file_fuzzer-heif_decoder_aom.Po
@@ -2882,6 +2971,7 @@ distclean: distclean-am
 		-rm -f ./$(DEPDIR)/box_fuzzer-bitstream.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-box.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-box_fuzzer.Po
+	-rm -f ./$(DEPDIR)/box_fuzzer-common_utils.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-error.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-heif.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-heif_avif.Po
@@ -2899,6 +2989,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-bitstream.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-box.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Po
+	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-common_utils.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-error.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-heif.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-heif_avif.Po
@@ -2915,6 +3006,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-bitstream.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-box.Po
+	-rm -f ./$(DEPDIR)/encoder_fuzzer-common_utils.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-encoder_fuzzer.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-error.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-heif.Po
@@ -2932,6 +3024,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/encoder_fuzzer.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-bitstream.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-box.Po
+	-rm -f ./$(DEPDIR)/file_fuzzer-common_utils.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-error.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-file_fuzzer.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-heif.Po
@@ -2949,6 +3042,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/file_fuzzer.Po
 	-rm -f ./$(DEPDIR)/libheif_la-bitstream.Plo
 	-rm -f ./$(DEPDIR)/libheif_la-box.Plo
+	-rm -f ./$(DEPDIR)/libheif_la-common_utils.Plo
 	-rm -f ./$(DEPDIR)/libheif_la-error.Plo
 	-rm -f ./$(DEPDIR)/libheif_la-heif.Plo
 	-rm -f ./$(DEPDIR)/libheif_la-heif_avif.Plo
@@ -3049,6 +3143,7 @@ maintainer-clean: maintainer-clean-am
 		-rm -f ./$(DEPDIR)/box_fuzzer-bitstream.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-box.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-box_fuzzer.Po
+	-rm -f ./$(DEPDIR)/box_fuzzer-common_utils.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-error.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-heif.Po
 	-rm -f ./$(DEPDIR)/box_fuzzer-heif_avif.Po
@@ -3066,6 +3161,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-bitstream.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-box.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-color_conversion_fuzzer.Po
+	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-common_utils.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-error.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-heif.Po
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer-heif_avif.Po
@@ -3082,6 +3178,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/color_conversion_fuzzer.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-bitstream.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-box.Po
+	-rm -f ./$(DEPDIR)/encoder_fuzzer-common_utils.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-encoder_fuzzer.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-error.Po
 	-rm -f ./$(DEPDIR)/encoder_fuzzer-heif.Po
@@ -3099,6 +3196,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/encoder_fuzzer.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-bitstream.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-box.Po
+	-rm -f ./$(DEPDIR)/file_fuzzer-common_utils.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-error.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-file_fuzzer.Po
 	-rm -f ./$(DEPDIR)/file_fuzzer-heif.Po
@@ -3116,6 +3214,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/file_fuzzer.Po
 	-rm -f ./$(DEPDIR)/libheif_la-bitstream.Plo
 	-rm -f ./$(DEPDIR)/libheif_la-box.Plo
+	-rm -f ./$(DEPDIR)/libheif_la-common_utils.Plo
 	-rm -f ./$(DEPDIR)/libheif_la-error.Plo
 	-rm -f ./$(DEPDIR)/libheif_la-heif.Plo
 	-rm -f ./$(DEPDIR)/libheif_la-heif_avif.Plo

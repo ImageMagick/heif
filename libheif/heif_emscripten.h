@@ -32,7 +32,7 @@ static void strided_copy(void* dest, const void* src, int width, int height,
     const uint8_t* _src = static_cast<const uint8_t*>(src);
     uint8_t* _dest = static_cast<uint8_t*>(dest);
     for (int y = 0; y < height; y++, _dest += width, _src += stride) {
-      memcpy(_dest, _src, stride);
+      memcpy(_dest, _src, width);
     }
   }
 }
@@ -262,7 +262,10 @@ EMSCRIPTEN_BINDINGS(libheif) {
     .value("heif_compression_HEVC", heif_compression_HEVC)
     .value("heif_compression_AVC", heif_compression_AVC)
     .value("heif_compression_JPEG", heif_compression_JPEG)
-    .value("heif_compression_AV1", heif_compression_AV1);
+    .value("heif_compression_AV1", heif_compression_AV1)
+    .value("heif_compression_VVC", heif_compression_VVC)
+    .value("heif_compression_EVC", heif_compression_EVC)
+    .value("heif_compression_JPEG2000", heif_compression_JPEG2000);
     emscripten::enum_<heif_chroma>("heif_chroma")
     .value("heif_chroma_undefined", heif_chroma_undefined)
     .value("heif_chroma_monochrome", heif_chroma_monochrome)

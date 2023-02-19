@@ -21,7 +21,7 @@ macro(plugin_compilation name varName optionName defineName)
                     HAVE_VISIBILITY)
             target_compile_definitions(heif-${name} PRIVATE PLUGIN_${defineName}=1)
             target_include_directories(heif-${name} PRIVATE ${PROJECT_SOURCE_DIR} ${libheif_BINARY_DIR} ${libheif_SOURCE_DIR} ${${varName}_INCLUDE_DIR})
-            target_link_libraries(heif-${name} PRIVATE ${${varName}_LIBRARIES} ${${varName}_LINKDIR})
+            target_link_libraries(heif-${name} PRIVATE ${${varName}_LIBRARIES} ${${varName}_LINKDIR} heif)
 
             install(TARGETS heif-${name}
                     LIBRARY DESTINATION ${PLUGIN_DIRECTORY}
@@ -47,11 +47,11 @@ set(X265_extra_plugin_sources)
 plugin_compilation(x265 X265 X265 X265)
 
 set(LIBDE265_sources heif_decoder_libde265.cc heif_decoder_libde265.h)
-set(LIBDE265_extra_plugin_sources ../heif_image.cc ../error.cc)
+set(LIBDE265_extra_plugin_sources ../error.cc)
 plugin_compilation(libde265 LIBDE265 LIBDE265 LIBDE265)
 
 set(DAV1D_sources heif_decoder_dav1d.cc heif_decoder_dav1d.h)
-set(DAV1D_extra_plugin_sources)
+set(DAV1D_extra_plugin_sources ../common_utils.cc ../common_utils.h)
 plugin_compilation(dav1d DAV1D DAV1D DAV1D)
 
 set(AOM_DECODER_sources heif_decoder_aom.cc heif_decoder_aom.h)
@@ -59,7 +59,7 @@ set(AOM_DECODER_extra_plugin_sources)
 plugin_compilation(aomdec AOM AOM_DECODER AOM_DECODER)
 
 set(AOM_ENCODER_sources heif_encoder_aom.cc heif_encoder_aom.h)
-set(AOM_ENCODER_extra_plugin_sources ../heif_avif.cc ../error.cc)
+set(AOM_ENCODER_extra_plugin_sources ../error.cc ../common_utils.cc ../common_utils.h)
 plugin_compilation(aomenc AOM AOM_ENCODER AOM_ENCODER)
 
 set(SvtEnc_sources heif_encoder_svt.cc heif_encoder_svt.h)

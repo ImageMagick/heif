@@ -39,8 +39,18 @@ add_library(heif
     logging.h
     metadata_compression.cc
     metadata_compression.h
+    common_utils.cc
+    common_utils.h
     ${libheif_headers}
     )
+
+if (ENABLE_PLUGIN_LOADING)
+  if (WIN32)
+    target_sources(heif PRIVATE plugins_windows.cc plugins_windows.h)
+  else ()
+    target_sources(heif PRIVATE plugins_unix.cc plugins_unix.h)
+  endif ()
+endif()
 
 # Needed to find libheif/heif_version.h while compiling the library
 target_include_directories(heif PRIVATE ${libheif_BINARY_DIR} ${libheif_SOURCE_DIR})
@@ -64,7 +74,7 @@ target_compile_definitions(heif
 
 if (PLUGIN_LOADING_SUPPORTED_AND_ENABLED)
     target_compile_definitions(heif PRIVATE ENABLE_PLUGIN_LOADING=1)
-    target_link_libraries(heif PRIVATE dl)
+    target_link_libraries(heif PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
 add_subdirectory(plugins)

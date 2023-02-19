@@ -157,8 +157,8 @@ void show_help(const char* argv0)
             << "  -P, --params      show all encoder parameters\n"
             << "  -b, --bit-depth # bit-depth of generated HEIF/AVIF file when using 16-bit PNG input (default: 10 bit)\n"
             << "  -p                set encoder parameter (NAME=VALUE)\n"
-            << "  -A, --avif        encode as AVIF\n"
-            << "      --list-encoders         list all available encoders for the selected output format\n"
+            << "  -A, --avif        encode as AVIF (not needed if output filename with .avif suffix is provided)\n"
+            << "      --list-encoders         list all available encoders for all compression formats\n"
             << "  -e, --encoder ID            select encoder to use (the IDs can be listed with --list-encoders)\n"
             << "      --plugin-directory DIR  load all codec plugins in the directory\n"
             << "  -E, --even-size   [deprecated] crop images to even width and height (odd sizes are not decoded correctly by some software)\n"
@@ -210,9 +210,9 @@ static bool JPEGMarkerIsIcc(jpeg_saved_marker_ptr marker)
       GETJOCTET(marker->data[11]) == 0x0;
 }
 
-boolean ReadICCProfileFromJPEG(j_decompress_ptr cinfo,
-                               JOCTET** icc_data_ptr,
-                               unsigned int* icc_data_len)
+bool ReadICCProfileFromJPEG(j_decompress_ptr cinfo,
+                            JOCTET** icc_data_ptr,
+                            unsigned int* icc_data_len)
 {
   jpeg_saved_marker_ptr marker;
   int num_markers = 0;
@@ -393,13 +393,13 @@ InputImage loadJPEG(const char* filename)
 
   jpeg_read_header(&cinfo, TRUE);
 
-  boolean embeddedIccFlag = ReadICCProfileFromJPEG(&cinfo, &iccBuffer, &iccLen);
-  boolean embeddedXMPFlag = ReadXMPFromJPEG(&cinfo, xmpData);
+  bool embeddedIccFlag = ReadICCProfileFromJPEG(&cinfo, &iccBuffer, &iccLen);
+  bool embeddedXMPFlag = ReadXMPFromJPEG(&cinfo, xmpData);
   if (embeddedXMPFlag) {
     img.xmp = xmpData;
   }
 
-  boolean embeddedEXIFFlag = ReadEXIFFromJPEG(&cinfo, exifData);
+  bool embeddedEXIFFlag = ReadEXIFFromJPEG(&cinfo, exifData);
   if (embeddedEXIFFlag) {
     img.exif = exifData;
     img.orientation = (heif_orientation)read_exif_orientation_tag(exifData.data(), (int)exifData.size());
@@ -694,8 +694,10 @@ InputImage loadPNG(const char* filename, int output_bit_depth)
   /* read rest of file, and get additional chunks in info_ptr - REQUIRED */
   png_read_end(png_ptr, info_ptr);
 
+
   // --- read EXIF data
 
+#ifdef PNG_eXIf_SUPPORTED
   png_bytep exifPtr = nullptr;
   png_uint_32 exifSize = 0;
   if (png_get_eXIf_1(png_ptr, info_ptr, &exifSize, &exifPtr) == PNG_INFO_eXIf) {
@@ -705,6 +707,7 @@ InputImage loadPNG(const char* filename, int output_bit_depth)
     // remove the EXIF orientation since it is informal only in PNG and we do not want to confuse with an orientation not matching irot/imir
     modify_exif_orientation_tag_if_it_exists(input_image.exif.data(), (int)input_image.exif.size(), 1);
   }
+#endif
 
   // --- read XMP data
 
@@ -1143,22 +1146,85 @@ void set_params(struct heif_encoder* encoder, const std::vector<std::string>& pa
 }
 
 
-static void show_list_of_encoders(const heif_encoder_descriptor*const* encoder_descriptors,
+static void show_list_of_encoders(const heif_encoder_descriptor* const* encoder_descriptors,
                                   int count)
 {
-  std::cout << "Encoders (first is default):\n";
   for (int i = 0; i < count; i++) {
     std::cout << "- " << heif_encoder_descriptor_get_id_name(encoder_descriptors[i])
               << " = "
-              << heif_encoder_descriptor_get_name(encoder_descriptors[i])
-              << "\n";
+              << heif_encoder_descriptor_get_name(encoder_descriptors[i]);
+
+    if (i==0) {
+      std::cout << " [default]";
+    }
+
+    std::cout << "\n";
   }
 }
 
 
-class LibHeifInitializer {
+static void show_list_of_all_encoders()
+{
+  for (auto compression_format : {heif_compression_HEVC, heif_compression_AV1}) {
+
+    switch (compression_format) {
+      case heif_compression_AV1:
+        std::cout << "AVIF";
+        break;
+      case heif_compression_HEVC:
+        std::cout << "HEIC";
+        break;
+      default:
+        assert(false);
+    }
+
+    std::cout << " encoders:\n";
+
+#define MAX_ENCODERS 10
+    const heif_encoder_descriptor* encoder_descriptors[MAX_ENCODERS];
+    int count = heif_get_encoder_descriptors(compression_format,
+                                             nullptr,
+                                             encoder_descriptors, MAX_ENCODERS);
+#undef MAX_ENCODERS
+
+    show_list_of_encoders(encoder_descriptors, count);
+  }
+}
+
+
+bool ends_with(const std::string& str, const std::string& end)
+{
+  if (str.length() < end.length()) {
+    return false;
+  }
+  else {
+    return str.compare(str.length() - end.length(), end.length(), end) == 0;
+  }
+}
+
+
+heif_compression_format guess_compression_format_from_filename(const std::string& filename)
+{
+  std::string filename_lowercase = filename;
+  std::transform(filename_lowercase.begin(), filename_lowercase.end(), filename_lowercase.begin(), ::tolower);
+
+  if (ends_with(filename_lowercase, ".avif")) {
+    return heif_compression_AV1;
+  }
+  else if (ends_with(filename_lowercase, ".heic")) {
+    return heif_compression_HEVC;
+  }
+  else {
+    return heif_compression_undefined;
+  }
+}
+
+
+class LibHeifInitializer
+{
 public:
   LibHeifInitializer() { heif_init(nullptr); }
+
   ~LibHeifInitializer() { heif_deinit(); }
 };
 
@@ -1175,7 +1241,7 @@ int main(int argc, char** argv)
   bool option_show_parameters = false;
   int thumbnail_bbox_size = 0;
   int output_bit_depth = 10;
-  bool enc_av1f = false;
+  bool force_enc_av1f = false;
   bool crop_to_even_size = false;
 
   std::vector<std::string> raw_params;
@@ -1216,7 +1282,7 @@ int main(int argc, char** argv)
         output_bit_depth = atoi(optarg);
         break;
       case 'A':
-        enc_av1f = true;
+        force_enc_av1f = true;
         break;
       case 'E':
         crop_to_even_size = true;
@@ -1269,6 +1335,37 @@ int main(int argc, char** argv)
 
   // ==============================================================================
 
+  struct heif_encoder* encoder = nullptr;
+
+  if (list_encoders) {
+    show_list_of_all_encoders();
+    return 0;
+  }
+
+  if (optind > argc - 1) {
+    show_help(argv[0]);
+    return 0;
+  }
+
+
+  // --- determine output compression format (from output filename or command line parameter)
+
+  heif_compression_format compressionFormat;
+
+  if (force_enc_av1f) {
+    compressionFormat = heif_compression_AV1;
+  }
+  else {
+    compressionFormat = guess_compression_format_from_filename(output_filename);
+  }
+
+  if (compressionFormat == heif_compression_undefined) {
+    compressionFormat = heif_compression_HEVC;
+  }
+
+
+  // --- select encoder
+
   std::shared_ptr<heif_context> context(heif_context_alloc(),
                                         [](heif_context* c) { heif_context_free(c); });
   if (!context) {
@@ -1277,26 +1374,19 @@ int main(int argc, char** argv)
   }
 
 
-  struct heif_encoder* encoder = nullptr;
-
-#define MAX_ENCODERS 5
+#define MAX_ENCODERS 10
   const heif_encoder_descriptor* encoder_descriptors[MAX_ENCODERS];
-  int count = heif_context_get_encoder_descriptors(context.get(),
-                                                   enc_av1f ? heif_compression_AV1 : heif_compression_HEVC,
-                                                   nullptr,
-                                                   encoder_descriptors, MAX_ENCODERS);
-
-  if (list_encoders) {
-    show_list_of_encoders(encoder_descriptors, count);
-    return 0;
-  }
+  int count = heif_get_encoder_descriptors(compressionFormat,
+                                           nullptr,
+                                           encoder_descriptors, MAX_ENCODERS);
+#undef MAX_ENCODERS
 
   const heif_encoder_descriptor* active_encoder_descriptor = nullptr;
   if (count > 0) {
     int idx = 0;
     if (encoderId != nullptr) {
       for (int i = 0; i <= count; i++) {
-        if (i==count) {
+        if (i == count) {
           std::cerr << "Unknown encoder ID. Choose one from the list below.\n";
           show_list_of_encoders(encoder_descriptors, count);
           return 5;
@@ -1318,19 +1408,12 @@ int main(int argc, char** argv)
     active_encoder_descriptor = encoder_descriptors[idx];
   }
   else {
-    std::cerr << "No " << (enc_av1f ? "AV1" : "HEVC") << " encoder available.\n";
+    std::cerr << "No " << (compressionFormat==heif_compression_AV1 ? "AV1" : "HEVC") << " encoder available.\n";
     return 5;
   }
 
-
   if (option_show_parameters) {
     list_encoder_parameters(encoder);
-    return 0;
-  }
-
-
-  if (optind > argc - 1) {
-    show_help(argv[0]);
     return 0;
   }
 
@@ -1352,7 +1435,7 @@ int main(int argc, char** argv)
         filename_without_suffix = input_filename;
       }
 
-      output_filename = filename_without_suffix + (enc_av1f ? ".avif" : ".heic");
+      output_filename = filename_without_suffix + (compressionFormat==heif_compression_AV1 ? ".avif" : ".heic");
     }
 
 

@@ -386,6 +386,9 @@ namespace heif {
                               enum heif_image_input_class input_class,
                               std::shared_ptr<Image>& out_image);
 
+    // write PIXI, CLLI, MDVC
+    void write_image_metadata(std::shared_ptr<HeifPixelImage> src_image, int image_id);
+
     void set_primary_image(const std::shared_ptr<Image>& image);
 
     Error set_primary_item(heif_item_id id);
@@ -412,7 +415,7 @@ namespace heif {
     void write(StreamWriter& writer);
 
   private:
-    const struct heif_decoder_plugin* get_decoder(enum heif_compression_format type) const;
+    const struct heif_decoder_plugin* get_decoder(enum heif_compression_format type, const char* name_id) const;
 
     std::set<const struct heif_decoder_plugin*> m_decoder_plugins;
 

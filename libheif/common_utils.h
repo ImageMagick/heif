@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2023 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -18,17 +18,31 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBHEIF_HEIF_DECODER_DE265_H
-#define LIBHEIF_HEIF_DECODER_DE265_H
+#ifndef LIBHEIF_COMMON_UTILS_H
+#define LIBHEIF_COMMON_UTILS_H
 
-#include "libheif/common_utils.h"
+#include <cinttypes>
+#include <libheif/heif.h>
 
-const struct heif_decoder_plugin* get_decoder_plugin_libde265();
-
-#if PLUGIN_LIBDE265
-extern "C" {
-MAYBE_UNUSED LIBHEIF_API extern heif_plugin_info plugin_info;
-}
+#ifdef _MSC_VER
+#define MAYBE_UNUSED
+#else
+#define MAYBE_UNUSED __attribute__((unused))
 #endif
 
-#endif
+
+// Functions for common use in libheif and the plugins.
+
+uint8_t chroma_h_subsampling(heif_chroma c);
+
+uint8_t chroma_v_subsampling(heif_chroma c);
+
+void get_subsampled_size(int width, int height,
+                         heif_channel channel,
+                         heif_chroma chroma,
+                         int* subsampled_width, int* subsampled_height);
+
+uint8_t compute_avif_profile(int bits_per_pixel, heif_chroma chroma);
+
+
+#endif //LIBHEIF_COMMON_UTILS_H

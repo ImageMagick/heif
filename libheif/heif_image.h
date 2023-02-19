@@ -35,16 +35,7 @@
 
 namespace heif {
 
-  uint8_t chroma_h_subsampling(heif_chroma c);
-
-  uint8_t chroma_v_subsampling(heif_chroma c);
-
   heif_chroma chroma_from_subsampling(int h, int v);
-
-  void get_subsampled_size(int width, int height,
-                           heif_channel channel,
-                           heif_chroma chroma,
-                           int* subsampled_width, int* subsampled_height);
 
   bool is_chroma_with_alpha(heif_chroma chroma);
 
@@ -134,6 +125,44 @@ namespace heif {
 
     bool extend_padding_to_size(int width, int height);
 
+    // --- pixel aspect ratio
+
+    bool has_nonsquare_pixel_ratio() const { return m_PixelAspectRatio_h != m_PixelAspectRatio_v; }
+
+    void get_pixel_ratio(uint32_t* h, uint32_t* v) const {
+      *h = m_PixelAspectRatio_h;
+      *v = m_PixelAspectRatio_v;
+    }
+
+    void set_pixel_ratio(uint32_t h, uint32_t v) {
+      m_PixelAspectRatio_h = h;
+      m_PixelAspectRatio_v = v;
+    }
+
+    // --- clli
+
+    bool has_clli() const { return m_clli.max_content_light_level != 0 || m_clli.max_pic_average_light_level != 0; }
+
+    heif_content_light_level get_clli() const { return m_clli; }
+
+    void set_clli(const heif_content_light_level& clli) { m_clli = clli; }
+
+    // --- mdcv
+
+    bool has_mdcv() const { return m_mdcv_set; }
+
+    heif_mastering_display_colour_volume get_mdcv() const { return m_mdcv; }
+
+    void set_mdcv(const heif_mastering_display_colour_volume& mdcv)
+    {
+      m_mdcv = mdcv;
+      m_mdcv_set = true;
+    }
+
+    void unset_mdcv() { m_mdcv_set = false; }
+
+    // --- warnings
+
     void add_warning(Error warning) { m_warnings.emplace_back(std::move(warning)); }
 
     const std::vector<Error>& get_warnings() const { return m_warnings; }
@@ -167,6 +196,12 @@ namespace heif {
     std::shared_ptr<const color_profile_raw> m_color_profile_icc;
 
     std::map<heif_channel, ImagePlane> m_planes;
+
+    uint32_t m_PixelAspectRatio_h = 1;
+    uint32_t m_PixelAspectRatio_v = 1;
+    heif_content_light_level m_clli{};
+    heif_mastering_display_colour_volume m_mdcv{};
+    bool m_mdcv_set = false; // replace with std::optional<> when we are on C*+17
 
     std::vector<Error> m_warnings;
   };

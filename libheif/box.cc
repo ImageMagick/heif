@@ -468,6 +468,10 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
       box = std::make_shared<Box_av1C>(hdr);
       break;
 
+    case fourcc("vvcC"):
+      box = std::make_shared<Box_vvcC>(hdr);
+      break;
+
     case fourcc("idat"):
       box = std::make_shared<Box_idat>(hdr);
       break;
@@ -494,6 +498,18 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
 
     case fourcc("pixi"):
       box = std::make_shared<Box_pixi>(hdr);
+      break;
+
+    case fourcc("pasp"):
+      box = std::make_shared<Box_pasp>(hdr);
+      break;
+
+    case fourcc("clli"):
+      box = std::make_shared<Box_clli>(hdr);
+      break;
+
+    case fourcc("mdcv"):
+      box = std::make_shared<Box_mdcv>(hdr);
       break;
 
     default:
@@ -1951,6 +1967,135 @@ Error Box_pixi::write(StreamWriter& writer) const
 }
 
 
+Error Box_pasp::parse(BitstreamRange& range)
+{
+  //parse_full_box_header(range);
+
+  hSpacing = range.read32();
+  vSpacing = range.read32();
+
+  return range.get_error();
+}
+
+
+std::string Box_pasp::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  sstr << indent << "hSpacing: " << hSpacing << "\n";
+  sstr << indent << "vSpacing: " << vSpacing << "\n";
+
+  return sstr.str();
+}
+
+
+Error Box_pasp::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  writer.write32(hSpacing);
+  writer.write32(vSpacing);
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
+Error Box_clli::parse(BitstreamRange& range)
+{
+  //parse_full_box_header(range);
+
+  clli.max_content_light_level = range.read16();
+  clli.max_pic_average_light_level = range.read16();
+
+  return range.get_error();
+}
+
+
+std::string Box_clli::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  sstr << indent << "max_content_light_level: " << clli.max_content_light_level << "\n";
+  sstr << indent << "max_pic_average_light_level: " << clli.max_pic_average_light_level << "\n";
+
+  return sstr.str();
+}
+
+
+Error Box_clli::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  writer.write16(clli.max_content_light_level);
+  writer.write16(clli.max_pic_average_light_level);
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
+Error Box_mdcv::parse(BitstreamRange& range)
+{
+  //parse_full_box_header(range);
+
+  for (int c=0;c<3;c++) {
+    mdcv.display_primaries_x[c] = range.read16();
+    mdcv.display_primaries_y[c] = range.read16();
+  }
+
+  mdcv.white_point_x = range.read16();
+  mdcv.white_point_y = range.read16();
+  mdcv.max_display_mastering_luminance = range.read32();
+  mdcv.min_display_mastering_luminance = range.read32();
+
+  return range.get_error();
+}
+
+
+std::string Box_mdcv::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  sstr << indent << "display_primaries (x,y): ";
+  sstr << "(" << mdcv.display_primaries_x[0] << ";" << mdcv.display_primaries_y[0] << "), ";
+  sstr << "(" << mdcv.display_primaries_x[1] << ";" << mdcv.display_primaries_y[1] << "), ";
+  sstr << "(" << mdcv.display_primaries_x[2] << ";" << mdcv.display_primaries_y[2] << ")\n";
+
+  sstr << indent << "white point (x,y): (" << mdcv.white_point_x << ";" << mdcv.white_point_y << ")\n";
+  sstr << indent << "max display mastering luminance: " << mdcv.max_display_mastering_luminance << "\n";
+  sstr << indent << "min display mastering luminance: " << mdcv.min_display_mastering_luminance << "\n";
+
+  return sstr.str();
+}
+
+
+Error Box_mdcv::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  for (int c=0;c<3;c++) {
+    writer.write16(mdcv.display_primaries_x[c]);
+    writer.write16(mdcv.display_primaries_y[c]);
+  }
+
+  writer.write16(mdcv.white_point_x);
+  writer.write16(mdcv.white_point_y);
+
+  writer.write32(mdcv.max_display_mastering_luminance);
+  writer.write32(mdcv.min_display_mastering_luminance);
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
 Error Box_ipco::get_properties_for_item_ID(uint32_t itemID,
                                            const std::shared_ptr<class Box_ipma>& ipma,
                                            std::vector<Property>& out_properties) const
@@ -2464,18 +2609,12 @@ int Box_clap::bottom_rounded(int image_height) const
 
 int Box_clap::get_width_rounded() const
 {
-  int left = (Fraction(0, 1) - (m_clean_aperture_width - 1) / 2).round();
-  int right = ((m_clean_aperture_width - 1) / 2).round();
-
-  return right + 1 - left;
+  return m_clean_aperture_width.round();
 }
 
 int Box_clap::get_height_rounded() const
 {
-  int top = (Fraction(0, 1) - (m_clean_aperture_height - 1) / 2).round();
-  int bottom = ((m_clean_aperture_height - 1) / 2).round();
-
-  return bottom + 1 - top;
+  return m_clean_aperture_height.round();
 }
 
 void Box_clap::set(uint32_t clap_width, uint32_t clap_height,
@@ -3020,6 +3159,112 @@ std::string Box_av1C::dump(Indent& indent) const
          << ((int) m_config_OBUs[i]);
   }
   sstr << std::dec << "\n";
+
+  return sstr.str();
+}
+
+
+Error Box_vvcC::parse(BitstreamRange& range)
+{
+  //parse_full_box_header(range);
+
+  uint8_t byte;
+
+  auto& c = m_configuration; // abbreviation
+
+  c.configurationVersion = range.read8();
+  c.avgFrameRate_times_256 = range.read16();
+
+  //printf("version: %d\n", c.configurationVersion);
+
+  byte = range.read8();
+  c.constantFrameRate = (byte & 0xc0) >> 6;
+  c.numTemporalLayers = (byte & 0x38) >> 3;
+  c.lengthSize = (byte & 0x06) +1;
+  c.ptl_present_flag = (byte & 0x01);
+  // assert(c.ptl_present_flag == false); // TODO   (removed the assert since it will trigger the fuzzers)
+
+  byte = range.read8();
+  c.chroma_format_present_flag = (byte & 0x80);
+  c.chroma_format_idc = (byte & 0x60) >> 5;
+
+  c.bit_depth_present_flag = (byte & 0x10);
+  c.bit_depth = ((byte & 0x0e) >> 1) + 8;
+
+  c.numOfArrays = range.read8();
+
+#if 0
+  const int64_t configOBUs_bytes = range.get_remaining_bytes();
+  m_config_OBUs.resize(configOBUs_bytes);
+
+  if (!range.read(m_config_OBUs.data(), configOBUs_bytes)) {
+    // error
+  }
+#endif
+
+  return range.get_error();
+}
+
+
+Error Box_vvcC::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+#if 0
+  const auto& c = m_configuration; // abbreviation
+
+  writer.write8(c.version | 0x80);
+
+  writer.write8((uint8_t) (((c.seq_profile & 0x7) << 5) |
+                           (c.seq_level_idx_0 & 0x1f)));
+#endif
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
+static const char* vvc_chroma_names[4] = { "mono", "4:2:0", "4:2:2", "4:4:4" };
+
+std::string Box_vvcC::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  const auto& c = m_configuration; // abbreviation
+
+  sstr << indent << "version: " << ((int) c.configurationVersion) << "\n"
+       << indent << "frame-rate: " << (c.avgFrameRate_times_256/256.0f) << "\n"
+       << indent << "constant frame rate: " << (c.constantFrameRate==1 ? "constant" : (c.constantFrameRate==2 ? "multi-layer" : "unknown")) << "\n"
+       << indent << "num temporal layers: " << ((int)c.numTemporalLayers) << "\n"
+       << indent << "length size: " << ((int) c.lengthSize) << "\n"
+       << indent << "chroma-format: ";
+  if (c.chroma_format_present_flag) {
+    sstr << vvc_chroma_names[c.chroma_format_idc] << "\n";
+  }
+  else {
+    sstr << "---\n";
+  }
+
+  sstr << indent << "bit-depth: ";
+  if (c.bit_depth_present_flag) {
+    sstr << ((int)c.bit_depth) << "\n";
+  }
+  else {
+    sstr << "---\n";
+  }
+
+  sstr << "num of arrays: " << ((int)c.numOfArrays) << "\n";
+
+#if 0
+  sstr << indent << "config OBUs:";
+  for (size_t i = 0; i < m_config_OBUs.size(); i++) {
+    sstr << " " << std::hex << std::setfill('0') << std::setw(2)
+         << ((int) m_config_OBUs[i]);
+  }
+  sstr << std::dec << "\n";
+#endif
 
   return sstr.str();
 }

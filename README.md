@@ -151,7 +151,7 @@ You can build and install libheif using the [vcpkg](https://github.com/Microsoft
 ```
 git clone https://github.com/Microsoft/vcpkg.git
 cd vcpkg
-./bootstrap-vcpkg.sh
+./bootstrap-vcpkg.bat
 ./vcpkg integrate install
 ./vcpkg install libheif
 ```
@@ -213,13 +213,13 @@ You can choose this individually for each codec backend in the CMake settings.
 Compiling a codec backend as dynamic plugin will generate a shared library that is installed in the system together with libheif.
 The advantage is that only the required plugins have to be installed and libheif has fewer dependencies.
 
-The plugins are loaded from the colon-separated list of directories stored in the environment variable `LIBHEIF_PLUGIN_PATH`.
+The plugins are loaded from the colon-separated (semicolon-separated on Windows) list of directories stored in the environment variable `LIBHEIF_PLUGIN_PATH`.
 If this variable is empty, they are loaded from a directory specified in the CMake configuration.
 You can also add plugin directories programmatically.
 
 ## Encoder benchmark
 
-A current benchmark of the AVIF encoders (as of 14 Oct 2022) can be found in the Wiki page
+A current benchmark of the AVIF encoders (as of 14 Oct 2022) can be found on the Wiki page
 [AVIF encoding benchmark](https://github.com/strukturag/libheif/wiki/AVIF-Encoder-Benchmark).
 
 
@@ -293,13 +293,16 @@ to update the gdk-pixbuf loader database.
 * [GIMP](https://www.gimp.org/)
 * [Krita](https://krita.org)
 * [ImageMagick](https://imagemagick.org/)
+* [GraphicsMagick](http://www.graphicsmagick.org/)
 * [darktable](https://www.darktable.org)
 * [digiKam 7.0.0](https://www.digikam.org/)
 * [libvips](https://github.com/libvips/libvips)
+* [libGD](https://libgd.github.io/)
 * [Kodi HEIF image decoder plugin](https://kodi.wiki/view/Add-on:HEIF_image_decoder)
 * [bimg](https://github.com/h2non/bimg)
 * [GDAL](https://gdal.org/drivers/raster/heif.html)
 * [OpenImageIO](https://sites.google.com/site/openimageio/)
+* [XnView](https://www.xnview.com)
 
 ## Sponsors
 
@@ -319,5 +322,5 @@ The sample applications are distributed under the terms of the MIT License.
 See COPYING for more details.
 
 Copyright (c) 2017-2020 Struktur AG</br>
-Copyright (c) 2017-2022 Dirk Farin</br>
+Copyright (c) 2017-2023 Dirk Farin</br>
 Contact: Dirk Farin <dirk.farin@gmail.com>

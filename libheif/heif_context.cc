@@ -469,7 +469,7 @@ void HeifContext::register_decoder(const heif_decoder_plugin* decoder_plugin)
 }
 
 
-const struct heif_decoder_plugin* HeifContext::get_decoder(enum heif_compression_format type) const
+const struct heif_decoder_plugin* HeifContext::get_decoder(enum heif_compression_format type, const char* name_id) const
 {
   int highest_priority = 0;
   const struct heif_decoder_plugin* best_plugin = nullptr;
@@ -477,7 +477,7 @@ const struct heif_decoder_plugin* HeifContext::get_decoder(enum heif_compression
 
   // search global plugins
 
-  best_plugin = heif::get_decoder(type);
+  best_plugin = heif::get_decoder(type, name_id);
   if (best_plugin != nullptr) {
     highest_priority = best_plugin->does_support_format(type);
   }
@@ -487,6 +487,13 @@ const struct heif_decoder_plugin* HeifContext::get_decoder(enum heif_compression
 
   for (const auto* plugin : m_decoder_plugins) {
     int priority = plugin->does_support_format(type);
+
+    if (priority > 0 && name_id && plugin->plugin_api_version >= 3) {
+      if (strcmp(name_id, plugin->id_name) == 0) {
+        return plugin;
+      }
+    }
+
     if (priority > highest_priority) {
       highest_priority = priority;
       best_plugin = plugin;
@@ -503,7 +510,8 @@ static bool item_type_is_image(const std::string& item_type)
           item_type == "grid" ||
           item_type == "iden" ||
           item_type == "iovl" ||
-          item_type == "av01");
+          item_type == "av01" ||
+          item_type == "vvc1");
 }
 
 
@@ -1145,7 +1153,7 @@ Error HeifContext::decode_image_planar(heif_item_id ID,
       compression = heif_compression_AV1;
     }
 
-    const struct heif_decoder_plugin* decoder_plugin = get_decoder(compression);
+    const struct heif_decoder_plugin* decoder_plugin = get_decoder(compression, options ? options->decoder_id : nullptr);
     if (!decoder_plugin) {
       return Error(heif_error_Unsupported_feature, heif_suberror_Unsupported_codec);
     }
@@ -1389,6 +1397,40 @@ Error HeifContext::decode_image_planar(heif_item_id ID,
   }
 
 
+  // --- attach metadata to image
+
+  {
+    auto ipco_box = m_heif_file->get_ipco_box();
+    auto ipma_box = m_heif_file->get_ipma_box();
+
+    // CLLI
+
+    auto clli_box = ipco_box->get_property_for_item_ID(ID, ipma_box, fourcc("clli"));
+    auto clli = std::dynamic_pointer_cast<Box_clli>(clli_box);
+
+    if (clli) {
+      img->set_clli(clli->clli);
+    }
+
+    // MDCV
+
+    auto mdcv_box = ipco_box->get_property_for_item_ID(ID, ipma_box, fourcc("mdcv"));
+    auto mdcv = std::dynamic_pointer_cast<Box_mdcv>(mdcv_box);
+
+    if (mdcv) {
+      img->set_mdcv(mdcv->mdcv);
+    }
+
+    // PASP
+
+    auto pasp_box = ipco_box->get_property_for_item_ID(ID, ipma_box, fourcc("pasp"));
+    auto pasp = std::dynamic_pointer_cast<Box_pasp>(pasp_box);
+
+    if (pasp) {
+      img->set_pixel_ratio(pasp->hSpacing, pasp->vSpacing);
+    }
+  }
+
   return Error::Ok;
 }
 
@@ -1526,6 +1568,11 @@ Error HeifContext::decode_full_grid_image(heif_item_id ID,
     bpp = tileImg->get_luma_bits_per_pixel();
   }
 
+  if (bpp < 8 || bpp > 16) {
+    return Error(heif_error_Invalid_input,
+                 heif_suberror_Invalid_pixi_box,
+                 "Invalid bits per pixel in pixi box.");
+  }
 
   if (tile_chroma == heif_chroma_monochrome) {
     img->add_plane(heif_channel_Y, w, h, bpp);
@@ -2034,6 +2081,55 @@ static uint32_t get_rotated_height(heif_orientation orientation, uint32_t w, uin
 }
 
 
+void HeifContext::write_image_metadata(std::shared_ptr<HeifPixelImage> src_image, int image_id)
+{
+  // --- write PIXI property
+
+  if (src_image->get_chroma_format() == heif_chroma_monochrome) {
+    m_heif_file->add_pixi_property(image_id,
+                                   src_image->get_bits_per_pixel(heif_channel_Y), 0, 0);
+  }
+  else {
+    m_heif_file->add_pixi_property(image_id,
+                                   src_image->get_bits_per_pixel(heif_channel_Y),
+                                   src_image->get_bits_per_pixel(heif_channel_Cb),
+                                   src_image->get_bits_per_pixel(heif_channel_Cr));
+  }
+
+
+  // --- write PASP property
+
+  if (src_image->has_nonsquare_pixel_ratio()) {
+    auto pasp = std::make_shared<Box_pasp>();
+    src_image->get_pixel_ratio(&pasp->hSpacing, &pasp->vSpacing);
+
+    int index = m_heif_file->get_ipco_box()->append_child_box(pasp);
+    m_heif_file->get_ipma_box()->add_property_for_item_ID(image_id, Box_ipma::PropertyAssociation{false, uint16_t(index + 1)});
+  }
+
+
+  // --- write CLLI property
+
+  if (src_image->has_clli()) {
+    auto clli = std::make_shared<Box_clli>();
+    clli->clli = src_image->get_clli();
+
+    int index = m_heif_file->get_ipco_box()->append_child_box(clli);
+    m_heif_file->get_ipma_box()->add_property_for_item_ID(image_id, Box_ipma::PropertyAssociation{false, uint16_t(index + 1)});
+  }
+
+
+  // --- write MDCV property
+
+  if (src_image->has_mdcv()) {
+    auto mdcv = std::make_shared<Box_mdcv>();
+    mdcv->mdcv = src_image->get_mdcv();
+
+    int index = m_heif_file->get_ipco_box()->append_child_box(mdcv);
+    m_heif_file->get_ipma_box()->add_property_for_item_ID(image_id, Box_ipma::PropertyAssociation{false, uint16_t(index + 1)});
+  }
+}
+
 Error HeifContext::encode_image_as_hevc(const std::shared_ptr<HeifPixelImage>& image,
                                         struct heif_encoder* encoder,
                                         const struct heif_encoding_options* options,
@@ -2237,18 +2333,7 @@ Error HeifContext::encode_image_as_hevc(const std::shared_ptr<HeifPixelImage>& i
   }
 
 
-  // --- write PIXI property
-
-  if (src_image->get_chroma_format() == heif_chroma_monochrome) {
-    m_heif_file->add_pixi_property(image_id,
-                                   src_image->get_bits_per_pixel(heif_channel_Y), 0, 0);
-  }
-  else {
-    m_heif_file->add_pixi_property(image_id,
-                                   src_image->get_bits_per_pixel(heif_channel_Y),
-                                   src_image->get_bits_per_pixel(heif_channel_Cb),
-                                   src_image->get_bits_per_pixel(heif_channel_Cr));
-  }
+  write_image_metadata(src_image, image_id);
 
   m_top_level_images.push_back(out_image);
 
@@ -2456,18 +2541,7 @@ Error HeifContext::encode_image_as_av1(const std::shared_ptr<HeifPixelImage>& im
   }
 
 
-  // --- write PIXI property
-
-  if (src_image->get_chroma_format() == heif_chroma_monochrome) {
-    m_heif_file->add_pixi_property(image_id,
-                                   src_image->get_bits_per_pixel(heif_channel_Y), 0, 0);
-  }
-  else {
-    m_heif_file->add_pixi_property(image_id,
-                                   src_image->get_bits_per_pixel(heif_channel_Y),
-                                   src_image->get_bits_per_pixel(heif_channel_Cb),
-                                   src_image->get_bits_per_pixel(heif_channel_Cr));
-  }
+  write_image_metadata(src_image, image_id);
 
   return Error::Ok;
 }

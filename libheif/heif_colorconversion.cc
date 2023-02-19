@@ -20,6 +20,7 @@
 
 
 #include "heif_colorconversion.h"
+#include "common_utils.h"
 #include "nclx.h"
 #include <typeinfo>
 #include <algorithm>
@@ -3273,6 +3274,21 @@ std::shared_ptr<HeifPixelImage> ColorConversionPipeline::convert_image(const std
     out->set_color_profile_icc(in->get_color_profile_icc());
 
     out->set_premultiplied_alpha(in->is_premultiplied_alpha());
+
+    // pass through HDR information
+    if (in->has_clli()) {
+      out->set_clli(in->get_clli());
+    }
+
+    if (in->has_mdcv()) {
+      out->set_mdcv(in->get_mdcv());
+    }
+
+    if (in->has_nonsquare_pixel_ratio()) {
+      uint32_t h,v;
+      in->get_pixel_ratio(&h, &v);
+      out->set_pixel_ratio(h,v);
+    }
 
     const auto& warnings = in->get_warnings();
     for (const auto& warning : warnings) {

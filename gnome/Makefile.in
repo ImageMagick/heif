@@ -150,9 +150,8 @@ am__uninstall_files_from_dir = { \
     || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
-am__installdirs = "$(DESTDIR)$(mime_dir)" \
-	"$(DESTDIR)$(thumbnailer_dir)"
-DATA = $(mime__DATA) $(thumbnailer__DATA)
+am__installdirs = "$(DESTDIR)$(thumbnailer_dir)"
+DATA = $(thumbnailer__DATA)
 am__extra_recursive_targets = format-recursive test-recursive
 am__tagged_files = $(HEADERS) $(SOURCES) $(TAGS_FILES) $(LISP)
 am__DIST_COMMON = $(srcdir)/Makefile.in
@@ -342,13 +341,9 @@ x265_CFLAGS = @x265_CFLAGS@
 x265_LIBS = @x265_LIBS@
 thumbnailer_dir = $(datadir)/thumbnailers
 thumbnailer__DATA = heif.thumbnailer
-mime_dir = $(datadir)/mime/packages
-mime__DATA = heif.xml avif.xml
 EXTRA_DIST = \
     CMakeLists.txt \
-    heif.thumbnailer \
-    heif.xml \
-    avif.xml
+    heif.thumbnailer
 
 all: all-am
 
@@ -388,27 +383,6 @@ mostlyclean-libtool:
 
 clean-libtool:
 	-rm -rf .libs _libs
-install-mime_DATA: $(mime__DATA)
-	@$(NORMAL_INSTALL)
-	@list='$(mime__DATA)'; test -n "$(mime_dir)" || list=; \
-	if test -n "$$list"; then \
-	  echo " $(MKDIR_P) '$(DESTDIR)$(mime_dir)'"; \
-	  $(MKDIR_P) "$(DESTDIR)$(mime_dir)" || exit 1; \
-	fi; \
-	for p in $$list; do \
-	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
-	  echo "$$d$$p"; \
-	done | $(am__base_list) | \
-	while read files; do \
-	  echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(mime_dir)'"; \
-	  $(INSTALL_DATA) $$files "$(DESTDIR)$(mime_dir)" || exit $$?; \
-	done
-
-uninstall-mime_DATA:
-	@$(NORMAL_UNINSTALL)
-	@list='$(mime__DATA)'; test -n "$(mime_dir)" || list=; \
-	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
-	dir='$(DESTDIR)$(mime_dir)'; $(am__uninstall_files_from_dir)
 install-thumbnailer_DATA: $(thumbnailer__DATA)
 	@$(NORMAL_INSTALL)
 	@list='$(thumbnailer__DATA)'; test -n "$(thumbnailer_dir)" || list=; \
@@ -475,7 +449,7 @@ check-am: all-am
 check: check-am
 all-am: Makefile $(DATA)
 installdirs:
-	for dir in "$(DESTDIR)$(mime_dir)" "$(DESTDIR)$(thumbnailer_dir)"; do \
+	for dir in "$(DESTDIR)$(thumbnailer_dir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-am
@@ -532,7 +506,7 @@ info: info-am
 
 info-am:
 
-install-data-am: install-mime_DATA install-thumbnailer_DATA
+install-data-am: install-thumbnailer_DATA
 
 install-dvi: install-dvi-am
 
@@ -580,7 +554,7 @@ test: test-am
 
 test-am: test-local
 
-uninstall-am: uninstall-mime_DATA uninstall-thumbnailer_DATA
+uninstall-am: uninstall-thumbnailer_DATA
 
 .MAKE: install-am install-strip
 
@@ -590,13 +564,13 @@ uninstall-am: uninstall-mime_DATA uninstall-thumbnailer_DATA
 	html html-am info info-am install install-am install-data \
 	install-data-am install-dvi install-dvi-am install-exec \
 	install-exec-am install-html install-html-am install-info \
-	install-info-am install-man install-mime_DATA install-pdf \
-	install-pdf-am install-ps install-ps-am install-strip \
+	install-info-am install-man install-pdf install-pdf-am \
+	install-ps install-ps-am install-strip \
 	install-thumbnailer_DATA installcheck installcheck-am \
 	installdirs maintainer-clean maintainer-clean-generic \
 	mostlyclean mostlyclean-generic mostlyclean-libtool pdf pdf-am \
 	ps ps-am tags-am test-am test-local uninstall uninstall-am \
-	uninstall-mime_DATA uninstall-thumbnailer_DATA
+	uninstall-thumbnailer_DATA
 
 .PRECIOUS: Makefile
 
