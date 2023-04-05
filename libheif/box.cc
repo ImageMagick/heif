@@ -50,7 +50,7 @@ Fraction::Fraction(int32_t num, int32_t den)
     denominator /= 2;
   }
 
-  while (numerator > MAX_FRACTION_VALUE || numerator < -MAX_FRACTION_VALUE) {
+  while (denominator > 1 && (numerator > MAX_FRACTION_VALUE || numerator < -MAX_FRACTION_VALUE)) {
     numerator /= 2;
     denominator /= 2;
   }
@@ -939,7 +939,7 @@ Error Box_iloc::parse(BitstreamRange& range)
   int base_offset_size = (values4 >> 4) & 0xF;
   int index_size = 0;
 
-  if (get_version() > 1) {
+  if (get_version() >= 1) {
     index_size = (values4 & 0xF);
   }
 
@@ -1003,14 +1003,12 @@ Error Box_iloc::parse(BitstreamRange& range)
     for (int e = 0; e < extent_count; e++) {
       Extent extent;
 
-      if (get_version() > 1 && index_size > 0) {
-        if (index_size == 4) {
-          extent.index = range.read32();
-        }
-        else if (index_size == 8) {
-          extent.index = ((uint64_t) range.read32()) << 32;
-          extent.index |= range.read32();
-        }
+      if (index_size == 4) {
+        extent.index = range.read32();
+      }
+      else if (index_size == 8) {
+        extent.index = ((uint64_t) range.read32()) << 32;
+        extent.index |= range.read32();
       }
 
       extent.offset = 0;
