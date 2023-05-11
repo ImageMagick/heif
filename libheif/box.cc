@@ -17,12 +17,15 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include <cstddef>
+#include <cstdint>
+
 #if defined(HAVE_CONFIG_H)
 #include "config.h"
 #endif
 
 #include "box.h"
-#include "heif_limits.h"
+#include "security_limits.h"
 #include "nclx.h"
 
 #include <iomanip>
@@ -32,8 +35,9 @@
 #include <cstring>
 #include <cassert>
 
-
-using namespace heif;
+#if WITH_UNCOMPRESSED_CODEC
+#include "uncompressed_image.h"
+#endif
 
 
 Fraction::Fraction(int32_t num, int32_t den)
@@ -129,7 +133,7 @@ uint32_t from_fourcc(const char* string)
           (string[3]));
 }
 
-static std::string to_fourcc(uint32_t code)
+std::string to_fourcc(uint32_t code)
 {
   std::string str("    ");
   str[0] = static_cast<char>((code >> 24) & 0xFF);
@@ -141,10 +145,10 @@ static std::string to_fourcc(uint32_t code)
 }
 
 
-heif::BoxHeader::BoxHeader() = default;
+BoxHeader::BoxHeader() = default;
 
 
-std::vector<uint8_t> heif::BoxHeader::get_type() const
+std::vector<uint8_t> BoxHeader::get_type() const
 {
   if (m_type == fourcc("uuid")) {
     return m_uuid_type;
@@ -160,7 +164,7 @@ std::vector<uint8_t> heif::BoxHeader::get_type() const
 }
 
 
-std::string heif::BoxHeader::get_type_string() const
+std::string BoxHeader::get_type_string() const
 {
   if (m_type == fourcc("uuid")) {
     // 8-4-4-4-12
@@ -186,7 +190,7 @@ std::string heif::BoxHeader::get_type_string() const
 }
 
 
-heif::Error heif::BoxHeader::parse(BitstreamRange& range)
+Error BoxHeader::parse_header(BitstreamRange& range)
 {
   StreamReader::grow_status status;
   status = range.wait_for_available_bytes(8);
@@ -247,11 +251,27 @@ heif::Error heif::BoxHeader::parse(BitstreamRange& range)
 }
 
 
-size_t heif::BoxHeader::reserve_box_header_space(StreamWriter& writer) const
+int Box::calculate_header_size(bool data64bit) const
+{
+  int header_size = 8;  // does not include "FullBox" fields.
+
+  if (get_short_type() == fourcc("uuid")) {
+    header_size += 16;
+  }
+
+  if (data64bit) {
+    header_size += 8;
+  }
+
+  return header_size;
+}
+
+
+size_t Box::reserve_box_header_space(StreamWriter& writer, bool data64bit) const
 {
   size_t start_pos = writer.get_position();
 
-  int header_size = is_full_box_header() ? (8 + 4) : 8;
+  int header_size = calculate_header_size(data64bit);
 
   writer.skip(header_size);
 
@@ -259,69 +279,74 @@ size_t heif::BoxHeader::reserve_box_header_space(StreamWriter& writer) const
 }
 
 
-heif::Error heif::BoxHeader::prepend_header(StreamWriter& writer, size_t box_start) const
+size_t FullBox::reserve_box_header_space(StreamWriter& writer, bool data64bit) const
 {
-  const int reserved_header_size = is_full_box_header() ? (8 + 4) : 8;
+  size_t start_pos = Box::reserve_box_header_space(writer, data64bit);
+
+  writer.skip(4);
+
+  return start_pos;
+}
 
 
-  // determine header size
-
-  int header_size = 0;
-
-  header_size += 8; // normal header size
-
-  if (is_full_box_header()) {
-    header_size += 4;
+Error FullBox::write_header(StreamWriter& writer, size_t total_size, bool data64bit) const
+{
+  auto err = Box::write_header(writer, total_size, data64bit);
+  if (err) {
+    return err;
   }
 
-  if (m_type == fourcc("uuid")) {
-    header_size += 16;
-  }
+  assert((get_flags() & ~0x00FFFFFFU) == 0);
 
-  bool large_size = false;
+  writer.write32((get_version() << 24) | get_flags());
 
-  size_t data_size = writer.data_size() - box_start - reserved_header_size;
+  return Error::Ok;
+}
 
-  if (data_size + header_size > 0xFFFFFFFF) {
-    header_size += 8;
-    large_size = true;
-  }
 
-  size_t box_size = data_size + header_size;
+Error Box::prepend_header(StreamWriter& writer, size_t box_start, bool data64bit) const
+{
+  size_t total_size = writer.data_size() - box_start;
 
+  writer.set_position(box_start);
+
+  auto err = write_header(writer, total_size, data64bit);
+
+  writer.set_position_to_end();  // Note: should we move to the end of the box after writing the header?
+
+  return err;
+}
+
+
+Error Box::write_header(StreamWriter& writer, size_t total_size, bool data64bit) const
+{
+  bool large_size = (total_size > 0xFFFFFFFF);
 
   // --- write header
 
-  writer.set_position(box_start);
-  assert(header_size >= reserved_header_size);
-  writer.insert(header_size - reserved_header_size);
+  if (large_size && !data64bit) {
+    // Note: as an alternative, we could return an error here. If it fails, the user has to try again with 64 bit.
+    writer.insert(8);
+  }
 
   if (large_size) {
     writer.write32(1);
   }
   else {
-    assert(box_size <= 0xFFFFFFFF);
-    writer.write32((uint32_t) box_size);
+    assert(total_size <= 0xFFFFFFFF);
+    writer.write32((uint32_t) total_size);
   }
 
-  writer.write32(m_type);
+  writer.write32(get_short_type());
 
   if (large_size) {
-    writer.write64(box_size);
+    writer.write64(total_size);
   }
 
-  if (m_type == fourcc("uuid")) {
-    assert(m_uuid_type.size() == 16);
-    writer.write(m_uuid_type);
+  if (get_short_type() == fourcc("uuid")) {
+    assert(get_type().size() == 16);
+    writer.write(get_type());
   }
-
-  if (is_full_box_header()) {
-    assert((m_flags & ~0x00FFFFFF) == 0);
-
-    writer.write32((m_version << 24) | m_flags);
-  }
-
-  writer.set_position_to_end();  // Note: should we move to the end of the box after writing the header?
 
   return Error::Ok;
 }
@@ -332,11 +357,6 @@ std::string BoxHeader::dump(Indent& indent) const
   std::ostringstream sstr;
   sstr << indent << "Box: " << get_type_string() << " -----\n";
   sstr << indent << "size: " << get_box_size() << "   (header size: " << get_header_size() << ")\n";
-
-  if (m_is_full_box) {
-    sstr << indent << "version: " << ((int) m_version) << "\n"
-         << indent << "flags: " << std::hex << m_flags << "\n";
-  }
 
   return sstr.str();
 }
@@ -368,12 +388,12 @@ Error Box::parse(BitstreamRange& range)
 }
 
 
-Error BoxHeader::parse_full_box_header(BitstreamRange& range)
+Error FullBox::parse_full_box_header(BitstreamRange& range)
 {
   uint32_t data = range.read32();
   m_version = static_cast<uint8_t>(data >> 24);
   m_flags = data & 0x00FFFFFF;
-  m_is_full_box = true;
+  //m_is_full_box = true;
 
   m_header_size += 4;
 
@@ -381,10 +401,10 @@ Error BoxHeader::parse_full_box_header(BitstreamRange& range)
 }
 
 
-Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
+Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result)
 {
   BoxHeader hdr;
-  Error err = hdr.parse(range);
+  Error err = hdr.parse_header(range);
   if (err) {
     return err;
   }
@@ -397,125 +417,153 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
 
   switch (hdr.get_short_type()) {
     case fourcc("ftyp"):
-      box = std::make_shared<Box_ftyp>(hdr);
+      box = std::make_shared<Box_ftyp>();
       break;
 
     case fourcc("meta"):
-      box = std::make_shared<Box_meta>(hdr);
+      box = std::make_shared<Box_meta>();
       break;
 
     case fourcc("hdlr"):
-      box = std::make_shared<Box_hdlr>(hdr);
+      box = std::make_shared<Box_hdlr>();
       break;
 
     case fourcc("pitm"):
-      box = std::make_shared<Box_pitm>(hdr);
+      box = std::make_shared<Box_pitm>();
       break;
 
     case fourcc("iloc"):
-      box = std::make_shared<Box_iloc>(hdr);
+      box = std::make_shared<Box_iloc>();
       break;
 
     case fourcc("iinf"):
-      box = std::make_shared<Box_iinf>(hdr);
+      box = std::make_shared<Box_iinf>();
       break;
 
     case fourcc("infe"):
-      box = std::make_shared<Box_infe>(hdr);
+      box = std::make_shared<Box_infe>();
       break;
 
     case fourcc("iprp"):
-      box = std::make_shared<Box_iprp>(hdr);
+      box = std::make_shared<Box_iprp>();
       break;
 
     case fourcc("ipco"):
-      box = std::make_shared<Box_ipco>(hdr);
+      box = std::make_shared<Box_ipco>();
       break;
 
     case fourcc("ipma"):
-      box = std::make_shared<Box_ipma>(hdr);
+      box = std::make_shared<Box_ipma>();
       break;
 
     case fourcc("ispe"):
-      box = std::make_shared<Box_ispe>(hdr);
+      box = std::make_shared<Box_ispe>();
       break;
 
     case fourcc("auxC"):
-      box = std::make_shared<Box_auxC>(hdr);
+      box = std::make_shared<Box_auxC>();
       break;
 
     case fourcc("irot"):
-      box = std::make_shared<Box_irot>(hdr);
+      box = std::make_shared<Box_irot>();
       break;
 
     case fourcc("imir"):
-      box = std::make_shared<Box_imir>(hdr);
+      box = std::make_shared<Box_imir>();
       break;
 
     case fourcc("clap"):
-      box = std::make_shared<Box_clap>(hdr);
+      box = std::make_shared<Box_clap>();
       break;
 
     case fourcc("iref"):
-      box = std::make_shared<Box_iref>(hdr);
+      box = std::make_shared<Box_iref>();
       break;
 
     case fourcc("hvcC"):
-      box = std::make_shared<Box_hvcC>(hdr);
+      box = std::make_shared<Box_hvcC>();
       break;
 
     case fourcc("av1C"):
-      box = std::make_shared<Box_av1C>(hdr);
+      box = std::make_shared<Box_av1C>();
       break;
 
     case fourcc("vvcC"):
-      box = std::make_shared<Box_vvcC>(hdr);
+      box = std::make_shared<Box_vvcC>();
       break;
 
     case fourcc("idat"):
-      box = std::make_shared<Box_idat>(hdr);
+      box = std::make_shared<Box_idat>();
       break;
 
     case fourcc("grpl"):
-      box = std::make_shared<Box_grpl>(hdr);
+      box = std::make_shared<Box_grpl>();
       break;
 
     case fourcc("dinf"):
-      box = std::make_shared<Box_dinf>(hdr);
+      box = std::make_shared<Box_dinf>();
       break;
 
     case fourcc("dref"):
-      box = std::make_shared<Box_dref>(hdr);
+      box = std::make_shared<Box_dref>();
       break;
 
     case fourcc("url "):
-      box = std::make_shared<Box_url>(hdr);
+      box = std::make_shared<Box_url>();
       break;
 
     case fourcc("colr"):
-      box = std::make_shared<Box_colr>(hdr);
+      box = std::make_shared<Box_colr>();
       break;
 
     case fourcc("pixi"):
-      box = std::make_shared<Box_pixi>(hdr);
+      box = std::make_shared<Box_pixi>();
       break;
 
     case fourcc("pasp"):
-      box = std::make_shared<Box_pasp>(hdr);
+      box = std::make_shared<Box_pasp>();
+      break;
+
+    case fourcc("lsel"):
+      box = std::make_shared<Box_lsel>();
+      break;
+
+    case fourcc("a1op"):
+      box = std::make_shared<Box_a1op>();
+      break;
+
+    case fourcc("a1lx"):
+      box = std::make_shared<Box_a1lx>();
       break;
 
     case fourcc("clli"):
-      box = std::make_shared<Box_clli>(hdr);
+      box = std::make_shared<Box_clli>();
       break;
 
     case fourcc("mdcv"):
-      box = std::make_shared<Box_mdcv>(hdr);
+      box = std::make_shared<Box_mdcv>();
       break;
 
+    case fourcc("udes"):
+      box = std::make_shared<Box_udes>();
+      break;
+
+#if WITH_UNCOMPRESSED_CODEC
+    case fourcc("cmpd"):
+      box = std::make_shared<Box_cmpd>();
+      break;
+
+    case fourcc("uncC"):
+      box = std::make_shared<Box_uncC>();
+      break;
+#endif
+
     default:
-      box = std::make_shared<Box>(hdr);
+      box = std::make_shared<Box>();
       break;
   }
+
+  box->set_short_header(hdr);
 
   if (hdr.get_box_size() < hdr.get_header_size()) {
     std::stringstream sstr;
@@ -584,6 +632,19 @@ std::string Box::dump(Indent& indent) const
   std::ostringstream sstr;
 
   sstr << BoxHeader::dump(indent);
+
+  return sstr.str();
+}
+
+
+std::string FullBox::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+
+  sstr << Box::dump(indent);
+
+  sstr << indent << "version: " << ((int) m_version) << "\n"
+       << indent << "flags: " << std::hex << m_flags << "\n";
 
   return sstr.str();
 }
@@ -943,7 +1004,7 @@ Error Box_iloc::parse(BitstreamRange& range)
     index_size = (values4 & 0xF);
   }
 
-  int item_count;
+  uint32_t item_count;
   if (get_version() < 2) {
     item_count = range.read16();
   }
@@ -962,7 +1023,7 @@ Error Box_iloc::parse(BitstreamRange& range)
                  sstr.str());
   }
 
-  for (int i = 0; i < item_count; i++) {
+  for (uint32_t i = 0; i < item_count; i++) {
     Item item;
 
     if (get_version() < 2) {
@@ -1506,10 +1567,10 @@ void Box_infe::set_hidden_item(bool hidden)
   m_hidden_item = hidden;
 
   if (m_hidden_item) {
-    set_flags(get_flags() | 1);
+    set_flags(get_flags() | 1U);
   }
   else {
-    set_flags(get_flags() & ~1);
+    set_flags(get_flags() & ~1U);
   }
 }
 
@@ -1583,7 +1644,7 @@ Error Box_iinf::parse(BitstreamRange& range)
 
   int nEntries_size = (get_version() > 0) ? 4 : 2;
 
-  int item_count;
+  uint32_t item_count;
   if (nEntries_size == 2) {
     item_count = range.read16();
   }
@@ -2001,6 +2062,118 @@ Error Box_pasp::write(StreamWriter& writer) const
 }
 
 
+Error Box_lsel::parse(BitstreamRange& range)
+{
+  layer_id = range.read16();
+
+  return range.get_error();
+}
+
+
+std::string Box_lsel::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  sstr << indent << "layer_id: " << layer_id << "\n";
+
+  return sstr.str();
+}
+
+
+Error Box_lsel::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  writer.write16(layer_id);
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
+Error Box_a1op::parse(BitstreamRange& range)
+{
+  op_index = range.read8();
+
+  return range.get_error();
+}
+
+
+std::string Box_a1op::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  sstr << indent << "op-index: " << ((int) op_index) << "\n";
+
+  return sstr.str();
+}
+
+
+Error Box_a1op::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  writer.write8(op_index);
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
+Error Box_a1lx::parse(BitstreamRange& range)
+{
+  uint8_t flags = range.read8();
+
+  for (int i = 0; i < 3; i++) {
+    if (flags & 1) {
+      layer_size[i] = range.read32();
+    }
+    else {
+      layer_size[i] = range.read16();
+    }
+  }
+
+  return range.get_error();
+}
+
+
+std::string Box_a1lx::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  sstr << indent << "layer-sizes: [" << layer_size[0] << "," << layer_size[1] << "," << layer_size[2] << "]\n";
+
+  return sstr.str();
+}
+
+
+Error Box_a1lx::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  bool large = (layer_size[0] > 0xFFFF || layer_size[1] > 0xFFFF || layer_size[2] > 0xFFFF);
+  writer.write8(large ? 1 : 0);
+
+  for (int i = 0; i < 3; i++) {
+    if (large) {
+      writer.write32(layer_size[i]);
+    }
+    else {
+      writer.write16((uint16_t) layer_size[i]);
+    }
+  }
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
 Error Box_clli::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
@@ -2041,7 +2214,7 @@ Error Box_mdcv::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
 
-  for (int c=0;c<3;c++) {
+  for (int c = 0; c < 3; c++) {
     mdcv.display_primaries_x[c] = range.read16();
     mdcv.display_primaries_y[c] = range.read16();
   }
@@ -2077,7 +2250,7 @@ Error Box_mdcv::write(StreamWriter& writer) const
 {
   size_t box_start = reserve_box_header_space(writer);
 
-  for (int c=0;c<3;c++) {
+  for (int c = 0; c < 3; c++) {
     writer.write16(mdcv.display_primaries_x[c]);
     writer.write16(mdcv.display_primaries_y[c]);
   }
@@ -2096,7 +2269,7 @@ Error Box_mdcv::write(StreamWriter& writer) const
 
 Error Box_ipco::get_properties_for_item_ID(uint32_t itemID,
                                            const std::shared_ptr<class Box_ipma>& ipma,
-                                           std::vector<Property>& out_properties) const
+                                           std::vector<std::shared_ptr<Box>>& out_properties) const
 {
   const std::vector<Box_ipma::PropertyAssociation>* property_assoc = ipma->get_properties_for_item_ID(itemID);
   if (property_assoc == nullptr) {
@@ -2120,12 +2293,8 @@ Error Box_ipco::get_properties_for_item_ID(uint32_t itemID,
                    sstr.str());
     }
 
-    Property prop;
-    prop.essential = assoc.essential;
-
     if (assoc.property_index > 0) {
-      prop.property = allProperties[assoc.property_index - 1];
-      out_properties.push_back(prop);
+      out_properties.push_back(allProperties[assoc.property_index - 1]);
     }
   }
 
@@ -2156,6 +2325,23 @@ std::shared_ptr<Box> Box_ipco::get_property_for_item_ID(heif_item_id itemID,
   }
 
   return nullptr;
+}
+
+
+bool Box_ipco::is_property_essential_for_item(heif_item_id itemId,
+                                              const std::shared_ptr<const class Box>& property,
+                                              const std::shared_ptr<class Box_ipma>& ipma) const
+{
+  // find property index
+
+  for (int i=0;i<(int)m_children.size();i++) {
+    if (m_children[i] == property) {
+      return ipma->is_property_essential_for_item(itemId, i);
+    }
+  }
+
+  assert(false); // non-existing property
+  return false;
 }
 
 
@@ -2199,8 +2385,8 @@ Error Box_ipma::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
 
-  int entry_cnt = range.read32();
-  for (int i = 0; i < entry_cnt && !range.error() && !range.eof(); i++) {
+  uint32_t entry_cnt = range.read32();
+  for (uint32_t i = 0; i < entry_cnt && !range.error() && !range.eof(); i++) {
     Entry entry;
     if (get_version() < 1) {
       entry.item_ID = range.read16();
@@ -2244,6 +2430,23 @@ const std::vector<Box_ipma::PropertyAssociation>* Box_ipma::get_properties_for_i
   }
 
   return nullptr;
+}
+
+
+bool Box_ipma::is_property_essential_for_item(heif_item_id itemId, int propertyIndex) const
+{
+  for (const auto& entry : m_entries) {
+    if (entry.item_ID == itemId) {
+      for (const auto& assoc : entry.associations) {
+        if (assoc.property_index == propertyIndex) {
+          return assoc.essential;
+        }
+      }
+    }
+  }
+
+  assert(false);
+  return false;
 }
 
 
@@ -2424,7 +2627,7 @@ Error Box_irot::write(StreamWriter& writer) const
 {
   size_t box_start = reserve_box_header_space(writer);
 
-  writer.write8((uint8_t)(m_rotation / 90));
+  writer.write8((uint8_t) (m_rotation / 90));
 
   prepend_header(writer, box_start);
 
@@ -2449,10 +2652,10 @@ Error Box_imir::parse(BitstreamRange& range)
 
   uint8_t axis = range.read8();
   if (axis & 1) {
-    m_axis = MirrorDirection::Horizontal;
+    m_axis = heif_transform_mirror_direction_horizontal;
   }
   else {
-    m_axis = MirrorDirection::Vertical;
+    m_axis = heif_transform_mirror_direction_vertical;
   }
 
   return range.get_error();
@@ -2463,7 +2666,7 @@ Error Box_imir::write(StreamWriter& writer) const
 {
   size_t box_start = reserve_box_header_space(writer);
 
-  writer.write8(m_axis == MirrorDirection::Horizontal ? 1 : 0);
+  writer.write8(m_axis);
 
   prepend_header(writer, box_start);
 
@@ -2478,10 +2681,10 @@ std::string Box_imir::dump(Indent& indent) const
 
   sstr << indent << "mirror direction: ";
   switch (m_axis) {
-    case MirrorDirection::Vertical:
+    case heif_transform_mirror_direction_vertical:
       sstr << "vertical\n";
       break;
-    case MirrorDirection::Horizontal:
+    case heif_transform_mirror_direction_horizontal:
       sstr << "horizontal\n";
       break;
   }
@@ -2502,9 +2705,9 @@ Error Box_clap::parse(BitstreamRange& range)
   // Note: in the standard document 14496-12(2015), it says that the offset values should also be unsigned integers,
   // but this is obviously an error. Even the accompanying standard text says that offsets may be negative.
   int32_t horizontal_offset_num = (int32_t) range.read32();
-  uint32_t horizontal_offset_den = (int32_t) range.read32();
+  uint32_t horizontal_offset_den = (uint32_t) range.read32();
   int32_t vertical_offset_num = (int32_t) range.read32();
-  uint32_t vertical_offset_den = (int32_t) range.read32();
+  uint32_t vertical_offset_den = (uint32_t) range.read32();
 
   if (clean_aperture_width_num > (uint32_t) std::numeric_limits<int32_t>::max() ||
       clean_aperture_width_den > (uint32_t) std::numeric_limits<int32_t>::max() ||
@@ -2636,7 +2839,7 @@ Error Box_iref::parse(BitstreamRange& range)
   while (!range.eof()) {
     Reference ref;
 
-    Error err = ref.header.parse(range);
+    Error err = ref.header.parse_header(range);
     if (err != Error::Ok) {
       return err;
     }
@@ -2901,7 +3104,24 @@ std::string Box_hvcC::dump(Indent& indent) const
   sstr << indent << "general_level_idc: " << ((int) c.general_level_idc) << "\n"
        << indent << "min_spatial_segmentation_idc: " << c.min_spatial_segmentation_idc << "\n"
        << indent << "parallelism_type: " << ((int) c.parallelism_type) << "\n"
-       << indent << "chroma_format: " << ((int) c.chroma_format) << "\n"
+       << indent << "chroma_format: ";
+
+  switch (c.chroma_format) {
+    case 1:
+      sstr << "4:2:0";
+      break;
+    case 2:
+      sstr << "4:2:2";
+      break;
+    case 3:
+      sstr << "4:4:4";
+      break;
+    default:
+      sstr << ((int) c.chroma_format);
+      break;
+  }
+
+  sstr << "\n"
        << indent << "bit_depth_luma: " << ((int) c.bit_depth_luma) << "\n"
        << indent << "bit_depth_chroma: " << ((int) c.bit_depth_chroma) << "\n"
        << indent << "avg_frame_rate: " << c.avg_frame_rate << "\n"
@@ -3178,7 +3398,7 @@ Error Box_vvcC::parse(BitstreamRange& range)
   byte = range.read8();
   c.constantFrameRate = (byte & 0xc0) >> 6;
   c.numTemporalLayers = (byte & 0x38) >> 3;
-  c.lengthSize = (byte & 0x06) +1;
+  c.lengthSize = (byte & 0x06) + 1;
   c.ptl_present_flag = (byte & 0x01);
   // assert(c.ptl_present_flag == false); // TODO   (removed the assert since it will trigger the fuzzers)
 
@@ -3223,7 +3443,7 @@ Error Box_vvcC::write(StreamWriter& writer) const
 }
 
 
-static const char* vvc_chroma_names[4] = { "mono", "4:2:0", "4:2:2", "4:4:4" };
+static const char* vvc_chroma_names[4] = {"mono", "4:2:0", "4:2:2", "4:4:4"};
 
 std::string Box_vvcC::dump(Indent& indent) const
 {
@@ -3233,9 +3453,9 @@ std::string Box_vvcC::dump(Indent& indent) const
   const auto& c = m_configuration; // abbreviation
 
   sstr << indent << "version: " << ((int) c.configurationVersion) << "\n"
-       << indent << "frame-rate: " << (c.avgFrameRate_times_256/256.0f) << "\n"
-       << indent << "constant frame rate: " << (c.constantFrameRate==1 ? "constant" : (c.constantFrameRate==2 ? "multi-layer" : "unknown")) << "\n"
-       << indent << "num temporal layers: " << ((int)c.numTemporalLayers) << "\n"
+       << indent << "frame-rate: " << (c.avgFrameRate_times_256 / 256.0f) << "\n"
+       << indent << "constant frame rate: " << (c.constantFrameRate == 1 ? "constant" : (c.constantFrameRate == 2 ? "multi-layer" : "unknown")) << "\n"
+       << indent << "num temporal layers: " << ((int) c.numTemporalLayers) << "\n"
        << indent << "length size: " << ((int) c.lengthSize) << "\n"
        << indent << "chroma-format: ";
   if (c.chroma_format_present_flag) {
@@ -3247,13 +3467,13 @@ std::string Box_vvcC::dump(Indent& indent) const
 
   sstr << indent << "bit-depth: ";
   if (c.bit_depth_present_flag) {
-    sstr << ((int)c.bit_depth) << "\n";
+    sstr << ((int) c.bit_depth) << "\n";
   }
   else {
     sstr << "---\n";
   }
 
-  sstr << "num of arrays: " << ((int)c.numOfArrays) << "\n";
+  sstr << "num of arrays: " << ((int) c.numOfArrays) << "\n";
 
 #if 0
   sstr << indent << "config OBUs:";
@@ -3366,7 +3586,7 @@ Error Box_grpl::parse(BitstreamRange& range)
 
   while (!range.eof()) {
     EntityGroup group;
-    Error err = group.header.parse(range);
+    Error err = group.header.parse_header(range);
     if (err != Error::Ok) {
       return err;
     }
@@ -3377,8 +3597,8 @@ Error Box_grpl::parse(BitstreamRange& range)
     }
 
     group.group_id = range.read32();
-    int nEntities = range.read32();
-    for (int i = 0; i < nEntities; i++) {
+    uint32_t nEntities = range.read32();
+    for (uint32_t i = 0; i < nEntities; i++) {
       if (range.eof()) {
         break;
       }
@@ -3436,7 +3656,7 @@ Error Box_dref::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
 
-  int nEntities = range.read32();
+  uint32_t nEntities = range.read32();
 
   /*
   for (int i=0;i<nEntities;i++) {
@@ -3446,12 +3666,18 @@ Error Box_dref::parse(BitstreamRange& range)
   }
   */
 
-  Error err = read_children(range, nEntities);
+  if (nEntities > (uint32_t)std::numeric_limits<int>::max()) {
+    return Error(heif_error_Memory_allocation_error,
+                 heif_suberror_Security_limit_exceeded,
+                 "Too many entities in dref box.");
+  }
+
+  Error err = read_children(range, (int)nEntities);
   if (err) {
     return err;
   }
 
-  if ((int) m_children.size() != nEntities) {
+  if (m_children.size() != nEntities) {
     // TODO return Error(
   }
 
@@ -3489,3 +3715,36 @@ std::string Box_url::dump(Indent& indent) const
 
   return sstr.str();
 }
+
+Error Box_udes::parse(BitstreamRange& range)
+{
+  parse_full_box_header(range);
+  m_lang = range.read_string();
+  m_name = range.read_string();
+  m_description = range.read_string();
+  m_tags = range.read_string();
+  return range.get_error();
+}
+
+std::string Box_udes::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+  sstr << indent << "lang: " << m_lang << "\n";
+  sstr << indent << "name: " << m_name << "\n";
+  sstr << indent << "description: " << m_description << "\n";
+  sstr << indent << "tags: " << m_lang << "\n";
+  return sstr.str();
+}
+
+Error Box_udes::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+  writer.write(m_lang);
+  writer.write(m_name);
+  writer.write(m_description);
+  writer.write(m_tags);
+  prepend_header(writer, box_start);
+  return Error::Ok;
+}
+

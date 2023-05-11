@@ -26,8 +26,6 @@
 
 #define MAX_UVLC_LEADING_ZEROS 20
 
-using namespace heif;
-
 
 StreamReader_istream::StreamReader_istream(std::unique_ptr<std::istream>&& istr)
     : m_istr(std::move(istr))
@@ -218,10 +216,10 @@ uint32_t BitstreamRange::read32()
     return 0;
   }
 
-  return ((buf[0] << 24) |
-          (buf[1] << 16) |
-          (buf[2] << 8) |
-          (buf[3]));
+  return (uint32_t) ((buf[0] << 24) |
+                     (buf[1] << 16) |
+                     (buf[2] << 8) |
+                     (buf[3]));
 }
 
 

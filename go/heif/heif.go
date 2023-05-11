@@ -4,18 +4,18 @@
  *
  * This file is part of heif, an example application using libheif.
  *
- * heif is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * libheif is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as
+ * published by the Free Software Foundation, either version 3 of
+ * the License, or (at your option) any later version.
  *
- * heif is distributed in the hope that it will be useful,
+ * libheif is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with heif.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package heif
@@ -45,14 +45,15 @@ func GetVersion() string {
 type Compression C.enum_heif_compression_format
 
 const (
-	CompressionUndefined = C.heif_compression_undefined
-	CompressionHEVC      = C.heif_compression_HEVC
-	CompressionAV1       = C.heif_compression_AV1
-	CompressionAVC       = C.heif_compression_AVC
-	CompressionJPEG      = C.heif_compression_JPEG
-	CompressionJPEG2000  = C.heif_compression_JPEG2000
-	CompressionVVC       = C.heif_compression_VVC
-	CompressionEVC       = C.heif_compression_EVC
+	CompressionUndefined    = C.heif_compression_undefined
+	CompressionHEVC         = C.heif_compression_HEVC
+	CompressionAV1          = C.heif_compression_AV1
+	CompressionAVC          = C.heif_compression_AVC
+	CompressionJPEG         = C.heif_compression_JPEG
+	CompressionJPEG2000     = C.heif_compression_JPEG2000
+	CompressionVVC          = C.heif_compression_VVC
+	CompressionEVC          = C.heif_compression_EVC
+	CompressionUncompressed = C.heif_compression_uncompressed
 )
 
 type Chroma C.enum_heif_chroma
@@ -72,6 +73,21 @@ const (
 
 	ChromaInterleaved24Bit = C.heif_chroma_interleaved_24bit
 	ChromaInterleaved32Bit = C.heif_chroma_interleaved_32bit
+)
+
+type ChromaDownsamplingAlgorithm C.enum_heif_chroma_downsampling_algorithm
+
+const (
+	ChromaDownsamplingAverage         = C.heif_chroma_downsampling_average
+	ChromaDownsamplingNearestNeighbor = C.heif_chroma_downsampling_nearest_neighbor
+	ChromaDownsamplingSharpYUV        = C.heif_chroma_downsampling_sharp_yuv
+)
+
+type ChromaUpsamplingAlgorithm C.enum_heif_chroma_upsampling_algorithm
+
+const (
+	ChromaUpsamplingNearestNeighbor = C.heif_chroma_upsampling_nearest_neighbor
+	ChromaUpsamplingBilinear        = C.heif_chroma_upsampling_bilinear
 )
 
 type Colorspace C.enum_heif_colorspace
@@ -275,7 +291,13 @@ const (
 	// The value for the given parameter is not in the valid range.
 	SuberrorInvalidParameterValue = C.heif_suberror_Invalid_parameter_value
 
+	SuberrorInvalidProperty = C.heif_suberror_Invalid_property
+
+	SuberrorItemReferenceCycle = C.heif_suberror_Item_reference_cycle
+
 	SuberrorInvalidPixiBox = C.heif_suberror_Invalid_pixi_box
+
+	SuberrorInvalidRegionData = C.heif_suberror_Invalid_region_data
 
 	SuberrorWrongTileImagePixelDepth = C.heif_suberror_Wrong_tile_image_pixel_depth
 
@@ -315,6 +337,8 @@ const (
 	SuberrorEncoderEncoding = C.heif_suberror_Encoder_encoding
 
 	SuberrorEncoderCleanup = C.heif_suberror_Encoder_cleanup
+
+	SuberrorTooManyRegions = C.heif_suberror_Too_many_regions
 )
 
 type HeifError struct {

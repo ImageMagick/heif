@@ -42,35 +42,18 @@
 #include <libheif/heif.h>
 
 #if HAVE_LIBJPEG
-extern "C" {
-// Prevent duplicate definition for libjpeg-turbo v2.0
-// Note: these 'undef's are only a workaround for a libjpeg-turbo-v2.0 bug and
-// should be removed again later. Bug has been fixed in libjpeg-turbo-v2.0.1.
-#include <jconfig.h>
-#if defined(LIBJPEG_TURBO_VERSION_NUMBER) && LIBJPEG_TURBO_VERSION_NUMBER == 2000000
-#undef HAVE_STDDEF_H
-#undef HAVE_STDLIB_H
-#endif
-#include <jpeglib.h>
-}
+#include "decoder_jpeg.h"
 #endif
 
 #if HAVE_LIBPNG
-extern "C" {
-#include <png.h>
-}
+#include "decoder_png.h"
 #endif
+
+#include "decoder_y4m.h"
 
 #include <assert.h>
 #include "benchmark.h"
 #include "libheif/exif.h"
-
-#define JPEG_EXIF_MARKER  (JPEG_APP0+1)  /* JPEG marker code for EXIF */
-#define JPEG_EXIF_MARKER_LEN 6 // "Exif/0/0"
-#define JPEG_XMP_MARKER  (JPEG_APP0+1)  /* JPEG marker code for XMP */
-#define JPEG_XMP_MARKER_ID "http://ns.adobe.com/xap/1.0/"
-#define JPEG_ICC_MARKER  (JPEG_APP0+2)  /* JPEG marker code for ICC */
-#define JPEG_ICC_OVERHEAD_LEN  14        /* size of non-profile data in APP2 */
 
 int master_alpha = 1;
 int thumb_alpha = 1;
@@ -80,11 +63,14 @@ int premultiplied_alpha = 0;
 int run_benchmark = 0;
 int metadata_compression = 0;
 const char* encoderId = nullptr;
+std::string chroma_downsampling;
 
 uint16_t nclx_matrix_coefficients = 6;
 uint16_t nclx_colour_primaries = 2;
 uint16_t nclx_transfer_characteristic = 2;
 int nclx_full_range = true;
+
+std::string property_pitm_description;
 
 // for benchmarking
 
@@ -93,7 +79,9 @@ int nclx_full_range = true;
 #endif
 
 #if HAVE_GETTIMEOFDAY
+
 #include <sys/time.h>
+
 struct timeval time_encoding_start;
 struct timeval time_encoding_end;
 #endif
@@ -103,7 +91,7 @@ const int OPTION_NCLX_COLOUR_PRIMARIES = 1001;
 const int OPTION_NCLX_TRANSFER_CHARACTERISTIC = 1002;
 const int OPTION_NCLX_FULL_RANGE_FLAG = 1003;
 const int OPTION_PLUGIN_DIRECTORY = 1004;
-
+const int OPTION_PITM_DESCRIPTION = 1005;
 
 static struct option long_options[] = {
     {(char* const) "help",                    no_argument,       0,              'h'},
@@ -120,6 +108,9 @@ static struct option long_options[] = {
     {(char* const) "bit-depth",               required_argument, 0,              'b'},
     {(char* const) "even-size",               no_argument,       0,              'E'},
     {(char* const) "avif",                    no_argument,       0,              'A'},
+#if false && WITH_UNCOMPRESSED_CODEC
+    {(char* const) "uncompressed",                no_argument,       0,                     'U'},
+#endif
     {(char* const) "matrix_coefficients",     required_argument, 0,              OPTION_NCLX_MATRIX_COEFFICIENTS},
     {(char* const) "colour_primaries",        required_argument, 0,              OPTION_NCLX_COLOUR_PRIMARIES},
     {(char* const) "transfer_characteristic", required_argument, 0,              OPTION_NCLX_TRANSFER_CHARACTERISTIC},
@@ -129,6 +120,8 @@ static struct option long_options[] = {
     {(char* const) "plugin-directory",        required_argument, 0,              OPTION_PLUGIN_DIRECTORY},
     {(char* const) "benchmark",               no_argument,       &run_benchmark,  1},
     {(char* const) "enable-metadata-compression", no_argument,       &metadata_compression,  1},
+    {(char* const) "pitm-description",            required_argument, 0,                     OPTION_PITM_DESCRIPTION},
+    {(char* const) "chroma-downsampling", required_argument, 0, 'C'},
     {0, 0,                                                       0,               0},
 };
 
@@ -152,12 +145,15 @@ void show_help(const char* argv0)
             << "  -t, --thumb #     generate thumbnail with maximum size # (default: off)\n"
             << "      --no-alpha    do not save alpha channel\n"
             << "      --no-thumb-alpha  do not save alpha channel in thumbnail image\n"
-            << "  -o, --output      output filename (optional)\n"
-            << "  -v, --verbose     enable logging output (more -v will increase logging level)\n"
-            << "  -P, --params      show all encoder parameters\n"
-            << "  -b, --bit-depth # bit-depth of generated HEIF/AVIF file when using 16-bit PNG input (default: 10 bit)\n"
-            << "  -p                set encoder parameter (NAME=VALUE)\n"
-            << "  -A, --avif        encode as AVIF (not needed if output filename with .avif suffix is provided)\n"
+            << "  -o, --output          output filename (optional)\n"
+            << "  -v, --verbose         enable logging output (more -v will increase logging level)\n"
+            << "  -P, --params          show all encoder parameters\n"
+            << "  -b, --bit-depth #     bit-depth of generated HEIF/AVIF file when using 16-bit PNG input (default: 10 bit)\n"
+            << "  -p                    set encoder parameter (NAME=VALUE)\n"
+            << "  -A, --avif            encode as AVIF (not needed if output filename with .avif suffix is provided)\n"
+#if false && WITH_UNCOMPRESSED_CODEC
+            << "  -U, --uncompressed    encode as uncompressed image (according to ISO 23001-17) (EXPERIMENTAL)\n"
+#endif
             << "      --list-encoders         list all available encoders for all compression formats\n"
             << "  -e, --encoder ID            select encoder to use (the IDs can be listed with --list-encoders)\n"
             << "      --plugin-directory DIR  load all codec plugins in the directory\n"
@@ -169,7 +165,11 @@ void show_help(const char* argv0)
             << "  --enable-two-colr-boxes   will write both an ICC and an nclx color profile if both are present\n"
             << "  --premultiplied-alpha     input image has premultiplied alpha\n"
             << "  --enable-metadata-compression   enable XMP metadata compression (experimental)\n"
+            << "  -C,--chroma-downsampling ALGO   force chroma downsampling algorithm (nn = nearest-neighbor / average / sharp-yuv)\n"
+            << "                                  (sharp-yuv makes edges look sharper when using YUV420 with bilinear chroma upsampling)\n"
             << "  --benchmark               measure encoding time, PSNR, and output file size\n"
+            << "  --pitm-description TEXT   (EXPERIMENTAL) set user description for primary image\n"
+
             << "\n"
             << "Note: to get lossless encoding, you need this set of options:\n"
             << "  -L                       switch encoder to lossless mode\n"
@@ -178,354 +178,7 @@ void show_help(const char* argv0)
 }
 
 
-
-struct InputImage
-{
-  std::shared_ptr<heif_image> image;
-  std::vector<uint8_t> xmp;
-  std::vector<uint8_t> exif;
-  heif_orientation orientation = heif_orientation_normal;
-};
-
-
-#if HAVE_LIBJPEG
-
-static bool JPEGMarkerIsIcc(jpeg_saved_marker_ptr marker)
-{
-  return
-      marker->marker == JPEG_ICC_MARKER &&
-      marker->data_length >= JPEG_ICC_OVERHEAD_LEN &&
-      /* verify the identifying string */
-      GETJOCTET(marker->data[0]) == 0x49 &&
-      GETJOCTET(marker->data[1]) == 0x43 &&
-      GETJOCTET(marker->data[2]) == 0x43 &&
-      GETJOCTET(marker->data[3]) == 0x5F &&
-      GETJOCTET(marker->data[4]) == 0x50 &&
-      GETJOCTET(marker->data[5]) == 0x52 &&
-      GETJOCTET(marker->data[6]) == 0x4F &&
-      GETJOCTET(marker->data[7]) == 0x46 &&
-      GETJOCTET(marker->data[8]) == 0x49 &&
-      GETJOCTET(marker->data[9]) == 0x4C &&
-      GETJOCTET(marker->data[10]) == 0x45 &&
-      GETJOCTET(marker->data[11]) == 0x0;
-}
-
-bool ReadICCProfileFromJPEG(j_decompress_ptr cinfo,
-                            JOCTET** icc_data_ptr,
-                            unsigned int* icc_data_len)
-{
-  jpeg_saved_marker_ptr marker;
-  int num_markers = 0;
-  int seq_no;
-  JOCTET* icc_data;
-  unsigned int total_length;
-#define MAX_SEQ_NO  255        /* sufficient since marker numbers are bytes */
-  char marker_present[MAX_SEQ_NO + 1];      /* 1 if marker found */
-  unsigned int data_length[MAX_SEQ_NO + 1]; /* size of profile data in marker */
-  unsigned int data_offset[MAX_SEQ_NO + 1]; /* offset for data in marker */
-
-  *icc_data_ptr = NULL;        /* avoid confusion if FALSE return */
-  *icc_data_len = 0;
-
-  /* This first pass over the saved markers discovers whether there are
-   * any ICC markers and verifies the consistency of the marker numbering.
-   */
-
-  for (seq_no = 1; seq_no <= MAX_SEQ_NO; seq_no++)
-    marker_present[seq_no] = 0;
-
-  for (marker = cinfo->marker_list; marker != NULL; marker = marker->next) {
-    if (JPEGMarkerIsIcc(marker)) {
-      if (num_markers == 0)
-        num_markers = GETJOCTET(marker->data[13]);
-      else if (num_markers != GETJOCTET(marker->data[13]))
-        return FALSE;        /* inconsistent num_markers fields */
-      seq_no = GETJOCTET(marker->data[12]);
-      if (seq_no <= 0 || seq_no > num_markers)
-        return FALSE;        /* bogus sequence number */
-      if (marker_present[seq_no])
-        return FALSE;        /* duplicate sequence numbers */
-      marker_present[seq_no] = 1;
-      data_length[seq_no] = marker->data_length - JPEG_ICC_OVERHEAD_LEN;
-    }
-  }
-
-  if (num_markers == 0)
-    return FALSE;
-
-  /* Check for missing markers, count total space needed,
-   * compute offset of each marker's part of the data.
-   */
-
-  total_length = 0;
-  for (seq_no = 1; seq_no <= num_markers; seq_no++) {
-    if (marker_present[seq_no] == 0)
-      return FALSE;        /* missing sequence number */
-    data_offset[seq_no] = total_length;
-    total_length += data_length[seq_no];
-  }
-
-  if (total_length <= 0)
-    return FALSE;        /* found only empty markers? */
-
-  /* Allocate space for assembled data */
-  icc_data = (JOCTET*) malloc(total_length * sizeof(JOCTET));
-  if (icc_data == NULL)
-    return FALSE;        /* oops, out of memory */
-
-  /* and fill it in */
-  for (marker = cinfo->marker_list; marker != NULL; marker = marker->next) {
-    if (JPEGMarkerIsIcc(marker)) {
-      JOCTET FAR* src_ptr;
-      JOCTET* dst_ptr;
-      unsigned int length;
-      seq_no = GETJOCTET(marker->data[12]);
-      dst_ptr = icc_data + data_offset[seq_no];
-      src_ptr = marker->data + JPEG_ICC_OVERHEAD_LEN;
-      length = data_length[seq_no];
-      while (length--) {
-        *dst_ptr++ = *src_ptr++;
-      }
-    }
-  }
-
-  *icc_data_ptr = icc_data;
-  *icc_data_len = total_length;
-
-  return TRUE;
-}
-
-
-static bool JPEGMarkerIsXMP(jpeg_saved_marker_ptr marker)
-{
-  return
-      marker->marker == JPEG_XMP_MARKER &&
-      marker->data_length >= strlen(JPEG_XMP_MARKER_ID) + 1 &&
-      strncmp((const char*) (marker->data), JPEG_XMP_MARKER_ID, strlen(JPEG_XMP_MARKER_ID)) == 0;
-}
-
-bool ReadXMPFromJPEG(j_decompress_ptr cinfo,
-                     std::vector<uint8_t>& xmpData)
-{
-  jpeg_saved_marker_ptr marker;
-
-  for (marker = cinfo->marker_list; marker != NULL; marker = marker->next) {
-    if (JPEGMarkerIsXMP(marker)) {
-      int length = (int)(marker->data_length - (strlen(JPEG_XMP_MARKER_ID) + 1));
-      xmpData.resize(length);
-      memcpy(xmpData.data(), marker->data + strlen(JPEG_XMP_MARKER_ID) + 1, length);
-      return true;
-    }
-  }
-
-  return false;
-}
-
-
-static bool JPEGMarkerIsEXIF(jpeg_saved_marker_ptr marker)
-{
-  return marker->marker == JPEG_EXIF_MARKER &&
-         marker->data_length >= JPEG_EXIF_MARKER_LEN &&
-         GETJOCTET(marker->data[0]) == 'E' &&
-         GETJOCTET(marker->data[1]) == 'x' &&
-         GETJOCTET(marker->data[2]) == 'i' &&
-         GETJOCTET(marker->data[3]) == 'f' &&
-         GETJOCTET(marker->data[4]) == 0 &&
-         GETJOCTET(marker->data[5]) == 0;
-}
-
-bool ReadEXIFFromJPEG(j_decompress_ptr cinfo,
-                     std::vector<uint8_t>& exifData)
-{
-  jpeg_saved_marker_ptr marker;
-
-  for (marker = cinfo->marker_list; marker != NULL; marker = marker->next) {
-    if (JPEGMarkerIsEXIF(marker)) {
-      int length = (int)(marker->data_length - JPEG_EXIF_MARKER_LEN);
-      exifData.resize(length);
-      memcpy(exifData.data(), marker->data + JPEG_EXIF_MARKER_LEN, length);
-      return true;
-    }
-  }
-
-  return false;
-}
-
-
-InputImage loadJPEG(const char* filename)
-{
-  InputImage img;
-  struct heif_image* image = nullptr;
-
-
-  // ### Code copied from LibVideoGfx and slightly modified to use HeifPixelImage
-
-  struct jpeg_decompress_struct cinfo;
-  struct jpeg_error_mgr jerr;
-
-  // to store embedded icc profile
-  uint32_t iccLen;
-  uint8_t* iccBuffer = NULL;
-
-  std::vector<uint8_t> xmpData;
-  std::vector<uint8_t> exifData;
-
-  // open input file
-
-  FILE* infile;
-  if ((infile = fopen(filename, "rb")) == NULL) {
-    std::cerr << "Can't open " << filename << "\n";
-    exit(1);
-  }
-
-
-  // initialize decompressor
-
-  jpeg_create_decompress(&cinfo);
-
-  cinfo.err = jpeg_std_error(&jerr);
-  jpeg_stdio_src(&cinfo, infile);
-
-  /* Adding this part to prepare for icc profile reading. */
-  jpeg_save_markers(&cinfo, JPEG_ICC_MARKER, 0xFFFF);
-  jpeg_save_markers(&cinfo, JPEG_XMP_MARKER, 0xFFFF);
-  jpeg_save_markers(&cinfo, JPEG_EXIF_MARKER, 0xFFFF);
-
-  jpeg_read_header(&cinfo, TRUE);
-
-  bool embeddedIccFlag = ReadICCProfileFromJPEG(&cinfo, &iccBuffer, &iccLen);
-  bool embeddedXMPFlag = ReadXMPFromJPEG(&cinfo, xmpData);
-  if (embeddedXMPFlag) {
-    img.xmp = xmpData;
-  }
-
-  bool embeddedEXIFFlag = ReadEXIFFromJPEG(&cinfo, exifData);
-  if (embeddedEXIFFlag) {
-    img.exif = exifData;
-    img.orientation = (heif_orientation)read_exif_orientation_tag(exifData.data(), (int)exifData.size());
-  }
-
-  if (cinfo.jpeg_color_space == JCS_GRAYSCALE) {
-    cinfo.out_color_space = JCS_GRAYSCALE;
-
-    jpeg_start_decompress(&cinfo);
-
-    JSAMPARRAY buffer;
-    buffer = (*cinfo.mem->alloc_sarray)
-        ((j_common_ptr) &cinfo, JPOOL_IMAGE, cinfo.output_width * cinfo.output_components, 1);
-
-
-    // create destination image
-
-    struct heif_error err = heif_image_create(cinfo.output_width, cinfo.output_height,
-                                              heif_colorspace_monochrome,
-                                              heif_chroma_monochrome,
-                                              &image);
-    (void) err;
-    // TODO: handle error
-
-    heif_image_add_plane(image, heif_channel_Y, cinfo.output_width, cinfo.output_height, 8);
-
-    int y_stride;
-    uint8_t* py = heif_image_get_plane(image, heif_channel_Y, &y_stride);
-
-
-    // read the image
-
-    while (cinfo.output_scanline < cinfo.output_height) {
-      (void) jpeg_read_scanlines(&cinfo, buffer, 1);
-
-      memcpy(py + (cinfo.output_scanline - 1) * y_stride, *buffer, cinfo.output_width);
-    }
-  }
-  else {
-    cinfo.out_color_space = JCS_YCbCr;
-
-    jpeg_start_decompress(&cinfo);
-
-    JSAMPARRAY buffer;
-    buffer = (*cinfo.mem->alloc_sarray)
-        ((j_common_ptr) &cinfo, JPOOL_IMAGE, cinfo.output_width * cinfo.output_components, 1);
-
-
-    // create destination image
-
-    struct heif_error err = heif_image_create(cinfo.output_width, cinfo.output_height,
-                                              heif_colorspace_YCbCr,
-                                              heif_chroma_420,
-                                              &image);
-    (void) err;
-
-    heif_image_add_plane(image, heif_channel_Y, cinfo.output_width, cinfo.output_height, 8);
-    heif_image_add_plane(image, heif_channel_Cb, (cinfo.output_width + 1) / 2, (cinfo.output_height + 1) / 2, 8);
-    heif_image_add_plane(image, heif_channel_Cr, (cinfo.output_width + 1) / 2, (cinfo.output_height + 1) / 2, 8);
-
-    int y_stride;
-    int cb_stride;
-    int cr_stride;
-    uint8_t* py = heif_image_get_plane(image, heif_channel_Y, &y_stride);
-    uint8_t* pcb = heif_image_get_plane(image, heif_channel_Cb, &cb_stride);
-    uint8_t* pcr = heif_image_get_plane(image, heif_channel_Cr, &cr_stride);
-
-    // read the image
-
-    //printf("jpeg size: %d %d\n",cinfo.output_width, cinfo.output_height);
-
-    while (cinfo.output_scanline < cinfo.output_height) {
-      JOCTET* bufp;
-
-      (void) jpeg_read_scanlines(&cinfo, buffer, 1);
-
-      bufp = buffer[0];
-
-      int y = cinfo.output_scanline - 1;
-
-      for (unsigned int x = 0; x < cinfo.output_width; x += 2) {
-        py[y * y_stride + x] = *bufp++;
-        pcb[y / 2 * cb_stride + x / 2] = *bufp++;
-        pcr[y / 2 * cr_stride + x / 2] = *bufp++;
-
-        if (x + 1 < cinfo.output_width) {
-          py[y * y_stride + x + 1] = *bufp++;
-        }
-
-        bufp += 2;
-      }
-
-
-      if (cinfo.output_scanline < cinfo.output_height) {
-        (void) jpeg_read_scanlines(&cinfo, buffer, 1);
-
-        bufp = buffer[0];
-
-        y = cinfo.output_scanline - 1;
-
-        for (unsigned int x = 0; x < cinfo.output_width; x++) {
-          py[y * y_stride + x] = *bufp++;
-          bufp += 2;
-        }
-      }
-    }
-  }
-
-  if (embeddedIccFlag && iccLen > 0) {
-    heif_image_set_raw_color_profile(image, "prof", iccBuffer, (size_t) iccLen);
-  }
-
-  // cleanup
-  free(iccBuffer);
-  jpeg_finish_decompress(&cinfo);
-  jpeg_destroy_decompress(&cinfo);
-
-  fclose(infile);
-
-  img.image = std::shared_ptr<heif_image>(image,
-                                     [](heif_image* img) { heif_image_release(img); });
-
-  return img;
-}
-
-#else
+#if !HAVE_LIBJPEG
 InputImage loadJPEG(const char* filename)
 {
   std::cerr << "Cannot load JPEG because libjpeg support was not compiled.\n";
@@ -536,386 +189,7 @@ InputImage loadJPEG(const char* filename)
 #endif
 
 
-#if HAVE_LIBPNG
-
-static void
-user_read_fn(png_structp png_ptr, png_bytep data, png_size_t length)
-{
-  FILE* fh = (FILE*) png_get_io_ptr(png_ptr);
-  size_t n = fread((char*) data, length, 1, fh);
-  (void) n;
-} // user_read_data
-
-
-InputImage loadPNG(const char* filename, int output_bit_depth)
-{
-  FILE* fh = fopen(filename, "rb");
-  if (!fh) {
-    std::cerr << "Can't open " << filename << "\n";
-    exit(1);
-  }
-
-
-  InputImage input_image;
-
-  // ### Code copied from LibVideoGfx and slightly modified to use HeifPixelImage
-
-  struct heif_image* image = nullptr;
-
-  png_structp png_ptr;
-  png_infop info_ptr;
-  png_uint_32 width, height;
-  int bit_depth, color_type, interlace_type;
-  int compression_type;
-  png_charp name;
-#if (PNG_LIBPNG_VER < 10500)
-  png_charp png_profile_data;
-#else
-  png_bytep png_profile_data;
-#endif
-  uint8_t* profile_data = nullptr;
-  png_uint_32 profile_length = 5;
-
-  /* Create and initialize the png_struct with the desired error handler
-   * functions.  If you want to use the default stderr and longjump method,
-   * you can supply NULL for the last three parameters.  We also supply the
-   * the compiler header file version, so that we know if the application
-   * was compiled with a compatible version of the library.  REQUIRED
-   */
-  png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  assert(png_ptr != NULL);
-
-  /* Allocate/initialize the memory for image information.  REQUIRED. */
-  info_ptr = png_create_info_struct(png_ptr);
-  if (info_ptr == NULL) {
-    png_destroy_read_struct(&png_ptr, (png_infopp) NULL, (png_infopp) NULL);
-    assert(false); // , "could not create info_ptr");
-  } // if
-
-  /* Set error handling if you are using the setjmp/longjmp method (this is
-   * the normal method of doing things with libpng).  REQUIRED unless you
-   * set up your own error handlers in the png_create_read_struct() earlier.
-   */
-  if (setjmp(png_jmpbuf(png_ptr))) {
-    /* Free all of the memory associated with the png_ptr and info_ptr */
-    png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp) NULL);
-    /* If we get here, we had a problem reading the file */
-    assert(false); // , "fatal error in png library");
-  } // if
-
-  /* If you are using replacement read functions, instead of calling
-   * png_init_io() here you would call: */
-  png_set_read_fn(png_ptr, (void*) fh, user_read_fn);
-  /* where user_io_ptr is a structure you want available to the callbacks */
-
-  /* The call to png_read_info() gives us all of the information from the
-   * PNG file before the first IDAT (image data chunk).  REQUIRED
-   */
-  png_read_info(png_ptr, info_ptr);
-
-  png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type,
-               &interlace_type, NULL, NULL);
-
-  if (png_get_valid(png_ptr, info_ptr, PNG_INFO_iCCP)) {
-    if (PNG_INFO_iCCP ==
-        png_get_iCCP(png_ptr, info_ptr, &name, &compression_type, &png_profile_data, &profile_length) &&
-        profile_length > 0) {
-      profile_data = (uint8_t*) malloc(profile_length);
-      if (profile_data) {
-        memcpy(profile_data, png_profile_data, profile_length);
-      }
-    }
-  }
-  /**** Set up the data transformations you want.  Note that these are all
-   **** optional.  Only call them if you want/need them.  Many of the
-   **** transformations only work on specific types of images, and many
-   **** are mutually exclusive.
-   ****/
-
-  // \TODO
-  //      /* Strip alpha bytes from the input data without combining with the
-  //       * background (not recommended).
-  //       */
-  //      png_set_strip_alpha(png_ptr);
-
-  /* Extract multiple pixels with bit depths of 1, 2, and 4 from a single
-   * byte into separate bytes (useful for paletted and grayscale images).
-   */
-  png_set_packing(png_ptr);
-
-
-  /* Expand paletted colors into true RGB triplets */
-  if (color_type == PNG_COLOR_TYPE_PALETTE)
-    png_set_expand(png_ptr);
-
-  /* Expand grayscale images to the full 8 bits from 1, 2, or 4 bits/pixel */
-  if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8)
-    png_set_expand(png_ptr);
-
-  /* Set the background color to draw transparent and alpha images over.
-   * It is possible to set the red, green, and blue components directly
-   * for paletted images instead of supplying a palette index.  Note that
-   * even if the PNG file supplies a background, you are not required to
-   * use it - you should use the (solid) application background if it has one.
-   */
-
-#if 0
-  // \TODO 0 is index in color lookup table - correct? used already?
-  png_color_16 my_background = {0, 255, 255, 255, 255};
-  png_color_16 *image_background;
-
-  if (png_get_bKGD(png_ptr, info_ptr, &image_background))
-    png_set_background(png_ptr, image_background, PNG_BACKGROUND_GAMMA_FILE, 1, 1.0);
-  else
-    png_set_background(png_ptr, &my_background, PNG_BACKGROUND_GAMMA_SCREEN, 0, 1.0);
-#endif
-
-
-  /* Optional call to gamma correct and add the background to the palette
-   * and update info structure.  REQUIRED if you are expecting libpng to
-   * update the palette for you (ie you selected such a transform above).
-   */
-  png_read_update_info(png_ptr, info_ptr);
-
-  /* Allocate the memory to hold the image using the fields of info_ptr. */
-
-  /* The easiest way to read the image: */
-  uint8_t** row_pointers = new png_bytep[height];
-  assert(row_pointers != NULL);
-
-  for (uint32_t y = 0; y < height; y++) {
-    row_pointers[y] = (png_bytep) malloc(png_get_rowbytes(png_ptr, info_ptr));
-    assert(row_pointers[y] != NULL);
-  } // for
-
-  /* Now it's time to read the image.  One of these methods is REQUIRED */
-  png_read_image(png_ptr, row_pointers);
-
-  /* read rest of file, and get additional chunks in info_ptr - REQUIRED */
-  png_read_end(png_ptr, info_ptr);
-
-
-  // --- read EXIF data
-
-#ifdef PNG_eXIf_SUPPORTED
-  png_bytep exifPtr = nullptr;
-  png_uint_32 exifSize = 0;
-  if (png_get_eXIf_1(png_ptr, info_ptr, &exifSize, &exifPtr) == PNG_INFO_eXIf) {
-    input_image.exif.resize(exifSize);
-    memcpy(input_image.exif.data(), exifPtr, exifSize);
-
-    // remove the EXIF orientation since it is informal only in PNG and we do not want to confuse with an orientation not matching irot/imir
-    modify_exif_orientation_tag_if_it_exists(input_image.exif.data(), (int)input_image.exif.size(), 1);
-  }
-#endif
-
-  // --- read XMP data
-
-  png_textp textPtr = nullptr;
-  const png_uint_32 nTextChunks = png_get_text(png_ptr, info_ptr, &textPtr, nullptr);
-  for (png_uint_32 i = 0; i < nTextChunks; i++, textPtr++) {
-    png_size_t textLength = textPtr->text_length;
-    if ((textPtr->compression == PNG_ITXT_COMPRESSION_NONE) || (textPtr->compression == PNG_ITXT_COMPRESSION_zTXt)) {
-      textLength = textPtr->itxt_length;
-    }
-
-    if (!strcmp(textPtr->key, "XML:com.adobe.xmp")) {
-      if (textLength == 0) {
-        // TODO: error
-      }
-      else {
-        input_image.xmp.resize(textLength);
-        memcpy(input_image.xmp.data(), textPtr->text, textLength);
-      }
-    }
-  }
-
-  /* clean up after the read, and free any memory allocated - REQUIRED */
-  png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp) NULL);
-
-
-  // OK, now we should have the png image in some way in
-  // row_pointers, have fun with it
-
-  int band = 0;
-  switch (color_type) {
-    case PNG_COLOR_TYPE_GRAY:
-    case PNG_COLOR_TYPE_GRAY_ALPHA:
-      band = 1;
-      break;
-    case PNG_COLOR_TYPE_PALETTE:
-    case PNG_COLOR_TYPE_RGB:
-    case PNG_COLOR_TYPE_RGB_ALPHA:
-      band = 3;
-      break;
-    default:
-      assert(false); // , "unknown color type in png image.");
-  } // switch
-
-
-
-
-  struct heif_error err;
-
-  bool has_alpha = (color_type & PNG_COLOR_MASK_ALPHA);
-
-  if (band == 1 && bit_depth==8) {
-    err = heif_image_create((int) width, (int) height,
-                            heif_colorspace_monochrome,
-                            heif_chroma_monochrome,
-                            &image);
-    (void) err;
-
-    heif_image_add_plane(image, heif_channel_Y, (int) width, (int) height, 8);
-
-    int y_stride;
-    int a_stride;
-    uint8_t* py = heif_image_get_plane(image, heif_channel_Y, &y_stride);
-    uint8_t* pa = nullptr;
-
-    if (has_alpha) {
-      heif_image_add_plane(image, heif_channel_Alpha, (int) width, (int) height, 8);
-
-      pa = heif_image_get_plane(image, heif_channel_Alpha, &a_stride);
-    }
-
-
-    for (uint32_t y = 0; y < height; y++) {
-      uint8_t* p = row_pointers[y];
-
-      if (has_alpha) {
-        for (uint32_t x = 0; x < width; x++) {
-          py[y * y_stride + x] = *p++;
-          pa[y * a_stride + x] = *p++;
-        }
-      }
-      else {
-        memcpy(&py[y * y_stride], p, width);
-      }
-    }
-  }
-  else if (band == 1) {
-    assert(bit_depth>8);
-
-    err = heif_image_create((int) width, (int) height,
-                            heif_colorspace_monochrome,
-                            heif_chroma_monochrome,
-                            &image);
-    (void) err;
-
-    int bdShift = 16 - output_bit_depth;
-
-    heif_image_add_plane(image, heif_channel_Y, (int) width, (int) height, output_bit_depth);
-
-    int y_stride;
-    int a_stride = 0;
-    uint16_t* py = (uint16_t*)heif_image_get_plane(image, heif_channel_Y, &y_stride);
-    uint16_t* pa = nullptr;
-
-    if (has_alpha) {
-      heif_image_add_plane(image, heif_channel_Alpha, (int) width, (int) height, output_bit_depth);
-
-      pa = (uint16_t*)heif_image_get_plane(image, heif_channel_Alpha, &a_stride);
-    }
-
-    y_stride /= 2;
-    a_stride /= 2;
-
-    for (uint32_t y = 0; y < height; y++) {
-      uint8_t* p = row_pointers[y];
-
-      if (has_alpha) {
-        for (uint32_t x = 0; x < width; x++) {
-          uint16_t vp = (uint16_t) (((p[0] << 8) | p[1]) >> bdShift);
-          uint16_t va = (uint16_t) (((p[2] << 8) | p[3]) >> bdShift);
-
-          py[x + y * y_stride] = vp;
-          pa[x + y * y_stride] = va;
-
-          p += 4;
-        }
-      }
-      else {
-        for (uint32_t x = 0; x < width; x++) {
-          uint16_t vp = (uint16_t) (((p[0] << 8) | p[1]) >> bdShift);
-
-          py[x + y * y_stride] = vp;
-
-          p += 2;
-        }
-      }
-    }
-  }
-  else if (bit_depth == 8) {
-    err = heif_image_create((int) width, (int) height,
-                            heif_colorspace_RGB,
-                            has_alpha ? heif_chroma_interleaved_RGBA : heif_chroma_interleaved_RGB,
-                            &image);
-    (void) err;
-
-    heif_image_add_plane(image, heif_channel_interleaved, (int) width, (int) height,
-                         has_alpha ? 32 : 24);
-
-    int stride;
-    uint8_t* p = heif_image_get_plane(image, heif_channel_interleaved, &stride);
-
-    for (uint32_t y = 0; y < height; y++) {
-      if (has_alpha) {
-        memcpy(p + y * stride, row_pointers[y], width * 4);
-      }
-      else {
-        memcpy(p + y * stride, row_pointers[y], width * 3);
-      }
-    }
-  }
-  else {
-    err = heif_image_create((int) width, (int) height,
-                            heif_colorspace_RGB,
-                            has_alpha ?
-                            heif_chroma_interleaved_RRGGBBAA_LE :
-                            heif_chroma_interleaved_RRGGBB_LE,
-                            &image);
-    (void) err;
-
-    int bdShift = 16 - output_bit_depth;
-
-    heif_image_add_plane(image, heif_channel_interleaved, (int) width, (int) height, output_bit_depth);
-
-    int stride;
-    uint8_t* p_out = (uint8_t*) heif_image_get_plane(image, heif_channel_interleaved, &stride);
-
-    for (uint32_t y = 0; y < height; y++) {
-      uint8_t* p = row_pointers[y];
-
-      uint32_t nVal = (has_alpha ? 4 : 3) * width;
-
-      for (uint32_t x = 0; x < nVal; x++) {
-        uint16_t v = (uint16_t) (((p[0] << 8) | p[1]) >> bdShift);
-        p_out[2 * x + y * stride + 1] = (uint8_t) (v >> 8);
-        p_out[2 * x + y * stride + 0] = (uint8_t) (v & 0xFF);
-        p += 2;
-      }
-    }
-  }
-
-  if (profile_data && profile_length > 0) {
-    heif_image_set_raw_color_profile(image, "prof", profile_data, (size_t) profile_length);
-  }
-
-  free(profile_data);
-  for (uint32_t y = 0; y < height; y++) {
-    free(row_pointers[y]);
-  } // for
-
-  delete[] row_pointers;
-
-  input_image.image = std::shared_ptr<heif_image>(image,
-                                                  [](heif_image* img) { heif_image_release(img); });
-
-  return input_image;
-}
-
-#else
+#if !HAVE_LIBPNG
 InputImage loadPNG(const char* filename, int output_bit_depth)
 {
   std::cerr << "Cannot load PNG because libpng support was not compiled.\n";
@@ -924,104 +198,6 @@ InputImage loadPNG(const char* filename, int output_bit_depth)
   return {};
 }
 #endif
-
-
-std::shared_ptr<heif_image> loadY4M(const char* filename)
-{
-  struct heif_image* image = nullptr;
-
-
-  // open input file
-
-  std::ifstream istr(filename, std::ios_base::binary);
-  if (istr.fail()) {
-    std::cerr << "Can't open " << filename << "\n";
-    exit(1);
-  }
-
-
-  std::string header;
-  getline(istr, header);
-
-  if (header.find("YUV4MPEG2 ") != 0) {
-    std::cerr << "Input is not a Y4M file.\n";
-    exit(1);
-  }
-
-  int w = -1;
-  int h = -1;
-
-  size_t pos = 0;
-  for (;;) {
-    pos = header.find(' ', pos + 1) + 1;
-    if (pos == std::string::npos) {
-      break;
-    }
-
-    size_t end = header.find_first_of(" \n", pos + 1);
-    if (end == std::string::npos) {
-      break;
-    }
-
-    if (end - pos <= 1) {
-      std::cerr << "Header format error in Y4M file.\n";
-      exit(1);
-    }
-
-    char tag = header[pos];
-    std::string value = header.substr(pos + 1, end - pos - 1);
-    if (tag == 'W') {
-      w = atoi(value.c_str());
-    }
-    else if (tag == 'H') {
-      h = atoi(value.c_str());
-    }
-  }
-
-  std::string frameheader;
-  getline(istr, frameheader);
-
-  if (frameheader != "FRAME") {
-    std::cerr << "Y4M misses the frame header.\n";
-    exit(1);
-  }
-
-  if (w < 0 || h < 0) {
-    std::cerr << "Y4M has invalid frame size.\n";
-    exit(1);
-  }
-
-  struct heif_error err = heif_image_create(w, h,
-                                            heif_colorspace_YCbCr,
-                                            heif_chroma_420,
-                                            &image);
-  (void) err;
-  // TODO: handle error
-
-  heif_image_add_plane(image, heif_channel_Y, w, h, 8);
-  heif_image_add_plane(image, heif_channel_Cb, (w + 1) / 2, (h + 1) / 2, 8);
-  heif_image_add_plane(image, heif_channel_Cr, (w + 1) / 2, (h + 1) / 2, 8);
-
-  int y_stride, cb_stride, cr_stride;
-  uint8_t* py = heif_image_get_plane(image, heif_channel_Y, &y_stride);
-  uint8_t* pcb = heif_image_get_plane(image, heif_channel_Cb, &cb_stride);
-  uint8_t* pcr = heif_image_get_plane(image, heif_channel_Cr, &cr_stride);
-
-  for (int y = 0; y < h; y++) {
-    istr.read((char*) (py + y * y_stride), w);
-  }
-
-  for (int y = 0; y < (h + 1) / 2; y++) {
-    istr.read((char*) (pcb + y * cb_stride), (w + 1) / 2);
-  }
-
-  for (int y = 0; y < (h + 1) / 2; y++) {
-    istr.read((char*) (pcr + y * cr_stride), (w + 1) / 2);
-  }
-
-  return std::shared_ptr<heif_image>(image,
-                                     [](heif_image* img) { heif_image_release(img); });
-}
 
 
 void list_encoder_parameters(heif_encoder* encoder)
@@ -1061,8 +237,8 @@ void list_encoder_parameters(heif_encoder* encoder)
         if (num_valid_values > 0) {
           std::cerr << ", {";
 
-          for (int p=0;p<num_valid_values;p++) {
-            if (p>0) {
+          for (int p = 0; p < num_valid_values; p++) {
+            if (p > 0) {
               std::cerr << ", ";
             }
 
@@ -1154,7 +330,7 @@ static void show_list_of_encoders(const heif_encoder_descriptor* const* encoder_
               << " = "
               << heif_encoder_descriptor_get_name(encoder_descriptors[i]);
 
-    if (i==0) {
+    if (i == 0) {
       std::cout << " [default]";
     }
 
@@ -1165,7 +341,11 @@ static void show_list_of_encoders(const heif_encoder_descriptor* const* encoder_
 
 static void show_list_of_all_encoders()
 {
-  for (auto compression_format : {heif_compression_HEVC, heif_compression_AV1}) {
+  for (auto compression_format : {heif_compression_HEVC, heif_compression_AV1
+#if false && WITH_UNCOMPRESSED_CODEC
+, heif_compression_uncompressed
+#endif
+  }) {
 
     switch (compression_format) {
       case heif_compression_AV1:
@@ -1242,6 +422,7 @@ int main(int argc, char** argv)
   int thumbnail_bbox_size = 0;
   int output_bit_depth = 10;
   bool force_enc_av1f = false;
+  bool force_enc_uncompressed = false;
   bool crop_to_even_size = false;
 
   std::vector<std::string> raw_params;
@@ -1249,7 +430,11 @@ int main(int argc, char** argv)
 
   while (true) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:b:AEe:", long_options, &option_index);
+    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:b:AEe:C:"
+#if false && WITH_UNCOMPRESSED_CODEC
+        "U"
+#endif
+        , long_options, &option_index);
     if (c == -1)
       break;
 
@@ -1284,6 +469,11 @@ int main(int argc, char** argv)
       case 'A':
         force_enc_av1f = true;
         break;
+#if false && WITH_UNCOMPRESSED_CODEC
+        case 'U':
+        force_enc_uncompressed = true;
+        break;
+#endif
       case 'E':
         crop_to_even_size = true;
         break;
@@ -1291,16 +481,19 @@ int main(int argc, char** argv)
         encoderId = optarg;
         break;
       case OPTION_NCLX_MATRIX_COEFFICIENTS:
-        nclx_matrix_coefficients = (uint16_t)strtoul(optarg, nullptr, 0);
+        nclx_matrix_coefficients = (uint16_t) strtoul(optarg, nullptr, 0);
         break;
       case OPTION_NCLX_COLOUR_PRIMARIES:
-        nclx_colour_primaries = (uint16_t)strtoul(optarg, nullptr, 0);
+        nclx_colour_primaries = (uint16_t) strtoul(optarg, nullptr, 0);
         break;
       case OPTION_NCLX_TRANSFER_CHARACTERISTIC:
-        nclx_transfer_characteristic = (uint16_t)strtoul(optarg, nullptr, 0);
+        nclx_transfer_characteristic = (uint16_t) strtoul(optarg, nullptr, 0);
         break;
       case OPTION_NCLX_FULL_RANGE_FLAG:
         nclx_full_range = atoi(optarg);
+        break;
+      case OPTION_PITM_DESCRIPTION:
+        property_pitm_description = optarg;
         break;
       case OPTION_PLUGIN_DIRECTORY: {
         int nPlugins;
@@ -1311,17 +504,40 @@ int main(int argc, char** argv)
         }
 
         // Note: since we process the option within the loop, we can only consider the '-v' flags coming before the plugin loading option.
-        if (logging_level>0) {
+        if (logging_level > 0) {
           std::cout << nPlugins << " plugins loaded from directory " << optarg << "\n";
         }
         break;
       }
+      case 'C':
+        chroma_downsampling = optarg;
+        if (chroma_downsampling != "nn" &&
+            chroma_downsampling != "nearest-neighbor" &&
+            chroma_downsampling != "average" &&
+            chroma_downsampling != "sharp-yuv") {
+          fprintf(stderr, "Undefined chroma downsampling algorithm.\n");
+          exit(5);
+        }
+        if (chroma_downsampling == "nn") { // abbreviation
+          chroma_downsampling = "nearest-neighbor";
+        }
+#if !HAVE_LIBSHARPYUV
+        if (chroma_downsampling == "sharp-yuv") {
+          std::cerr << "Error: sharp-yuv chroma downsampling method has not been compiled into libheif.\n";
+          return 5;
+        }
+#endif
+        break;
     }
   }
 
   if (quality < 0 || quality > 100) {
     std::cerr << "Invalid quality factor. Must be between 0 and 100.\n";
     return 5;
+  }
+
+  if (force_enc_av1f && force_enc_uncompressed) {
+    std::cerr << "Choose at most one output compression format.\n";
   }
 
   if (logging_level > 0) {
@@ -1354,6 +570,9 @@ int main(int argc, char** argv)
 
   if (force_enc_av1f) {
     compressionFormat = heif_compression_AV1;
+  }
+  else if (force_enc_uncompressed) {
+    compressionFormat = heif_compression_uncompressed;
   }
   else {
     compressionFormat = guess_compression_format_from_filename(output_filename);
@@ -1408,7 +627,7 @@ int main(int argc, char** argv)
     active_encoder_descriptor = encoder_descriptors[idx];
   }
   else {
-    std::cerr << "No " << (compressionFormat==heif_compression_AV1 ? "AV1" : "HEVC") << " encoder available.\n";
+    std::cerr << "No " << (compressionFormat == heif_compression_AV1 ? "AV1" : "HEVC") << " encoder available.\n";
     return 5;
   }
 
@@ -1435,7 +654,7 @@ int main(int argc, char** argv)
         filename_without_suffix = input_filename;
       }
 
-      output_filename = filename_without_suffix + (compressionFormat==heif_compression_AV1 ? ".avif" : ".heic");
+      output_filename = filename_without_suffix + (compressionFormat == heif_compression_AV1 ? ".avif" : ".heic");
     }
 
 
@@ -1466,7 +685,7 @@ int main(int argc, char** argv)
       input_image = loadPNG(input_filename.c_str(), output_bit_depth);
     }
     else if (filetype == Y4M) {
-      input_image.image = loadY4M(input_filename.c_str());
+      input_image = loadY4M(input_filename.c_str());
     }
     else {
       input_image = loadJPEG(input_filename.c_str());
@@ -1519,9 +738,22 @@ int main(int argc, char** argv)
     set_params(encoder, raw_params);
     struct heif_encoding_options* options = heif_encoding_options_alloc();
     options->save_alpha_channel = (uint8_t) master_alpha;
-    options->save_two_colr_boxes_when_ICC_and_nclx_available = (uint8_t)two_colr_boxes;
+    options->save_two_colr_boxes_when_ICC_and_nclx_available = (uint8_t) two_colr_boxes;
     options->output_nclx_profile = &nclx;
     options->image_orientation = input_image.orientation;
+
+    if (chroma_downsampling == "average") {
+      options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_average;
+      options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
+    }
+    else if (chroma_downsampling == "sharp-yuv") {
+      options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_sharp_yuv;
+      options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
+    }
+    else if (chroma_downsampling == "nearest-neighbor") {
+      options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_nearest_neighbor;
+      options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
+    }
 
     if (crop_to_even_size) {
       if (heif_image_get_primary_width(image.get()) == 1 ||
@@ -1577,8 +809,8 @@ int main(int argc, char** argv)
     // write XMP to HEIC
     if (!input_image.xmp.empty()) {
       error = heif_context_add_XMP_metadata2(context.get(), handle,
-                                     input_image.xmp.data(), (int) input_image.xmp.size(),
-                                     metadata_compression ? heif_metadata_compression_deflate : heif_metadata_compression_off);
+                                             input_image.xmp.data(), (int) input_image.xmp.size(),
+                                             metadata_compression ? heif_metadata_compression_deflate : heif_metadata_compression_off);
       if (error.code != 0) {
         heif_encoding_options_free(options);
         std::cerr << "Could not write XMP metadata: " << error.message << "\n";
@@ -1623,6 +855,30 @@ int main(int argc, char** argv)
 
   heif_encoder_release(encoder);
 
+  if (!property_pitm_description.empty()) {
+    heif_image_handle* primary_image_handle;
+    struct heif_error err = heif_context_get_primary_image_handle(context.get(), &primary_image_handle);
+    if (err.code) {
+      std::cerr << "No primary image set, cannot set user description\n";
+      return 5;
+    }
+
+    heif_item_id pitm_id = heif_image_handle_get_item_id(primary_image_handle);
+
+    heif_property_user_description udes;
+    udes.lang = nullptr;
+    udes.name = nullptr;
+    udes.tags = nullptr;
+    udes.description = property_pitm_description.c_str();
+    err = heif_item_add_property_user_description(context.get(), pitm_id, &udes, nullptr);
+    if (err.code) {
+      std::cerr << "Cannot set user description\n";
+      return 5;
+    }
+
+    heif_image_handle_release(primary_image_handle);
+  }
+
   error = heif_context_write_to_file(context.get(), output_filename.c_str());
   if (error.code) {
     std::cerr << error.message << "\n";
@@ -1634,7 +890,7 @@ int main(int argc, char** argv)
     std::cout << "PSNR: " << std::setprecision(2) << std::fixed << psnr << " ";
 
 #if HAVE_GETTIMEOFDAY
-    double t = (double)(time_encoding_end.tv_sec - time_encoding_start.tv_sec) + (double)(time_encoding_end.tv_usec - time_encoding_start.tv_usec)/1000000.0;
+    double t = (double) (time_encoding_end.tv_sec - time_encoding_start.tv_sec) + (double) (time_encoding_end.tv_usec - time_encoding_start.tv_usec) / 1000000.0;
     std::cout << "time: " << std::setprecision(1) << std::fixed << t << " ";
 #endif
 

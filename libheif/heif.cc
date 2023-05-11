@@ -18,16 +18,20 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "libheif/heif_plugin.h"
+#include "libheif/region.h"
+#include <cstdint>
+
 #if defined(HAVE_CONFIG_H)
 #include "config.h"
 #endif
 
 #include "heif.h"
-#include "heif_file.h"
-#include "heif_image.h"
-#include "heif_api_structs.h"
-#include "heif_context.h"
-#include "heif_plugin_registry.h"
+#include "file.h"
+#include "pixelimage.h"
+#include "api_structs.h"
+#include "context.h"
+#include "plugin_registry.h"
 #include "error.h"
 #include "bitstream.h"
 #include <set>
@@ -55,7 +59,8 @@
 
 #endif
 
-using namespace heif;
+#include <cassert>
+
 
 static struct heif_error error_Ok = {heif_error_Ok, heif_suberror_Unspecified, kSuccess};
 static struct heif_error error_unsupported_parameter = {heif_error_Usage_error,
@@ -83,7 +88,7 @@ uint32_t heif_get_version_number(void)
 
 static uint8_t bcd2dec(uint8_t v)
 {
-  return uint8_t((v>>4) * 10 + (v & 0x0F));
+  return uint8_t((v >> 4) * 10 + (v & 0x0F));
 }
 
 int heif_get_version_number_major(void)
@@ -144,7 +149,7 @@ heif_filetype_result heif_check_filetype(const uint8_t* data, int len)
 
 int heif_check_jpeg_filetype(const uint8_t* data, int len)
 {
-  if (len<12 || data==nullptr) {
+  if (len < 12 || data == nullptr) {
     return -1;
   }
 
@@ -153,13 +158,13 @@ int heif_check_jpeg_filetype(const uint8_t* data, int len)
       0x4A, 0x46, 0x49, 0x46, 0x00, 0x01
   };
 
-  return strncmp((const char*)data, (const char*)jpeg_signature, 12)==0;
+  return strncmp((const char*) data, (const char*) jpeg_signature, 12) == 0;
 }
 
 
 heif_brand heif_fourcc_to_brand_enum(const char* fourcc)
 {
-  if (fourcc==nullptr || !fourcc[0] || !fourcc[1] || !fourcc[2] || !fourcc[3]) {
+  if (fourcc == nullptr || !fourcc[0] || !fourcc[1] || !fourcc[2] || !fourcc[3]) {
     return heif_unknown_brand;
   }
 
@@ -221,7 +226,7 @@ enum heif_brand heif_main_brand(const uint8_t* data, int len)
     return heif_unknown_brand;
   }
 
-  return heif_fourcc_to_brand_enum((char*)(data+8));
+  return heif_fourcc_to_brand_enum((char*) (data + 8));
 }
 
 
@@ -231,7 +236,7 @@ heif_brand2 heif_read_main_brand(const uint8_t* data, int len)
     return heif_unknown_brand;
   }
 
-  return heif_fourcc_to_brand((char*)(data+8));
+  return heif_fourcc_to_brand((char*) (data + 8));
 }
 
 
@@ -239,7 +244,7 @@ heif_brand2 heif_read_main_brand(const uint8_t* data, int len)
 
 heif_brand2 heif_fourcc_to_brand(const char* fourcc)
 {
-  if (fourcc==nullptr || !fourcc[0] || !fourcc[1] || !fourcc[2] || !fourcc[3]) {
+  if (fourcc == nullptr || !fourcc[0] || !fourcc[1] || !fourcc[2] || !fourcc[3]) {
     return 0;
   }
 
@@ -250,24 +255,24 @@ heif_brand2 heif_fourcc_to_brand(const char* fourcc)
 void heif_brand_to_fourcc(heif_brand2 brand, char* out_fourcc)
 {
   if (out_fourcc) {
-    out_fourcc[0] = (char)((brand >> 24) & 0xFF);
-    out_fourcc[1] = (char)((brand >> 16) & 0xFF);
-    out_fourcc[2] = (char)((brand >>  8) & 0xFF);
-    out_fourcc[3] = (char)((brand >>  0) & 0xFF);
+    out_fourcc[0] = (char) ((brand >> 24) & 0xFF);
+    out_fourcc[1] = (char) ((brand >> 16) & 0xFF);
+    out_fourcc[2] = (char) ((brand >> 8) & 0xFF);
+    out_fourcc[3] = (char) ((brand >> 0) & 0xFF);
   }
 }
 
 
 int heif_has_compatible_brand(const uint8_t* data, int len, const char* brand_fourcc)
 {
-  if (data == nullptr || len<=0 || brand_fourcc == nullptr || !brand_fourcc[0] || !brand_fourcc[1] || !brand_fourcc[2] || !brand_fourcc[3]) {
+  if (data == nullptr || len <= 0 || brand_fourcc == nullptr || !brand_fourcc[0] || !brand_fourcc[1] || !brand_fourcc[2] || !brand_fourcc[3]) {
     return -1;
   }
 
   auto stream = std::make_shared<StreamReader_memory>(data, len, false);
   BitstreamRange range(stream, len);
 
-  std::shared_ptr<heif::Box> box;
+  std::shared_ptr<Box> box;
   Error err = Box::read(range, &box);
   if (err) {
     if (err.sub_error_code == heif_suberror_End_of_data) {
@@ -286,21 +291,20 @@ int heif_has_compatible_brand(const uint8_t* data, int len, const char* brand_fo
 }
 
 
-
 struct heif_error heif_list_compatible_brands(const uint8_t* data, int len, heif_brand2** out_brands, int* out_size)
 {
-  if (data == nullptr || out_brands==nullptr || out_size==nullptr) {
+  if (data == nullptr || out_brands == nullptr || out_size == nullptr) {
     return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL argument"};
   }
 
-  if (len<=0) {
+  if (len <= 0) {
     return {heif_error_Usage_error, heif_suberror_Invalid_parameter_value, "data length must be positive"};
   }
 
   auto stream = std::make_shared<StreamReader_memory>(data, len, false);
   BitstreamRange range(stream, len);
 
-  std::shared_ptr<heif::Box> box;
+  std::shared_ptr<Box> box;
   Error err = Box::read(range, &box);
   if (err) {
     if (err.sub_error_code == heif_suberror_End_of_data) {
@@ -316,10 +320,10 @@ struct heif_error heif_list_compatible_brands(const uint8_t* data, int len, heif
   }
 
   auto brands = ftyp->list_brands();
-  *out_brands = (heif_brand2*)malloc(sizeof(heif_brand2) * brands.size());
-  *out_size = (int)brands.size();
+  *out_brands = (heif_brand2*) malloc(sizeof(heif_brand2) * brands.size());
+  *out_size = (int) brands.size();
 
-  for (int i=0;i<(int)brands.size();i++) {
+  for (int i = 0; i < (int) brands.size(); i++) {
     (*out_brands)[i] = brands[i];
   }
 
@@ -606,6 +610,12 @@ int heif_image_handle_is_primary_image(const struct heif_image_handle* handle)
 }
 
 
+heif_item_id heif_image_handle_get_item_id(const struct heif_image_handle* handle)
+{
+  return handle->image->get_id();
+}
+
+
 int heif_image_handle_get_number_of_thumbnails(const struct heif_image_handle* handle)
 {
   return (int) handle->image->get_thumbnails().size();
@@ -691,7 +701,7 @@ struct heif_error heif_image_handle_get_auxiliary_type(const struct heif_image_h
 
   auto auxType = handle->image->get_aux_type();
 
-  char* buf = (char*)malloc(auxType.length()+1);
+  char* buf = (char*) malloc(auxType.length() + 1);
 
   if (buf == nullptr) {
     return Error(heif_error_Memory_allocation_error,
@@ -706,13 +716,20 @@ struct heif_error heif_image_handle_get_auxiliary_type(const struct heif_image_h
 }
 
 
+void heif_image_handle_release_auxiliary_type(const struct heif_image_handle* handle,
+                                              const char** out_type)
+{
+  if (out_type && *out_type) {
+    free((void*) *out_type);
+    *out_type = nullptr;
+  }
+}
+
+// DEPRECATED (typo)
 void heif_image_handle_free_auxiliary_types(const struct heif_image_handle* handle,
                                             const char** out_type)
 {
-  if (out_type && *out_type) {
-    free((void*)*out_type);
-    *out_type = nullptr;
-  }
+  heif_image_handle_release_auxiliary_type(handle, out_type);
 }
 
 
@@ -907,30 +924,68 @@ struct heif_error heif_image_handle_get_depth_image_handle(const struct heif_ima
 }
 
 
+void fill_default_decoding_options(heif_decoding_options& options)
+{
+  options.version = 5;
+
+  options.ignore_transformations = false;
+
+  options.start_progress = nullptr;
+  options.on_progress = nullptr;
+  options.end_progress = nullptr;
+  options.progress_user_data = nullptr;
+
+  // version 2
+
+  options.convert_hdr_to_8bit = false;
+
+  // version 3
+
+  options.strict_decoding = false;
+
+  // version 4
+
+  options.decoder_id = nullptr;
+
+  // version 5
+
+  options.color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_average;
+  options.color_conversion_options.preferred_chroma_upsampling_algorithm = heif_chroma_upsampling_bilinear;
+  options.color_conversion_options.only_use_preferred_chroma_algorithm = false;
+}
+
+
+static void copy_options(heif_decoding_options& options, const heif_decoding_options& input_options)
+{
+  switch (input_options.version) {
+    case 5:
+      options.color_conversion_options = input_options.color_conversion_options;
+      // fallthrough
+    case 4:
+      options.decoder_id = input_options.decoder_id;
+      // fallthrough
+    case 3:
+      options.strict_decoding = input_options.strict_decoding;
+      // fallthrough
+    case 2:
+      options.convert_hdr_to_8bit = input_options.convert_hdr_to_8bit;
+      // fallthrough
+    case 1:
+      options.ignore_transformations = input_options.ignore_transformations;
+
+      options.start_progress = input_options.start_progress;
+      options.on_progress = input_options.on_progress;
+      options.end_progress = input_options.end_progress;
+      options.progress_user_data = input_options.progress_user_data;
+  }
+}
+
+
 heif_decoding_options* heif_decoding_options_alloc()
 {
   auto options = new heif_decoding_options;
 
-  options->version = 4;
-
-  options->ignore_transformations = false;
-
-  options->start_progress = nullptr;
-  options->on_progress = nullptr;
-  options->end_progress = nullptr;
-  options->progress_user_data = nullptr;
-
-  // version 2
-
-  options->convert_hdr_to_8bit = false;
-
-  // version 3
-
-  options->strict_decoding = false;
-
-  // version 4
-
-  options->decoder_id = nullptr;
+  fill_default_decoding_options(*options);
 
   return options;
 }
@@ -946,16 +1001,24 @@ struct heif_error heif_decode_image(const struct heif_image_handle* in_handle,
                                     struct heif_image** out_img,
                                     heif_colorspace colorspace,
                                     heif_chroma chroma,
-                                    const struct heif_decoding_options* options)
+                                    const struct heif_decoding_options* input_options)
 {
   std::shared_ptr<HeifPixelImage> img;
 
   heif_item_id id = in_handle->image->get_id();
 
+  heif_decoding_options dec_options;
+  fill_default_decoding_options(dec_options);
+
+  if (input_options != nullptr) {
+    // overwrite the (possibly lower version) input options over the default options
+    copy_options(dec_options, *input_options);
+  }
+
   Error err = in_handle->context->decode_image_user(id, img,
                                                     colorspace,
                                                     chroma,
-                                                    options);
+                                                    dec_options);
   if (err.error_code != heif_error_Ok) {
     return err.error_struct(in_handle->image.get());
   }
@@ -972,6 +1035,25 @@ struct heif_error heif_image_create(int width, int height,
                                     heif_chroma chroma,
                                     struct heif_image** image)
 {
+  if (image == nullptr) {
+    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "heif_image_create: NULL passed as image pointer."};
+  }
+
+  // auto-correct colorspace_YCbCr + chroma_monochrome to colorspace_monochrome
+  // TODO: this should return an error in a later version (see below)
+  if (chroma == heif_chroma_monochrome && colorspace == heif_colorspace_YCbCr) {
+    colorspace = heif_colorspace_monochrome;
+
+    std::cerr << "libheif warning: heif_image_create() used with an illegal colorspace/chroma combination. This will return an error in a future version.\n";
+  }
+
+  // return error if invalid colorspace + chroma combination is used
+  auto validChroma = get_valid_chroma_values_for_colorspace(colorspace);
+  if (std::find(validChroma.begin(), validChroma.end(), chroma) == validChroma.end()) {
+    *image = nullptr;
+    return {heif_error_Usage_error, heif_suberror_Invalid_parameter_value, "Invalid colorspace/chroma combination."};
+  }
+
   struct heif_image* img = new heif_image;
   img->image = std::make_shared<HeifPixelImage>();
 
@@ -1022,7 +1104,7 @@ void heif_image_get_content_light_level(const struct heif_image* image, struct h
 
 void heif_image_set_content_light_level(const struct heif_image* image, const struct heif_content_light_level* in)
 {
-  if (in==nullptr) {
+  if (in == nullptr) {
     return;
   }
 
@@ -1042,7 +1124,7 @@ void heif_image_get_mastering_display_colour_volume(const struct heif_image* ima
 
 void heif_image_set_mastering_display_colour_volume(const struct heif_image* image, const struct heif_mastering_display_colour_volume* in)
 {
-  if (in==nullptr) {
+  if (in == nullptr) {
     return;
   }
 
@@ -1052,31 +1134,31 @@ void heif_image_set_mastering_display_colour_volume(const struct heif_image* ima
 float mdcv_coord_decode_x(uint16_t coord)
 {
   // check for unspecified value
-  if (coord<5 || coord>37000) {
+  if (coord < 5 || coord > 37000) {
     return 0.0f;
   }
 
-  return (float)(coord * 0.00002);
+  return (float) (coord * 0.00002);
 }
 
 float mdcv_coord_decode_y(uint16_t coord)
 {
   // check for unspecified value
-  if (coord<5 || coord>42000) {
+  if (coord < 5 || coord > 42000) {
     return 0.0f;
   }
 
-  return (float)(coord * 0.00002);
+  return (float) (coord * 0.00002);
 }
 
 struct heif_error heif_mastering_display_colour_volume_decode(const struct heif_mastering_display_colour_volume* in,
                                                               struct heif_decoded_mastering_display_colour_volume* out)
 {
-  if (in==nullptr || out==nullptr) {
+  if (in == nullptr || out == nullptr) {
     return error_null_parameter;
   }
 
-  for (int c=0;c<3;c++) {
+  for (int c = 0; c < 3; c++) {
     out->display_primaries_x[c] = mdcv_coord_decode_x(in->display_primaries_x[c]);
     out->display_primaries_y[c] = mdcv_coord_decode_y(in->display_primaries_y[c]);
   }
@@ -1531,23 +1613,23 @@ struct heif_error heif_nclx_color_profile_set_color_primaries(heif_color_profile
 
 
 static const std::set<typename std::underlying_type<heif_transfer_characteristics>::type> known_transfer_characteristics{
-  heif_transfer_characteristic_ITU_R_BT_709_5,
-  heif_transfer_characteristic_unspecified,
-  heif_transfer_characteristic_ITU_R_BT_470_6_System_M,
-  heif_transfer_characteristic_ITU_R_BT_470_6_System_B_G,
-  heif_transfer_characteristic_ITU_R_BT_601_6,
-  heif_transfer_characteristic_SMPTE_240M,
-  heif_transfer_characteristic_linear,
-  heif_transfer_characteristic_logarithmic_100,
-  heif_transfer_characteristic_logarithmic_100_sqrt10,
-  heif_transfer_characteristic_IEC_61966_2_4,
-  heif_transfer_characteristic_ITU_R_BT_1361,
-  heif_transfer_characteristic_IEC_61966_2_1,
-  heif_transfer_characteristic_ITU_R_BT_2020_2_10bit,
-  heif_transfer_characteristic_ITU_R_BT_2020_2_12bit,
-  heif_transfer_characteristic_ITU_R_BT_2100_0_PQ,
-  heif_transfer_characteristic_SMPTE_ST_428_1,
-  heif_transfer_characteristic_ITU_R_BT_2100_0_HLG
+    heif_transfer_characteristic_ITU_R_BT_709_5,
+    heif_transfer_characteristic_unspecified,
+    heif_transfer_characteristic_ITU_R_BT_470_6_System_M,
+    heif_transfer_characteristic_ITU_R_BT_470_6_System_B_G,
+    heif_transfer_characteristic_ITU_R_BT_601_6,
+    heif_transfer_characteristic_SMPTE_240M,
+    heif_transfer_characteristic_linear,
+    heif_transfer_characteristic_logarithmic_100,
+    heif_transfer_characteristic_logarithmic_100_sqrt10,
+    heif_transfer_characteristic_IEC_61966_2_4,
+    heif_transfer_characteristic_ITU_R_BT_1361,
+    heif_transfer_characteristic_IEC_61966_2_1,
+    heif_transfer_characteristic_ITU_R_BT_2020_2_10bit,
+    heif_transfer_characteristic_ITU_R_BT_2020_2_12bit,
+    heif_transfer_characteristic_ITU_R_BT_2100_0_PQ,
+    heif_transfer_characteristic_SMPTE_ST_428_1,
+    heif_transfer_characteristic_ITU_R_BT_2100_0_HLG
 };
 
 
@@ -1740,18 +1822,290 @@ void heif_nclx_color_profile_free(struct heif_color_profile_nclx* nclx_profile)
 }
 
 
+int heif_item_get_properties_of_type(const struct heif_context* context,
+                                     heif_item_id id,
+                                     heif_item_property_type type,
+                                     heif_property_id* out_list,
+                                     int count)
+{
+  auto file = context->context->get_heif_file();
+
+  std::vector<std::shared_ptr<Box>> properties;
+  Error err = file->get_properties(id, properties);
+  if (err) {
+    // We do not pass the error, because a missing ipco should have been detected already when reading the file.
+    return 0;
+  }
+
+  if (out_list == nullptr) {
+    return 0;
+  }
+
+  int out_idx = 0;
+  int property_id = 1;
+
+  for (const auto& property : properties) {
+    bool match;
+    if (type == heif_item_property_type_invalid) {
+      match = true;
+    }
+    else {
+      match = (property->get_short_type() == type);
+    }
+
+    if (match) {
+      if (out_list && out_idx < count) {
+        out_list[out_idx] = property_id;
+        out_idx++;
+      }
+      else if (!out_list) {
+        out_idx++;
+      }
+    }
+
+    property_id++;
+  }
+
+  return out_idx;
+}
+
+
+int heif_item_get_transformation_properties(const struct heif_context* context,
+                                            heif_item_id id,
+                                            heif_property_id* out_list,
+                                            int count)
+{
+  auto file = context->context->get_heif_file();
+
+  std::vector<std::shared_ptr<Box>> properties;
+  Error err = file->get_properties(id, properties);
+  if (err) {
+    // We do not pass the error, because a missing ipco should have been detected already when reading the file.
+    return 0;
+  }
+
+  if (out_list == nullptr) {
+    return 0;
+  }
+
+  int out_idx = 0;
+  int property_id = 1;
+
+  for (const auto& property : properties) {
+    bool match = (property->get_short_type() == fourcc("imir") ||
+                  property->get_short_type() == fourcc("irot") ||
+                  property->get_short_type() == fourcc("clap"));
+
+    if (match) {
+      if (out_list && out_idx < count) {
+        out_list[out_idx] = property_id;
+        out_idx++;
+      }
+      else if (!out_list) {
+        out_idx++;
+      }
+    }
+
+    property_id++;
+  }
+
+  return out_idx;
+}
+
+enum heif_item_property_type heif_item_get_property_type(const struct heif_context* context,
+                                                         heif_item_id id,
+                                                         heif_property_id propertyId)
+{
+  auto file = context->context->get_heif_file();
+
+  std::vector<std::shared_ptr<Box>> properties;
+  Error err = file->get_properties(id, properties);
+  if (err) {
+    // We do not pass the error, because a missing ipco should have been detected already when reading the file.
+    return heif_item_property_type_invalid;
+  }
+
+  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+    return heif_item_property_type_invalid;
+  }
+
+  auto property = properties[propertyId - 1];
+  return (enum heif_item_property_type) property->get_short_type();
+}
+
+
+static char* create_c_string_copy(const std::string s)
+{
+  char* copy = new char[s.length() + 1];
+  strcpy(copy, s.data());
+  return copy;
+}
+
+
+struct heif_error heif_item_get_property_user_description(const struct heif_context* context,
+                                                          heif_item_id itemId,
+                                                          heif_property_id propertyId,
+                                                          struct heif_property_user_description** out)
+{
+  if (!out) {
+    return {heif_error_Usage_error, heif_suberror_Invalid_parameter_value, "NULL passed"};
+  }
+
+  auto file = context->context->get_heif_file();
+
+  std::vector<std::shared_ptr<Box>> properties;
+  Error err = file->get_properties(itemId, properties);
+  if (err) {
+    return err.error_struct(context->context.get());
+  }
+
+  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+    return {heif_error_Usage_error, heif_suberror_Invalid_property, "property index out of range"};
+  }
+
+  auto udes = std::dynamic_pointer_cast<Box_udes>(properties[propertyId - 1]);
+  if (!udes) {
+    return {heif_error_Usage_error, heif_suberror_Invalid_property, "wrong property type"};
+  }
+
+  auto* udes_c = new heif_property_user_description();
+  udes_c->version = 1;
+  udes_c->lang = create_c_string_copy(udes->get_lang());
+  udes_c->name = create_c_string_copy(udes->get_name());
+  udes_c->description = create_c_string_copy(udes->get_description());
+  udes_c->tags = create_c_string_copy(udes->get_tags());
+
+  *out = udes_c;
+
+  return error_Ok;
+}
+
+
+LIBHEIF_API
+struct heif_error heif_item_add_property_user_description(const struct heif_context* context,
+                                                          heif_item_id itemId,
+                                                          const struct heif_property_user_description* description,
+                                                          heif_property_id* out_propertyId)
+{
+  if (!context || !description) {
+    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL passed"};
+  }
+
+  auto udes = std::make_shared<Box_udes>();
+  udes->set_lang(description->lang ? description->lang : "");
+  udes->set_name(description->name ? description->name : "");
+  udes->set_description(description->description ? description->description : "");
+  udes->set_tags(description->tags ? description->tags : "");
+
+  heif_property_id id = context->context->add_property(itemId, udes);
+
+  if (out_propertyId) {
+    *out_propertyId = id;
+  }
+
+  return error_Ok;
+}
+
+
+enum heif_transform_mirror_direction heif_item_get_property_transform_mirror(const struct heif_context* context,
+                                                                             heif_item_id itemId,
+                                                                             heif_property_id propertyId)
+{
+  auto file = context->context->get_heif_file();
+
+  std::vector<std::shared_ptr<Box>> properties;
+  Error err = file->get_properties(itemId, properties);
+  if (err) {
+    return heif_transform_mirror_direction_horizontal;
+  }
+
+  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+    return heif_transform_mirror_direction_horizontal;
+  }
+
+  auto imir = std::dynamic_pointer_cast<Box_imir>(properties[propertyId - 1]);
+  if (!imir) {
+    return heif_transform_mirror_direction_horizontal;
+  }
+
+  return imir->get_mirror_direction();
+}
+
+
+int heif_item_get_property_transform_rotation_ccw(const struct heif_context* context,
+                                                  heif_item_id itemId,
+                                                  heif_property_id propertyId)
+{
+  auto file = context->context->get_heif_file();
+
+  std::vector<std::shared_ptr<Box>> properties;
+  Error err = file->get_properties(itemId, properties);
+  if (err) {
+    return -1;
+  }
+
+  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+    return -1;
+  }
+
+  auto irot = std::dynamic_pointer_cast<Box_irot>(properties[propertyId - 1]);
+  if (!irot) {
+    return -1;
+  }
+
+  return irot->get_rotation();
+}
+
+
+void heif_item_get_property_transform_crop_borders(const struct heif_context* context,
+                                                   heif_item_id itemId,
+                                                   heif_property_id propertyId,
+                                                   int image_width, int image_height,
+                                                   int* left, int* top, int* right, int* bottom)
+{
+  auto file = context->context->get_heif_file();
+
+  std::vector<std::shared_ptr<Box>> properties;
+  Error err = file->get_properties(itemId, properties);
+  if (err) {
+    return;
+  }
+
+  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+    return;
+  }
+
+  auto clap = std::dynamic_pointer_cast<Box_clap>(properties[propertyId - 1]);
+  if (!clap) {
+    return;
+  }
+
+  if (left) *left = clap->left_rounded(image_width);
+  if (right) *right = image_width - 1 - clap->right_rounded(image_width);
+  if (top) *top = clap->top_rounded(image_height);
+  if (bottom) *bottom = image_height - 1 - clap->bottom_rounded(image_height);
+}
+
+
+void heif_property_user_description_release(struct heif_property_user_description* udes)
+{
+  if (udes == nullptr) {
+    return;
+  }
+
+  delete[] udes->lang;
+  delete[] udes->name;
+  delete[] udes->description;
+  delete[] udes->tags;
+
+  delete udes;
+}
+
+
 // DEPRECATED
 struct heif_error heif_register_decoder(heif_context* heif, const heif_decoder_plugin* decoder_plugin)
 {
-  if (!decoder_plugin) {
-    return error_null_parameter;
-  }
-  else if (decoder_plugin->plugin_api_version > 3) {
-    return error_unsupported_plugin_version;
-  }
-
-  heif->context->register_decoder(decoder_plugin);
-  return Error::Ok.error_struct(heif->context.get());
+  return heif_register_decoder_plugin(decoder_plugin);
 }
 
 
@@ -1894,7 +2248,8 @@ int heif_get_decoder_descriptors(enum heif_compression_format format_filter,
                                  const struct heif_decoder_descriptor** out_decoders,
                                  int count)
 {
-  struct decoder_with_priority {
+  struct decoder_with_priority
+  {
     const heif_decoder_plugin* plugin;
     int priority;
   };
@@ -1902,7 +2257,7 @@ int heif_get_decoder_descriptors(enum heif_compression_format format_filter,
   std::vector<decoder_with_priority> plugins;
   std::vector<heif_compression_format> formats;
   if (format_filter == heif_compression_undefined) {
-    formats = { heif_compression_HEVC, heif_compression_AV1, heif_compression_VVC };
+    formats = {heif_compression_HEVC, heif_compression_AV1, heif_compression_VVC};
   }
   else {
     formats.emplace_back(format_filter);
@@ -1919,17 +2274,17 @@ int heif_get_decoder_descriptors(enum heif_compression_format format_filter,
   }
 
   if (out_decoders == nullptr) {
-    return (int)plugins.size();
+    return (int) plugins.size();
   }
 
   std::sort(plugins.begin(), plugins.end(), [](const decoder_with_priority& a, const decoder_with_priority& b) {
     return a.priority > b.priority;
   });
 
-  int nDecodersReturned = std::min(count, (int)plugins.size());
+  int nDecodersReturned = std::min(count, (int) plugins.size());
 
-  for (int i=0;i<nDecodersReturned;i++) {
-    out_decoders[i] = (heif_decoder_descriptor*)(plugins[i].plugin);
+  for (int i = 0; i < nDecodersReturned; i++) {
+    out_decoders[i] = (heif_decoder_descriptor*) (plugins[i].plugin);
   }
 
   return nDecodersReturned;
@@ -1938,14 +2293,14 @@ int heif_get_decoder_descriptors(enum heif_compression_format format_filter,
 
 const char* heif_decoder_descriptor_get_name(const struct heif_decoder_descriptor* descriptor)
 {
-  auto decoder = (heif_decoder_plugin*)descriptor;
+  auto decoder = (heif_decoder_plugin*) descriptor;
   return decoder->get_plugin_name();
 }
 
 
 const char* heif_decoder_descriptor_get_id_name(const struct heif_decoder_descriptor* descriptor)
 {
-  auto decoder = (heif_decoder_plugin*)descriptor;
+  auto decoder = (heif_decoder_plugin*) descriptor;
   if (decoder->plugin_api_version < 3) {
     return nullptr;
   }
@@ -2013,14 +2368,14 @@ struct heif_error heif_context_get_encoder(struct heif_context* context,
 
 int heif_have_decoder_for_format(enum heif_compression_format format)
 {
-  auto plugin = heif::get_decoder(format, nullptr);
+  auto plugin = get_decoder(format, nullptr);
   return plugin != nullptr;
 }
 
 
 int heif_have_encoder_for_format(enum heif_compression_format format)
 {
-  auto plugin = heif::get_encoder(format);
+  auto plugin = get_encoder(format);
   return plugin != nullptr;
 }
 
@@ -2479,23 +2834,29 @@ int heif_encoder_has_default(struct heif_encoder* encoder,
 
 static void set_default_options(heif_encoding_options& options)
 {
-  options.version = 5;
+  options.version = 6;
 
   options.save_alpha_channel = true;
-  options.macOS_compatibility_workaround = true;
+  options.macOS_compatibility_workaround = false;
   options.save_two_colr_boxes_when_ICC_and_nclx_available = false;
   options.output_nclx_profile = nullptr;
   options.macOS_compatibility_workaround_no_nclx_profile = true;
   options.image_orientation = heif_orientation_normal;
+
+  options.color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_average;
+  options.color_conversion_options.preferred_chroma_upsampling_algorithm = heif_chroma_upsampling_bilinear;
+  options.color_conversion_options.only_use_preferred_chroma_algorithm = false;
 }
 
 static void copy_options(heif_encoding_options& options, const heif_encoding_options& input_options)
 {
-  set_default_options(options);
-
   switch (input_options.version) {
+    case 6:
+      options.color_conversion_options = input_options.color_conversion_options;
+      // fallthrough
     case 5:
       options.image_orientation = input_options.image_orientation;
+      // fallthrough
     case 4:
       options.output_nclx_profile = input_options.output_nclx_profile;
       options.macOS_compatibility_workaround_no_nclx_profile = input_options.macOS_compatibility_workaround_no_nclx_profile;
@@ -2540,10 +2901,8 @@ struct heif_error heif_context_encode_image(struct heif_context* ctx,
 
   heif_encoding_options options;
   heif_color_profile_nclx nclx;
-  if (input_options == nullptr) {
-    set_default_options(options);
-  }
-  else {
+  set_default_options(options);
+  if (input_options) {
     copy_options(options, *input_options);
 
     if (options.output_nclx_profile == nullptr) {
@@ -2551,9 +2910,9 @@ struct heif_error heif_context_encode_image(struct heif_context* ctx,
       if (input_nclx) {
         options.output_nclx_profile = &nclx;
         nclx.version = 1;
-        nclx.color_primaries = (enum heif_color_primaries)input_nclx->get_colour_primaries();
-        nclx.transfer_characteristics = (enum heif_transfer_characteristics)input_nclx->get_transfer_characteristics();
-        nclx.matrix_coefficients = (enum heif_matrix_coefficients)input_nclx->get_matrix_coefficients();
+        nclx.color_primaries = (enum heif_color_primaries) input_nclx->get_colour_primaries();
+        nclx.transfer_characteristics = (enum heif_transfer_characteristics) input_nclx->get_transfer_characteristics();
+        nclx.matrix_coefficients = (enum heif_matrix_coefficients) input_nclx->get_matrix_coefficients();
         nclx.full_range_flag = input_nclx->get_full_range_flag();
       }
     }
@@ -2565,7 +2924,7 @@ struct heif_error heif_context_encode_image(struct heif_context* ctx,
 
   error = ctx->context->encode_image(input_image->image,
                                      encoder,
-                                     &options,
+                                     options,
                                      heif_image_input_class_normal,
                                      image);
   if (error != Error::Ok) {
@@ -2601,16 +2960,17 @@ struct heif_error heif_context_encode_thumbnail(struct heif_context* ctx,
                                                 const struct heif_image* image,
                                                 const struct heif_image_handle* image_handle,
                                                 struct heif_encoder* encoder,
-                                                const struct heif_encoding_options* options,
+                                                const struct heif_encoding_options* input_options,
                                                 int bbox_size,
                                                 struct heif_image_handle** out_image_handle)
 {
   std::shared_ptr<HeifContext::Image> thumbnail_image;
 
-  heif_encoding_options default_options;
-  if (options == nullptr) {
-    set_default_options(default_options);
-    options = &default_options;
+  heif_encoding_options options;
+  set_default_options(options);
+
+  if (input_options != nullptr) {
+    copy_options(options, *input_options);
   }
 
   Error error = ctx->context->encode_thumbnail(image->image,
@@ -2722,3 +3082,464 @@ void heif_context_set_max_decoding_threads(struct heif_context* ctx, int max_thr
 {
   ctx->context->set_max_decoding_threads(max_threads);
 }
+
+int heif_image_handle_get_number_of_region_items(const struct heif_image_handle* handle)
+{
+  return (int) handle->image->get_region_item_ids().size();
+}
+
+int heif_image_handle_get_list_of_region_item_ids(const struct heif_image_handle* handle,
+                                                  heif_item_id* item_ids,
+                                                  int max_count)
+{
+  auto region_item_ids = handle->image->get_region_item_ids();
+  int num = std::min((int) region_item_ids.size(), max_count);
+
+  memcpy(item_ids, region_item_ids.data(), num * sizeof(heif_item_id));
+
+  return num;
+}
+
+
+struct heif_error heif_context_get_region_item(const struct heif_context* context,
+                                               heif_item_id region_item_id,
+                                               struct heif_region_item** out)
+{
+  if (out==nullptr) {
+    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL argument"};
+  }
+
+  auto r = context->context->get_region_item(region_item_id);
+
+  if (r==nullptr) {
+    return {heif_error_Usage_error, heif_suberror_Nonexisting_item_referenced, "Region item does not exist"};
+  }
+
+  heif_region_item* item = new heif_region_item();
+  item->context = context->context;
+  item->region_item = r;
+  *out = item;
+
+  return error_Ok;
+}
+
+
+heif_item_id heif_region_item_get_id(struct heif_region_item* region_item)
+{
+  if (region_item == nullptr) {
+    return -1;
+  }
+
+  return region_item->region_item->item_id;
+}
+
+
+void heif_region_item_release(struct heif_region_item* region_item)
+{
+  delete region_item;
+}
+
+
+void heif_region_item_get_reference_size(struct heif_region_item* region_item, uint32_t* width, uint32_t* height)
+{
+  auto r = region_item->context->get_region_item(region_item->region_item->item_id);
+
+  if (width) *width = r->reference_width;
+  if (height) *height = r->reference_height;
+}
+
+
+int heif_region_item_get_number_of_regions(const struct heif_region_item* region_item)
+{
+  return region_item->region_item->get_number_of_regions();
+}
+
+int heif_region_item_get_list_of_regions(const struct heif_region_item* region_item,
+                                         struct heif_region** out_regions,
+                                         int max_count)
+{
+  auto regions = region_item->region_item->get_regions();
+  int num = std::min(max_count, (int) regions.size());
+
+  for (int i = 0; i < num; i++) {
+    auto region = new heif_region();
+    region->context = region_item->context;
+    //region->parent_region_item_id = region_item->region_item->item_id;
+    region->region_item = region_item->region_item;
+    region->region = regions[i];
+
+    out_regions[i] = region;
+  }
+
+  return num;
+}
+
+
+struct heif_error heif_image_handle_add_region_item(struct heif_image_handle* image_handle,
+                                                    uint32_t reference_width, uint32_t reference_height,
+                                                    struct heif_region_item** out_region_item)
+{
+  std::shared_ptr<RegionItem> regionItem = image_handle->context->add_region_item(reference_width, reference_height);
+  image_handle->image->add_region_item_id(regionItem->item_id);
+
+  if (out_region_item) {
+    heif_region_item* item = new heif_region_item();
+    item->context = image_handle->context;
+    item->region_item = regionItem;
+
+    *out_region_item = item;
+  }
+
+  return error_Ok;
+}
+
+
+static struct heif_region* create_region(const std::shared_ptr<RegionGeometry>& r,
+                                         heif_region_item* item)
+{
+  auto region = new heif_region();
+  region->region = r;
+  region->region_item = item->region_item;
+  region->context = item->context;
+  return region;
+}
+
+
+struct heif_error heif_region_item_add_region_point(struct heif_region_item* item,
+                                                    int32_t x, int32_t y,
+                                                    struct heif_region** out_region)
+{
+  auto region = std::make_shared<RegionGeometry_Point>();
+  region->x = x;
+  region->y = y;
+
+  item->region_item->add_region(region);
+
+  if (out_region) {
+    *out_region = create_region(region, item);
+  }
+
+  return error_Ok;
+}
+
+
+struct heif_error heif_region_item_add_region_rectangle(struct heif_region_item* item,
+                                                        int32_t x, int32_t y,
+                                                        uint32_t width, uint32_t height,
+                                                        struct heif_region** out_region)
+{
+  auto region = std::make_shared<RegionGeometry_Rectangle>();
+  region->x = x;
+  region->y = y;
+  region->width = width;
+  region->height = height;
+
+  item->region_item->add_region(region);
+
+  if (out_region) {
+    *out_region = create_region(region, item);
+  }
+
+  return error_Ok;
+}
+
+
+struct heif_error heif_region_item_add_region_ellipse(struct heif_region_item* item,
+                                                      int32_t x, int32_t y,
+                                                      uint32_t radius_x, uint32_t radius_y,
+                                                      struct heif_region** out_region)
+{
+  auto region = std::make_shared<RegionGeometry_Ellipse>();
+  region->x = x;
+  region->y = y;
+  region->radius_x = radius_x;
+  region->radius_y = radius_y;
+
+  item->region_item->add_region(region);
+
+  if (out_region) {
+    *out_region = create_region(region, item);
+  }
+
+  return error_Ok;
+}
+
+
+struct heif_error heif_region_item_add_region_polygon(struct heif_region_item* item,
+                                                      const int32_t* pts, int nPoints,
+                                                      struct heif_region** out_region)
+{
+  auto region = std::make_shared<RegionGeometry_Polygon>();
+  region->points.resize(nPoints);
+
+  for (int i=0;i<nPoints;i++) {
+    region->points[i].x = pts[2*i+0];
+    region->points[i].y = pts[2*i+1];
+  }
+
+  region->closed = true;
+
+  item->region_item->add_region(region);
+
+  if (out_region) {
+    *out_region = create_region(region, item);
+  }
+
+  return error_Ok;
+}
+
+
+struct heif_error heif_region_item_add_region_polyline(struct heif_region_item* item,
+                                                       const int32_t* pts, int nPoints,
+                                                       struct heif_region** out_region)
+{
+  auto region = std::make_shared<RegionGeometry_Polygon>();
+  region->points.resize(nPoints);
+
+  for (int i=0;i<nPoints;i++) {
+    region->points[i].x = pts[2*i+0];
+    region->points[i].y = pts[2*i+1];
+  }
+
+  region->closed = false;
+
+  item->region_item->add_region(region);
+
+  if (out_region) {
+    *out_region = create_region(region, item);
+  }
+
+  return error_Ok;
+}
+
+
+void heif_region_release(const struct heif_region* region)
+{
+  delete region;
+}
+
+void heif_region_release_many(const struct heif_region* const* regions, int num)
+{
+  for (int i = 0; i < num; i++) {
+    delete regions[i];
+  }
+}
+
+
+enum heif_region_type heif_region_get_type(const struct heif_region* region)
+{
+  return region->region->getRegionType();
+}
+
+
+struct heif_error heif_region_get_point(const struct heif_region* region, int32_t* x, int32_t* y)
+{
+  if (!x || !y) {
+    return heif_error_invalid_parameter_value;
+  }
+
+  const std::shared_ptr<RegionGeometry_Point> point = std::dynamic_pointer_cast<RegionGeometry_Point>(region->region);
+  if (point) {
+    *x = point->x;
+    *y = point->y;
+    return heif_error_ok;
+  }
+
+  return heif_error_invalid_parameter_value;
+}
+
+
+struct heif_error heif_region_get_point_transformed(const struct heif_region* region, double* x, double* y,
+                                                    heif_item_id image_id)
+{
+  if (!x || !y) {
+    return heif_error_invalid_parameter_value;
+  }
+
+  const std::shared_ptr<RegionGeometry_Point> point = std::dynamic_pointer_cast<RegionGeometry_Point>(region->region);
+  if (point) {
+    auto t = RegionCoordinateTransform::create(region->context->get_heif_file(), image_id,
+                                               region->region_item->reference_width,
+                                               region->region_item->reference_height);
+    RegionCoordinateTransform::Point p = t.transform_point({(double) point->x, (double) point->y});
+    *x = p.x;
+    *y = p.y;
+
+    return heif_error_ok;
+  }
+
+  return heif_error_invalid_parameter_value;
+}
+
+
+struct heif_error heif_region_get_rectangle(const struct heif_region* region,
+                                            int32_t* x, int32_t* y,
+                                            uint32_t* width, uint32_t* height)
+{
+  const std::shared_ptr<RegionGeometry_Rectangle> rect = std::dynamic_pointer_cast<RegionGeometry_Rectangle>(region->region);
+  if (rect) {
+    *x = rect->x;
+    *y = rect->y;
+    *width = rect->width;
+    *height = rect->height;
+    return heif_error_ok;
+  }
+
+  return heif_error_invalid_parameter_value;
+}
+
+
+struct heif_error heif_region_get_rectangle_transformed(const struct heif_region* region,
+                                                        double* x, double* y,
+                                                        double* width, double* height,
+                                                        heif_item_id image_id)
+{
+  const std::shared_ptr<RegionGeometry_Rectangle> rect = std::dynamic_pointer_cast<RegionGeometry_Rectangle>(region->region);
+  if (rect) {
+    auto t = RegionCoordinateTransform::create(region->context->get_heif_file(), image_id,
+                                               region->region_item->reference_width,
+                                               region->region_item->reference_height);
+
+    RegionCoordinateTransform::Point p = t.transform_point({(double) rect->x, (double) rect->y});
+    RegionCoordinateTransform::Extent e = t.transform_extent({(double) rect->width, (double) rect->height});
+
+    *x = p.x;
+    *y = p.y;
+    *width = e.x;
+    *height = e.y;
+    return heif_error_ok;
+  }
+
+  return heif_error_invalid_parameter_value;
+}
+
+
+struct heif_error heif_region_get_ellipse(const struct heif_region* region,
+                                          int32_t* x, int32_t* y,
+                                          uint32_t* radius_x, uint32_t* radius_y)
+{
+  const std::shared_ptr<RegionGeometry_Ellipse> ellipse = std::dynamic_pointer_cast<RegionGeometry_Ellipse>(region->region);
+  if (ellipse) {
+    *x = ellipse->x;
+    *y = ellipse->y;
+    *radius_x = ellipse->radius_x;
+    *radius_y = ellipse->radius_y;
+    return heif_error_ok;
+  }
+
+  return heif_error_invalid_parameter_value;
+}
+
+
+struct heif_error heif_region_get_ellipse_transformed(const struct heif_region* region,
+                                                      double* x, double* y,
+                                                      double* radius_x, double* radius_y,
+                                                      heif_item_id image_id)
+{
+  const std::shared_ptr<RegionGeometry_Ellipse> ellipse = std::dynamic_pointer_cast<RegionGeometry_Ellipse>(region->region);
+  if (ellipse) {
+    auto t = RegionCoordinateTransform::create(region->context->get_heif_file(), image_id,
+                                               region->region_item->reference_width,
+                                               region->region_item->reference_height);
+
+    RegionCoordinateTransform::Point p = t.transform_point({(double) ellipse->x, (double) ellipse->y});
+    RegionCoordinateTransform::Extent e = t.transform_extent({(double) ellipse->radius_x, (double) ellipse->radius_y});
+
+    *x = p.x;
+    *y = p.y;
+    *radius_x = e.x;
+    *radius_y = e.y;
+    return heif_error_ok;
+  }
+
+  return heif_error_invalid_parameter_value;
+}
+
+
+static int heif_region_get_poly_num_points(const struct heif_region* region)
+{
+  const std::shared_ptr<RegionGeometry_Polygon> polygon = std::dynamic_pointer_cast<RegionGeometry_Polygon>(region->region);
+  if (polygon) {
+    return (int) polygon->points.size();
+  }
+  return 0;
+}
+
+
+int heif_region_get_polygon_num_points(const struct heif_region* region)
+{
+  return heif_region_get_poly_num_points(region);
+}
+
+
+int heif_region_get_polyline_num_points(const struct heif_region* region)
+{
+  return heif_region_get_poly_num_points(region);
+}
+
+
+static struct heif_error heif_region_get_poly_points(const struct heif_region* region, int32_t* pts)
+{
+  if (pts == nullptr) {
+    return heif_error_invalid_parameter_value;
+  }
+
+  const std::shared_ptr<RegionGeometry_Polygon> poly = std::dynamic_pointer_cast<RegionGeometry_Polygon>(region->region);
+  if (poly) {
+    for (int i = 0; i < (int) poly->points.size(); i++) {
+      pts[2 * i + 0] = poly->points[i].x;
+      pts[2 * i + 1] = poly->points[i].y;
+    }
+    return heif_error_ok;
+  }
+  return heif_error_invalid_parameter_value;
+}
+
+
+struct heif_error heif_region_get_polygon_points(const struct heif_region* region, int32_t* pts)
+{
+  return heif_region_get_poly_points(region, pts);
+}
+
+
+struct heif_error heif_region_get_polyline_points(const struct heif_region* region, int32_t* pts)
+{
+  return heif_region_get_poly_points(region, pts);
+}
+
+
+static struct heif_error heif_region_get_poly_points_scaled(const struct heif_region* region, double* pts, heif_item_id image_id)
+{
+  if (pts == nullptr) {
+    return heif_error_invalid_parameter_value;
+  }
+
+  const std::shared_ptr<RegionGeometry_Polygon> poly = std::dynamic_pointer_cast<RegionGeometry_Polygon>(region->region);
+  if (poly) {
+    auto t = RegionCoordinateTransform::create(region->context->get_heif_file(), image_id,
+                                               region->region_item->reference_width,
+                                               region->region_item->reference_height);
+
+    for (int i = 0; i < (int) poly->points.size(); i++) {
+      RegionCoordinateTransform::Point p = t.transform_point({(double) poly->points[i].x,
+                                                              (double) poly->points[i].y});
+
+      pts[2 * i + 0] = p.x;
+      pts[2 * i + 1] = p.y;
+    }
+    return heif_error_ok;
+  }
+  return heif_error_invalid_parameter_value;
+}
+
+
+struct heif_error heif_region_get_polygon_points_transformed(const struct heif_region* region, double* pts, heif_item_id image_id)
+{
+  return heif_region_get_poly_points_scaled(region, pts, image_id);
+}
+
+struct heif_error heif_region_get_polyline_points_transformed(const struct heif_region* region, double* pts, heif_item_id image_id)
+{
+  return heif_region_get_poly_points_scaled(region, pts, image_id);
+}
+

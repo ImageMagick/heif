@@ -23,17 +23,17 @@
 #include <cassert>
 
 // static
-const char heif::Error::kSuccess[] = "Success";
+const char Error::kSuccess[] = "Success";
 const char* cUnknownError = "Unknown error";
 
 
-heif::Error heif::Error::Ok(heif_error_Ok);
+Error Error::Ok(heif_error_Ok);
 
 
-heif::Error::Error() = default;
+Error::Error() = default;
 
 
-heif::Error::Error(heif_error_code c,
+Error::Error(heif_error_code c,
                    heif_suberror_code sc,
                    const std::string& msg)
     : error_code(c),
@@ -43,7 +43,7 @@ heif::Error::Error(heif_error_code c,
 }
 
 
-const char* heif::Error::get_error_string(heif_error_code err)
+const char* Error::get_error_string(heif_error_code err)
 {
   switch (err) {
     case heif_error_Ok:
@@ -76,7 +76,7 @@ const char* heif::Error::get_error_string(heif_error_code err)
   return "Unknown error";
 }
 
-const char* heif::Error::get_error_string(heif_suberror_code err)
+const char* Error::get_error_string(heif_suberror_code err)
 {
   switch (err) {
     case heif_suberror_Unspecified:
@@ -156,6 +156,8 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
       return "Unknown NCLX transfer characteristics";
     case heif_suberror_Unknown_NCLX_matrix_coefficients:
       return "Unknown NCLX matrix coefficients";
+    case heif_suberror_Invalid_region_data:
+      return "Invalid region item data";
 
 
       // --- Memory_allocation_error ---
@@ -179,6 +181,10 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
       return "Unsupported parameter";
     case heif_suberror_Invalid_parameter_value:
       return "Invalid parameter value";
+    case heif_suberror_Invalid_property:
+      return "Invalid property";
+    case heif_suberror_Item_reference_cycle:
+      return "Image reference cycle";
 
       // --- Unsupported_feature ---
 
@@ -210,6 +216,8 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
       return "Encoding problem";
     case heif_suberror_Encoder_cleanup:
       return "Cleanup problem";
+    case heif_suberror_Too_many_regions:
+      return "Too many regions (>255) in an 'rgan' item.";
 
       // --- Plugin_loading_error ---
 
@@ -226,7 +234,7 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
 }
 
 
-heif_error heif::Error::error_struct(ErrorBuffer* error_buffer) const
+heif_error Error::error_struct(ErrorBuffer* error_buffer) const
 {
   if (error_buffer) {
     if (error_code == heif_error_Ok) {
