@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.0)
 
-project(libheif LANGUAGES C CXX VERSION 1.16.1)
+project(libheif LANGUAGES C CXX VERSION 1.16.2)
 
 # https://cmake.org/cmake/help/v3.1/policy/CMP0054.html
 cmake_policy(VERSION 3.0...3.22)
@@ -147,7 +147,6 @@ if (LIBSHARPYUV_FOUND)
     list(APPEND REQUIRES_PRIVATE "libsharpyuv")
 endif()
 list(JOIN REQUIRES_PRIVATE " " REQUIRES_PRIVATE)
-set(VERSION ${PROJECT_VERSION})
 
 configure_file(libheif.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libheif.pc @ONLY)
 

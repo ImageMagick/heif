@@ -798,11 +798,11 @@ void HeifFile::add_clap_property(heif_item_id id, uint32_t clap_width, uint32_t 
 }
 
 
-heif_property_id HeifFile::add_property(heif_item_id id, std::shared_ptr<Box> property)
+heif_property_id HeifFile::add_property(heif_item_id id, std::shared_ptr<Box> property, bool essential)
 {
   int index = m_ipco_box->append_child_box(property);
 
-  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{true, uint16_t(index + 1)});
+  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{essential, uint16_t(index + 1)});
 
   return index + 1;
 }
@@ -999,7 +999,7 @@ void HeifFile::set_primary_item_id(heif_item_id id)
   m_pitm_box->set_item_ID(id);
 }
 
-void HeifFile::add_iref_reference(uint32_t type, heif_item_id from,
+void HeifFile::add_iref_reference(heif_item_id from, uint32_t type,
                                   const std::vector<heif_item_id>& to)
 {
   if (!m_iref_box) {
@@ -1007,7 +1007,7 @@ void HeifFile::add_iref_reference(uint32_t type, heif_item_id from,
     m_meta_box->append_child_box(m_iref_box);
   }
 
-  m_iref_box->add_reference(type, from, to);
+  m_iref_box->add_reference(from, type, to);
 }
 
 void HeifFile::set_auxC_property(heif_item_id id, const std::string& type)

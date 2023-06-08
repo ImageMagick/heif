@@ -436,6 +436,7 @@ typedef uint32_t heif_brand2;
 #define heif_brand2_avif   heif_fourcc('a','v','i','f') // AVIF image (AV1)
 #define heif_brand2_avis   heif_fourcc('a','v','i','s') // AVIF sequence
 #define heif_brand2_mif1   heif_fourcc('m','i','f','1') // image, any coding algorithm
+#define heif_brand2_mif2   heif_fourcc('m','i','f','2') // image, any coding algorithm
 #define heif_brand2_msf1   heif_fourcc('m','s','f','1') // sequence, any coding algorithm
 #define heif_brand2_vvic   heif_fourcc('v','v','i','c') // VVC image
 #define heif_brand2_vvis   heif_fourcc('v','v','i','s') // VVC sequence
@@ -999,6 +1000,8 @@ enum heif_item_property_type
 // Get the heif_property_id for a heif_item_id.
 // You may specify which property 'type' you want to receive.
 // If you specify 'heif_item_property_type_invalid', all properties associated to that item are returned.
+// The number of properties is returned, which are not more than 'count' if (out_list != nullptr).
+// By setting out_list==nullptr, you can query the number of properties, 'count' is ignored.
 LIBHEIF_API
 int heif_item_get_properties_of_type(const struct heif_context* context,
                                      heif_item_id id,
@@ -1008,6 +1011,8 @@ int heif_item_get_properties_of_type(const struct heif_context* context,
 
 // Returns all transformative properties in the correct order.
 // This includes "irot", "imir", "clap".
+// The number of properties is returned, which are not more than 'count' if (out_list != nullptr).
+// By setting out_list==nullptr, you can query the number of properties, 'count' is ignored.
 LIBHEIF_API
 int heif_item_get_transformation_properties(const struct heif_context* context,
                                             heif_item_id id,
@@ -1484,8 +1489,8 @@ struct heif_decoder_descriptor;
 // Get a list of available decoders. You can filter the encoders by compression format.
 // Use format_filter==heif_compression_undefined to get all available decoders.
 // The returned list of decoders is sorted by their priority (which is a plugin property).
-// The number of decoders is returned, which are not more than 'count' if (out_encoders != nullptr).
-// By setting out_encoders==nullptr, you can query the number of decoders, 'count' is ignored.
+// The number of decoders is returned, which are not more than 'count' if (out_decoders != nullptr).
+// By setting out_decoders==nullptr, you can query the number of decoders, 'count' is ignored.
 LIBHEIF_API
 int heif_get_decoder_descriptors(enum heif_compression_format format_filter,
                                  const struct heif_decoder_descriptor** out_decoders,
@@ -1505,6 +1510,8 @@ const char* heif_decoder_descriptor_get_id_name(const struct heif_decoder_descri
 // Get a list of available encoders. You can filter the encoders by compression format and name.
 // Use format_filter==heif_compression_undefined and name_filter==NULL as wildcards.
 // The returned list of encoders is sorted by their priority (which is a plugin property).
+// The number of encoders is returned, which are not more than 'count' if (out_encoders != nullptr).
+// By setting out_encoders==nullptr, you can query the number of encoders, 'count' is ignored.
 // Note: to get the actual encoder from the descriptors returned here, use heif_context_get_encoder().
 LIBHEIF_API
 int heif_context_get_encoder_descriptors(struct heif_context*, // TODO: why do we need this parameter?
@@ -1516,6 +1523,8 @@ int heif_context_get_encoder_descriptors(struct heif_context*, // TODO: why do w
 // Get a list of available encoders. You can filter the encoders by compression format and name.
 // Use format_filter==heif_compression_undefined and name_filter==NULL as wildcards.
 // The returned list of encoders is sorted by their priority (which is a plugin property).
+// The number of encoders is returned, which are not more than 'count' if (out_encoders != nullptr).
+// By setting out_encoders==nullptr, you can query the number of encoders, 'count' is ignored.
 // Note: to get the actual encoder from the descriptors returned here, use heif_context_get_encoder().
 LIBHEIF_API
 int heif_get_encoder_descriptors(enum heif_compression_format format_filter,
