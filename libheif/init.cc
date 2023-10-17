@@ -26,13 +26,17 @@
 #include "libheif/color-conversion/colorconversion.h"
 
 #if ENABLE_MULTITHREADING_SUPPORT
+
 #include <mutex>
+
 #endif
 
 #if defined(_WIN32)
 #include "plugins_windows.h"
 #else
+
 #include "plugins_unix.h"
+
 #endif
 
 void heif_unload_all_plugins();
@@ -43,11 +47,19 @@ void heif_unregister_encoder_plugin(const heif_encoder_plugin* plugin);
 
 std::vector<std::string> get_plugin_paths()
 {
+  std::vector<std::string> plugin_paths;
+
 #if defined(_WIN32)
-  return get_plugin_directories_from_environment_variable_windows();
+  plugin_paths = get_plugin_directories_from_environment_variable_windows();
 #else
-  return get_plugin_directories_from_environment_variable_unix();
+  plugin_paths = get_plugin_directories_from_environment_variable_unix();
 #endif
+
+  if (plugin_paths.empty()) {
+    plugin_paths.push_back(LIBHEIF_PLUGIN_DIRECTORY);
+  }
+
+  return plugin_paths;
 }
 
 std::vector<std::string> list_all_potential_plugins_in_directory(const char* directory)
@@ -59,6 +71,11 @@ std::vector<std::string> list_all_potential_plugins_in_directory(const char* dir
 #endif
 }
 
+#else
+std::vector<std::string> get_plugin_paths()
+{
+  return {};
+}
 #endif
 
 
@@ -67,12 +84,23 @@ static bool default_plugins_registered = true; // because they are implicitly re
 
 
 #if ENABLE_MULTITHREADING_SUPPORT
+
 static std::recursive_mutex& heif_init_mutex()
 {
   static std::recursive_mutex init_mutex;
   return init_mutex;
 }
+
 #endif
+
+
+void load_plugins_if_not_initialized_yet()
+{
+  if (heif_library_initialization_count == 0) {
+    heif_init(nullptr);
+  }
+}
+
 
 struct heif_error heif_init(struct heif_init_params*)
 {
@@ -80,9 +108,7 @@ struct heif_error heif_init(struct heif_init_params*)
   std::lock_guard<std::recursive_mutex> lock(heif_init_mutex());
 #endif
 
-  heif_library_initialization_count++;
-
-  if (heif_library_initialization_count == 1) {
+  if (heif_library_initialization_count == 0) {
 
     ColorConversionPipeline::init_ops();
 
@@ -96,64 +122,22 @@ struct heif_error heif_init(struct heif_init_params*)
     struct heif_error err{};
     std::vector<std::string> plugin_paths = get_plugin_paths();
 
-    if (plugin_paths.empty()) {
-      // --- load plugins from default directory
-
-      err = heif_load_plugins(LIBHEIF_PLUGIN_DIRECTORY, nullptr, nullptr, 0);
+    for (const auto& dir : plugin_paths) {
+      err = heif_load_plugins(dir.c_str(), nullptr, nullptr, 0);
       if (err.code != 0) {
         return err;
       }
     }
-    else {
-      for (const auto& dir : plugin_paths) {
-        err = heif_load_plugins(dir.c_str(), nullptr, nullptr, 0);
-        if (err.code != 0) {
-          return err;
-        }
-      }
-    }
 #endif
   }
+
+  // Note: it is important that we increase the counter AFTER initialization such that 'load_plugins_if_not_initialized_yet()' can check this
+  // without having to lock the mutex.
+  heif_library_initialization_count++;
 
   return {heif_error_Ok, heif_suberror_Unspecified, Error::kSuccess};
 }
 
-
-static void heif_unregister_decoder_plugins()
-{
-  for (const auto* plugin : s_decoder_plugins) {
-    if (plugin->deinit_plugin) {
-      (*plugin->deinit_plugin)();
-    }
-  }
-  s_decoder_plugins.clear();
-}
-
-static void heif_unregister_encoder_plugins()
-{
-  for (const auto& plugin : s_encoder_descriptors) {
-    if (plugin->plugin->cleanup_plugin) {
-      (*plugin->plugin->cleanup_plugin)();
-    }
-  }
-  s_encoder_descriptors.clear();
-}
-
-#if ENABLE_PLUGIN_LOADING
-void heif_unregister_encoder_plugin(const heif_encoder_plugin* plugin)
-{
-  if (plugin->cleanup_plugin) {
-    (*plugin->cleanup_plugin)();
-  }
-
-  for (auto iter = s_encoder_descriptors.begin() ; iter != s_encoder_descriptors.end(); ++iter) {
-    if ((*iter)->plugin == plugin) {
-      s_encoder_descriptors.erase(iter);
-      return;
-    }
-  }
-}
-#endif
 
 void heif_deinit()
 {
@@ -166,9 +150,7 @@ void heif_deinit()
     return;
   }
 
-  heif_library_initialization_count--;
-
-  if (heif_library_initialization_count == 0) {
+  if (heif_library_initialization_count == 1) {
     heif_unregister_decoder_plugins();
     heif_unregister_encoder_plugins();
     default_plugins_registered = false;
@@ -177,12 +159,17 @@ void heif_deinit()
 
     ColorConversionPipeline::release_ops();
   }
+
+  // Note: contrary to heif_init() I think it does not matter whether we decrease the counter before or after deinitialization.
+  // If the client application calls heif_deinit() in parallel to some other libheif function, it is really broken.
+  heif_library_initialization_count--;
 }
 
 
 // This could be inside ENABLE_PLUGIN_LOADING, but the "include-what-you-use" checker cannot process this.
 #include <vector>
 #include <string>
+#include <cstring>
 
 #if ENABLE_PLUGIN_LOADING
 
@@ -191,7 +178,6 @@ typedef PluginLibrary_Windows PluginLibrary_SysDep;
 #else
 typedef PluginLibrary_Unix PluginLibrary_SysDep;
 #endif
-
 
 
 struct loaded_plugin
@@ -324,6 +310,7 @@ void heif_unload_all_plugins()
   sLoadedPlugins.clear();
 }
 
+
 struct heif_error heif_load_plugins(const char* directory,
                                     const struct heif_plugin_info** out_plugins,
                                     int* out_nPluginsLoaded,
@@ -382,7 +369,38 @@ struct heif_error heif_load_plugins(const char* directory,
                                     int* out_nPluginsLoaded,
                                     int output_array_size)
 {
+  if (out_nPluginsLoaded) {
+    *out_nPluginsLoaded = 0;
+  }
+
   return heif_error_plugins_unsupported;
 }
 
 #endif
+
+
+const char* const* heif_get_plugin_directories()
+{
+  auto plugin_paths = get_plugin_paths();
+  size_t n = plugin_paths.size();
+
+  auto out_paths = new char* [n + 1];
+  for (size_t i = 0; i < n; i++) {
+    out_paths[i] = new char[plugin_paths[i].size() + 1];
+    strcpy(out_paths[i], plugin_paths[i].c_str());
+  }
+
+  out_paths[n] = nullptr;
+
+  return out_paths;
+}
+
+
+void heif_free_plugin_directories(const char* const* paths)
+{
+  for (int i = 0; paths[i]; i++) {
+    delete[] paths[i];
+  }
+
+  delete[] paths;
+}

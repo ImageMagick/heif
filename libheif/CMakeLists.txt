@@ -6,6 +6,8 @@ set(libheif_headers
         heif.h
         heif_cxx.h
         heif_plugin.h
+        heif_properties.h
+        heif_regions.h
         ${CMAKE_CURRENT_BINARY_DIR}/heif_version.h)
 
 set(libheif_sources
@@ -35,12 +37,18 @@ set(libheif_sources
         init.cc init.h
         nclx.h
         logging.h
+        mask_image.cc
+        mask_image.h
         metadata_compression.cc
         metadata_compression.h
         common_utils.cc
         common_utils.h
         region.cc
         region.h
+        heif_regions.h
+        heif_regions.cc
+        heif_properties.h
+        heif_properties.cc
         color-conversion/colorconversion.cc
         color-conversion/colorconversion.h
         color-conversion/rgb2yuv.cc
@@ -59,6 +67,12 @@ set(libheif_sources
         color-conversion/alpha.h
         color-conversion/chroma_sampling.cc
         color-conversion/chroma_sampling.h
+        jpeg.h
+        jpeg.cc
+        jpeg2000.h
+        jpeg2000.cc
+        vvc.h
+        vvc.cc
         ${libheif_headers})
 
 add_library(heif ${libheif_sources})
@@ -101,19 +115,16 @@ add_subdirectory(plugins)
 if (LIBSHARPYUV_FOUND)
     message("Compiling in 'libsharpyuv'")
     target_compile_definitions(heif PUBLIC HAVE_LIBSHARPYUV=1)
-    target_include_directories(heif PRIVATE ${LIBSHARPYUV_INCLUDE_DIR})
-    target_link_libraries(heif PRIVATE ${LIBSHARPYUV_LIBRARIES} ${LIBSHARPYUV_LINKDIR})
+    target_include_directories(heif PRIVATE ${LIBSHARPYUV_INCLUDE_DIRS})
+    target_link_libraries(heif PRIVATE ${LIBSHARPYUV_LIBRARIES})
 else ()
     message("Not compiling 'libsharpyuv'")
 endif ()
 
 if (WITH_DEFLATE_HEADER_COMPRESSION)
     find_package(ZLIB REQUIRED)
-    if (ZLIB_FOUND)
-        target_link_libraries(heif PRIVATE ${ZLIB_LIBRARY})
-        target_include_directories(heif PRIVATE ${ZLIB_INCLUDE_DIRS})
-        target_compile_definitions(heif PRIVATE WITH_DEFLATE_HEADER_COMPRESSION=1)
-    endif ()
+    target_link_libraries(heif PRIVATE ZLIB::ZLIB)
+    target_compile_definitions(heif PRIVATE WITH_DEFLATE_HEADER_COMPRESSION=1)
 endif ()
 
 if (ENABLE_MULTITHREADING_SUPPORT)

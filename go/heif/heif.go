@@ -1,6 +1,6 @@
 /*
  * GO interface to libheif
- * Copyright (c) 2018 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2018 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of heif, an example application using libheif.
  *
@@ -54,6 +54,7 @@ const (
 	CompressionVVC          = C.heif_compression_VVC
 	CompressionEVC          = C.heif_compression_EVC
 	CompressionUncompressed = C.heif_compression_uncompressed
+	CompressionMask         = C.heif_compression_mask
 )
 
 type Chroma C.enum_heif_chroma

@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -24,7 +24,7 @@
 
 #include "heif.h"
 #include "error.h"
-#include "box.h" // only for color_profile, TODO: maybe move the color_profiles to its own header
+#include "nclx.h"
 
 #include <vector>
 #include <memory>

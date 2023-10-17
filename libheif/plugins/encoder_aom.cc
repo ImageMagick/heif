@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -21,11 +21,6 @@
 #include "libheif/heif.h"
 #include "libheif/heif_plugin.h"
 #include "libheif/common_utils.h"
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
 #include <algorithm>
 #include <cstring>
 #include <cassert>
@@ -741,6 +736,23 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 
   int bpp_y = heif_image_get_bits_per_pixel_range(image, heif_channel_Y);
 
+
+  // --- check for AOM 3.6.0 bug
+
+  bool is_aom_3_6_0 = (aom_codec_version() == 0x030600);
+
+  if (is_aom_3_6_0) {
+    // This bound might be too tight, as I still could encode images with 8193 x 4353 correctly. Even 8200x4400, but 8200x4800 fails.
+    // Let's still keep it as most images will be smaller anyway.
+    if (!(source_width <= 8192 * 2 && source_height <= 4352 * 2 && source_width * source_height <= 8192 * 4352)) {
+      err = {heif_error_Encoding_error,
+             heif_suberror_Encoder_encoding,
+             "AOM v3.6.0 has a bug when encoding large images. Please upgrade to at least AOM v3.6.1."};
+      return err;
+    }
+  }
+
+
   // --- copy libheif image to aom image
 
   aom_image_t input_image;
@@ -909,7 +921,21 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
       max_q = encoder->alpha_max_q;
   }
 
-  cfg.rc_min_quantizer = min_q;
+  int quality = encoder->quality;
+
+  if (input_class == heif_image_input_class_alpha && encoder->alpha_quality_set) {
+      quality = encoder->alpha_quality;
+  }
+
+  int cq_level = ((100 - quality) * 63 + 50) / 100;
+
+  // Work around the bug in libaom v2.0.2 or older fixed by
+  // https://aomedia-review.googlesource.com/c/aom/+/113064. If using a libaom
+  // release with the bug, set cfg.rc_min_quantizer to cq_level to prevent
+  // libaom from incorrectly using a quantizer index lower than cq_level.
+  bool aom_2_0_2_or_older = aom_codec_version() <= 0x020002;
+
+  cfg.rc_min_quantizer = aom_2_0_2_or_older ? cq_level : min_q;
   cfg.rc_max_quantizer = max_q;
   cfg.g_error_resilient = 0;
   cfg.g_threads = encoder->threads;
@@ -936,13 +962,6 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 
   aom_codec_control(&codec, AOME_SET_CPUUSED, encoder->cpu_used);
 
-  int quality = encoder->quality;
-
-  if (input_class == heif_image_input_class_alpha && encoder->alpha_quality_set) {
-      quality = encoder->alpha_quality;
-  }
-
-  int cq_level = ((100 - quality) * 63 + 50) / 100;
   aom_codec_control(&codec, AOME_SET_CQ_LEVEL, cq_level);
 
   if (encoder->threads > 1) {

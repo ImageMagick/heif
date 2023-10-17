@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -20,6 +20,11 @@
 
 #include "file.h"
 #include "libheif/box.h"
+#include "libheif/heif.h"
+#include "libheif/heif_properties.h"
+#include "libheif/jpeg2000.h"
+#include "libheif/jpeg.h"
+#include "libheif/vvc.h"
 
 #include <cstdint>
 #include <fstream>
@@ -40,6 +45,7 @@
 #endif
 
 #include "metadata_compression.h"
+#include "jpeg2000.h"
 
 #if WITH_UNCOMPRESSED_CODEC
 #include "uncompressed_image.h"
@@ -144,24 +150,45 @@ void HeifFile::set_brand(heif_compression_format format, bool miaf_compatible)
 
   switch (format) {
     case heif_compression_HEVC:
-      m_ftyp_box->set_major_brand(fourcc("heic"));
+      m_ftyp_box->set_major_brand(heif_brand2_heic);
       m_ftyp_box->set_minor_version(0);
-      m_ftyp_box->add_compatible_brand(fourcc("mif1"));
-      m_ftyp_box->add_compatible_brand(fourcc("heic"));
+      m_ftyp_box->add_compatible_brand(heif_brand2_mif1);
+      m_ftyp_box->add_compatible_brand(heif_brand2_heic);
       break;
 
     case heif_compression_AV1:
-      m_ftyp_box->set_major_brand(fourcc("avif"));
+      m_ftyp_box->set_major_brand(heif_brand2_avif);
       m_ftyp_box->set_minor_version(0);
-      m_ftyp_box->add_compatible_brand(fourcc("avif"));
-      m_ftyp_box->add_compatible_brand(fourcc("mif1"));
+      m_ftyp_box->add_compatible_brand(heif_brand2_avif);
+      m_ftyp_box->add_compatible_brand(heif_brand2_mif1);
       break;
 
     case heif_compression_VVC:
-      m_ftyp_box->set_major_brand(fourcc("vvic"));
+      m_ftyp_box->set_major_brand(heif_brand2_vvic);
+      m_ftyp_box->set_minor_version(0);
+      m_ftyp_box->add_compatible_brand(heif_brand2_mif1);
+      m_ftyp_box->add_compatible_brand(heif_brand2_vvic);
+      break;
+
+    case heif_compression_JPEG:
+      m_ftyp_box->set_major_brand(heif_brand2_jpeg);
+      m_ftyp_box->set_minor_version(0);
+      m_ftyp_box->add_compatible_brand(heif_brand2_jpeg);
+      m_ftyp_box->add_compatible_brand(heif_brand2_mif1);
+      break;
+
+    case heif_compression_uncompressed:
+      // Not clear what the correct major brand should be
+      m_ftyp_box->set_major_brand(heif_brand2_mif2);
+      m_ftyp_box->set_minor_version(0);
+      m_ftyp_box->add_compatible_brand(heif_brand2_mif1);
+      break;
+
+    case heif_compression_JPEG2000:
+      m_ftyp_box->set_major_brand(fourcc("j2ki"));
       m_ftyp_box->set_minor_version(0);
       m_ftyp_box->add_compatible_brand(fourcc("mif1"));
-      m_ftyp_box->add_compatible_brand(fourcc("vvic"));
+      m_ftyp_box->add_compatible_brand(fourcc("j2ki"));
       break;
 
     default:
@@ -169,8 +196,17 @@ void HeifFile::set_brand(heif_compression_format format, bool miaf_compatible)
   }
 
   if (miaf_compatible) {
-    m_ftyp_box->add_compatible_brand(fourcc("miaf"));
+    m_ftyp_box->add_compatible_brand(heif_brand2_miaf);
   }
+
+#if 0
+  // Temporarily disabled, pending resolution of
+  // https://github.com/strukturag/libheif/issues/888
+  if (get_num_images() == 1) {
+    // This could be overly conservative, but is safe
+    m_ftyp_box->add_compatible_brand(heif_brand2_1pic);
+  }
+#endif
 }
 
 
@@ -246,10 +282,12 @@ Error HeifFile::parse_heif_file(BitstreamRange& range)
                  heif_suberror_No_ftyp_box);
   }
 
-  if (!m_ftyp_box->has_compatible_brand(fourcc("heic")) &&
-      !m_ftyp_box->has_compatible_brand(fourcc("heix")) &&
-      !m_ftyp_box->has_compatible_brand(fourcc("mif1")) &&
-      !m_ftyp_box->has_compatible_brand(fourcc("avif"))) {
+  if (!m_ftyp_box->has_compatible_brand(heif_brand2_heic) &&
+      !m_ftyp_box->has_compatible_brand(heif_brand2_heix) &&
+      !m_ftyp_box->has_compatible_brand(heif_brand2_mif1) &&
+      !m_ftyp_box->has_compatible_brand(heif_brand2_avif) &&
+      !m_ftyp_box->has_compatible_brand(heif_brand2_1pic) &&
+      !m_ftyp_box->has_compatible_brand(heif_brand2_jpeg)) {
     std::stringstream sstr;
     sstr << "File does not include any supported brands.\n";
 
@@ -421,6 +459,16 @@ std::string HeifFile::get_content_type(heif_item_id ID) const
   return infe_box->get_content_type();
 }
 
+std::string HeifFile::get_item_uri_type(heif_item_id ID) const
+{
+  auto infe_box = get_infe(ID);
+  if (!infe_box) {
+    return "";
+  }
+
+  return infe_box->get_item_uri_type();
+}
+
 
 Error HeifFile::get_properties(heif_item_id imageID,
                                std::vector<std::shared_ptr<Box>>& properties) const
@@ -528,6 +576,23 @@ int HeifFile::get_luma_bits_per_pixel_from_configuration(heif_item_id imageID) c
     }
   }
 
+  // JPEG
+
+  if (image_type == "jpeg" || (image_type=="mime" && get_content_type(imageID)=="image/jpeg")) {
+    return jpeg_get_bits_per_pixel(imageID);
+  }
+
+  // JPEG 2000
+
+  if (image_type == "j2k1") {
+    auto siz = jpeg2000_get_SIZ_segment(*this, imageID);
+    if (siz.components.empty()) {
+      return -1;
+    }
+
+    return siz.components[0].precision;
+  }
+
 #if WITH_UNCOMPRESSED_CODEC
   // Uncompressed
 
@@ -570,6 +635,52 @@ int HeifFile::get_chroma_bits_per_pixel_from_configuration(heif_item_id imageID)
       }
       else {
         return 10;
+      }
+    }
+  }
+
+  // JPEG
+
+  if (image_type == "jpeg" || (image_type=="mime" && get_content_type(imageID)=="image/jpeg")) {
+    return jpeg_get_bits_per_pixel(imageID);
+  }
+
+  // JPEG 2000
+
+  if (image_type == "j2k1") {
+    auto siz = jpeg2000_get_SIZ_segment(*this, imageID);
+    if (siz.components.size() <= 1) {
+      return -1;
+    }
+
+    // TODO: this is a quick hack. It is more complicated for JPEG2000 because these can be any kind of colorspace (e.g. RGB).
+    return siz.components[1].precision;
+  }
+
+  return -1;
+}
+
+
+// This checks whether a start code FFCx with nibble 'x' is a SOF marker.
+// E.g. FFC0-FFC3 are, while FFC4 is not.
+static bool isSOF[16] = { 1,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1 };
+
+int HeifFile::jpeg_get_bits_per_pixel(heif_item_id imageID) const
+{
+  std::vector<uint8_t> data;
+  Error err = get_compressed_image_data(imageID, &data);
+  if (err) {
+    return -1;
+  }
+
+  for (size_t i = 0; i + 1 < data.size(); i++) {
+    if (data[i] == 0xFF && (data[i+1] & 0xF0) == 0xC0 && isSOF[data[i+1] & 0x0F]) {
+      i += 4;
+      if (i < data.size()) {
+        return data[i];
+      }
+      else {
+        return -1;
       }
     }
   }
@@ -693,6 +804,66 @@ Error HeifFile::get_compressed_image_data(heif_item_id ID, std::vector<uint8_t>*
 
     error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, data);
   }
+  else if (item_type == "jpeg" ||
+           (item_type == "mime" && get_content_type(ID) == "image/jpeg")) {
+
+    // --- check if 'jpgC' is present
+
+    std::vector<std::shared_ptr<Box>> properties;
+    Error err = m_ipco_box->get_properties_for_item_ID(ID, m_ipma_box, properties);
+    if (err) {
+      return err;
+    }
+
+    // --- get codec configuration
+
+    std::shared_ptr<Box_jpgC> jpgC_box;
+    for (auto& prop : properties) {
+      if (prop->get_short_type() == fourcc("jpgC")) {
+        jpgC_box = std::dynamic_pointer_cast<Box_jpgC>(prop);
+        if (jpgC_box) {
+          *data = jpgC_box->get_data();
+          break;
+        }
+      }
+    }
+
+    error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, data);
+  }
+  else if (item_type == "j2k1") {
+    std::vector<std::shared_ptr<Box>> properties;
+    Error err = m_ipco_box->get_properties_for_item_ID(ID, m_ipma_box, properties);
+    if (err) {
+      return err;
+    }
+
+    // --- get codec configuration
+
+    std::shared_ptr<Box_j2kH> j2kH_box;
+    for (auto& prop : properties) {
+      if (prop->get_short_type() == fourcc("j2kH")) {
+        j2kH_box = std::dynamic_pointer_cast<Box_j2kH>(prop);
+        if (j2kH_box) {
+          break;
+        }
+      }
+    }
+
+    if (!j2kH_box) {
+      // Should always have an j2kH box, because we are checking this in
+      // heif_context::interpret_heif_file()
+
+      //TODO - Correctly Find the j2kH box
+      // return Error(heif_error_Invalid_input,
+      //              heif_suberror_Unspecified);
+    }
+    // else if (!j2kH_box->get_headers(data)) {
+    //   return Error(heif_error_Invalid_input,
+    //                heif_suberror_No_item_data);
+    // }
+
+    error = m_iloc_box->read_data(*item, m_input_stream, m_idat_box, data);
+  }
   else if (true ||  // fallback case for all kinds of generic metadata (e.g. 'iptc')
            item_type == "grid" ||
            item_type == "iovl" ||
@@ -756,6 +927,14 @@ heif_item_id HeifFile::get_unused_item_id() const
 heif_item_id HeifFile::add_new_image(const char* item_type)
 {
   auto box = add_new_infe_box(item_type);
+  return box->get_item_ID();
+}
+
+
+heif_item_id HeifFile::add_new_hidden_image(const char* item_type)
+{
+  auto box = add_new_infe_box(item_type);
+  box->set_hidden_item(true);
   return box->get_item_ID();
 }
 
@@ -878,7 +1057,7 @@ void HeifFile::add_pixi_property(heif_item_id id, uint8_t c1, uint8_t c2, uint8_
 
   int index = m_ipco_box->append_child_box(pixi);
 
-  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{true, uint16_t(index + 1)});
+  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{false, uint16_t(index + 1)});
 }
 
 
@@ -972,6 +1151,16 @@ Error HeifFile::set_av1C_configuration(heif_item_id id, const Box_av1C::configur
   }
 }
 
+std::shared_ptr<Box_j2kH> HeifFile::add_j2kH_property(heif_item_id id) 
+{
+  auto j2kH = std::make_shared<Box_j2kH>();
+  int index = m_ipco_box->append_child_box(j2kH);
+
+  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{true, uint16_t(index + 1)});
+
+  return j2kH;
+}
+
 
 void HeifFile::append_iloc_data(heif_item_id id, const std::vector<uint8_t>& nal_packets, uint8_t construction_method)
 {
@@ -1007,7 +1196,7 @@ void HeifFile::add_iref_reference(heif_item_id from, uint32_t type,
     m_meta_box->append_child_box(m_iref_box);
   }
 
-  m_iref_box->add_reference(from, type, to);
+  m_iref_box->add_references(from, type, to);
 }
 
 void HeifFile::set_auxC_property(heif_item_id id, const std::string& type)
@@ -1026,7 +1215,7 @@ void HeifFile::set_color_profile(heif_item_id id, const std::shared_ptr<const co
   colr->set_color_profile(profile);
 
   int index = m_ipco_box->append_child_box(colr);
-  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{true, uint16_t(index + 1)});
+  m_ipma_box->add_property_for_item_ID(id, Box_ipma::PropertyAssociation{false, uint16_t(index + 1)});
 }
 
 
@@ -1037,7 +1226,6 @@ void HeifFile::set_hdlr_library_info(const std::string& encoder_plugin_version)
   sstr << "libheif (" << LIBHEIF_VERSION << ") / " << encoder_plugin_version;
   m_hdlr_box->set_name(sstr.str());
 }
-
 
 #if defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)
 std::wstring HeifFile::convert_utf8_path_to_utf16(std::string str)

@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2018 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2018 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -19,10 +19,6 @@
  */
 #ifndef LIBHEIF_SECURITY_LIMITS_H
 #define LIBHEIF_SECURITY_LIMITS_H
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
 
 #include <cinttypes>
 #include <cstddef>
@@ -45,5 +41,7 @@ static const int MAX_BOX_SIZE = 0x7FFFFFFF; // 2 GB
 static const int64_t MAX_LARGE_BOX_SIZE = 0x0FFFFFFFFFFFFFFF;
 static const int64_t MAX_FILE_POS = 0x007FFFFFFFFFFFFFLL; // maximum file position
 static const int MAX_FRACTION_VALUE = 0x10000;
+
+static const int MAX_IREF_REFERENCES = 10000;
 
 #endif  // LIBHEIF_SECURITY_LIMITS_H

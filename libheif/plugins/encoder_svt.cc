@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2022, Dirk Farin <dirk.farin@gmail.com>
+ * Copyright (c) 2022 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -21,11 +21,6 @@
 #include "libheif/heif.h"
 #include "libheif/heif_plugin.h"
 #include "encoder_svt.h"
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
 #include <vector>
 #include <cstring>
 #include <cassert>

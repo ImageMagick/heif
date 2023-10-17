@@ -3,7 +3,7 @@
 
   MIT License
 
-  Copyright (c) 2019 struktur AG, Dirk Farin <farin@struktur.de>
+  Copyright (c) 2019 Dirk Farin <dirk.farin@gmail.com>
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,8 @@
 #include "libheif/heif.h"
 #include "libheif/pixelimage.h"
 #include "libheif/api_structs.h"
+
+#include <string.h>
 
 
 struct heif_image* createImage_RRGGBB_BE() {
@@ -104,6 +106,20 @@ TEST_CASE( "Encode HDR", "[heif_encoder]" ) {
 }
 #endif
 
+static void fill_new_plane(heif_image* img, heif_channel channel, int w, int h)
+{
+  struct heif_error err;
+
+  err = heif_image_add_plane(img, channel, w, h, 8);
+  REQUIRE(err.code == heif_error_Ok);
+
+  int stride;
+  uint8_t* p = heif_image_get_plane(img, channel, &stride);
+
+  for (int y = 0; y < h; y++) {
+    memset(p + y * stride, 128, w);
+  }
+}
 
 static void test_ispe_size(heif_compression_format compression,
                            heif_orientation orientation,
@@ -114,9 +130,9 @@ static void test_ispe_size(heif_compression_format compression,
 
   heif_image* img;
   heif_image_create(input_width,input_height, heif_colorspace_YCbCr, heif_chroma_420, &img);
-  img->image->fill_new_plane(heif_channel_Y, 128, input_width,input_height, 8);
-  img->image->fill_new_plane(heif_channel_Cb, 128, (input_width+1)/2,(input_height+1)/2, 8);
-  img->image->fill_new_plane(heif_channel_Cr, 128, (input_width+1)/2,(input_height+1)/2, 8);
+  fill_new_plane(img, heif_channel_Y, input_width, input_height);
+  fill_new_plane(img, heif_channel_Cb, (input_width+1)/2, (input_height+1)/2);
+  fill_new_plane(img, heif_channel_Cr, (input_width+1)/2, (input_height+1)/2);
 
   heif_context* ctx = heif_context_alloc();
   heif_encoder* enc;

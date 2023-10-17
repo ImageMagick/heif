@@ -64,7 +64,10 @@ static bool read_plane(BitstreamRange* range,
   if (width <= 0 || height <= 0) {
     return false;
   }
-  if (!range->prepare_read(static_cast<uint64_t>(width) * height)) {
+  if (std::numeric_limits<size_t>::max()/width/height == 0) {
+    return false;
+  }
+  if (!range->prepare_read(static_cast<size_t>(width) * height)) {
     return false;
   }
   if (!image->add_plane(channel, width, height, bit_depth)) {
@@ -87,7 +90,10 @@ static bool read_plane_interleaved(BitstreamRange* range,
   if (width <= 0 || height <= 0) {
     return false;
   }
-  if (!range->prepare_read(static_cast<uint64_t>(width) * height * comps)) {
+  if (std::numeric_limits<size_t>::max()/width/height/comps == 0) {
+    return false;
+  }
+  if (!range->prepare_read(static_cast<size_t>(width) * height * comps)) {
     return false;
   }
   if (!image->add_plane(channel, width, height, bit_depth)) {
@@ -103,7 +109,7 @@ static bool read_plane_interleaved(BitstreamRange* range,
   return true;
 }
 
-static int test(const uint8_t* data, size_t size)
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
   auto reader = std::make_shared<StreamReader_memory>(data, size, false);
   BitstreamRange range(reader, size);
@@ -264,13 +270,4 @@ static int test(const uint8_t* data, size_t size)
   assert(out_image->get_colorspace() ==
          static_cast<heif_colorspace>(out_colorspace));
   return 0;
-}
-
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
-{
-  heif_init(nullptr);
-  int retVal = test(data, size);
-  heif_deinit();
-
-  return retVal;
 }

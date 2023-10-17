@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -23,11 +23,6 @@
 //#include "libheif/heif_colorconversion.h"
 //#include "libheif/heif_api_structs.h"
 #include "decoder_libde265.h"
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
 #include <assert.h>
 #include <memory>
 #include <cstring>

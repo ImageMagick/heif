@@ -1,6 +1,6 @@
-cmake_minimum_required (VERSION 3.0)
+cmake_minimum_required (VERSION 3.16.3) # Oldest Ubuntu LTS (20.04 currently)
 
-project(libheif LANGUAGES C CXX VERSION 1.16.2)
+project(libheif LANGUAGES C CXX VERSION 1.17.0)
 
 # https://cmake.org/cmake/help/v3.1/policy/CMP0054.html
 cmake_policy(VERSION 3.0...3.22)
@@ -56,6 +56,9 @@ endif()
 
 LIST (APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules")
 
+
+# --- codec plugins
+
 option(ENABLE_PLUGIN_LOADING "Support loading of plugins" ON)
 set(PLUGIN_DIRECTORY "${CMAKE_INSTALL_FULL_LIBDIR}/libheif" CACHE STRING "Plugin install directory")
 
@@ -67,38 +70,132 @@ if (ENABLE_PLUGIN_LOADING)
         WORLD_READ WORLD_EXECUTE)
 endif()
 
-macro(plugin_option variableName packageName displayName displayType defaultPlugin)
-    option(WITH_${variableName} "Build ${displayName} ${displayType}" ON)
-    option(WITH_${variableName}_PLUGIN "Build ${displayName} as a plugin" ${defaultPlugin})
-    if (WITH_${variableName})
-        find_package(${packageName})
-    endif ()
+macro(plugin_option optionVariableName displayName defaultEnabled defaultPlugin)
+    option(WITH_${optionVariableName} "Build ${displayName}" ${defaultEnabled})
+    option(WITH_${optionVariableName}_PLUGIN "Build ${displayName} as a plugin" ${defaultPlugin})
+endmacro()
 
-    if (${variableName}_FOUND AND WITH_${variableName}_PLUGIN AND PLUGIN_LOADING_SUPPORTED_AND_ENABLED)
-        set(msg "found (plugin)")
-    elseif (${variableName}_FOUND)
-        set(msg "found (built-in)")
-    elseif (WITH_${variableName})
-        set(msg "not found")
+macro(plugin_compilation_info optionVariableName detectionVariable displayName)
+    if (${detectionVariable}_FOUND AND WITH_${optionVariableName}_PLUGIN AND PLUGIN_LOADING_SUPPORTED_AND_ENABLED)
+        set(msg "+ separate plugin")
+    elseif (${detectionVariable}_FOUND)
+        set(msg "+ built-in")
+    elseif (WITH_${optionVariableName})
+        set(msg "- not found")
     else()
-        set(msg "disabled")
+        set(msg "- disabled")
     endif ()
 
-    message("${displayName} (${displayType}): ${msg}")
+    string(LENGTH "${displayName}" len)
+    math(EXPR fill "29 - ${len}")
+    string(SUBSTRING "                                                " 0 ${fill} filler)
+    message("${displayName}${filler}: ${msg}")
     unset(msg)
 endmacro()
 
-plugin_option(LIBDE265 LIBDE265 "libde265" "HEIC decoder" OFF)
-plugin_option(X265 X265 "x265" "HEIC encoder" OFF)
-plugin_option(DAV1D DAV1D "Dav1d" "AVIF decoder" OFF)
-plugin_option(AOM_ENCODER AOM "aom" "AVIF encoder" OFF)
-plugin_option(AOM_DECODER AOM "aom" "AVIF decoder" OFF)
-plugin_option(SvtEnc SvtEnc "Svt-av1" "AVIF encoder" ON)
-plugin_option(RAV1E RAV1E "Rav1e" "AVIF encoder" ON)
+# libde265
 
-option(WITH_UNCOMPRESSED_CODEC "Support internal ISO/IEC 23001-17 uncompressed codec (experimental)" OFF)
+plugin_option(LIBDE265 "libde265 HEVC decoder" ON OFF)
+if (WITH_LIBDE265)
+    find_package(LIBDE265)
+endif()
 
-# Libsharpyuv
+# x265
+
+plugin_option(X265 "x265 HEVC encoder" ON OFF)
+if (WITH_X265)
+    find_package(X265)
+endif()
+
+# kvazaar
+
+plugin_option(KVAZAAR "kvazaar HEVC encoder" OFF OFF)
+if (WITH_KVAZAAR)
+    find_package(kvazaar)
+    if (HAVE_KVAZAAR_ENABLE_LOGGING)
+        add_definitions(-DHAVE_KVAZAAR_ENABLE_LOGGING=1)
+    else ()
+        add_definitions(-DHAVE_KVAZAAR_ENABLE_LOGGING=0)
+    endif ()
+endif ()
+
+# dav1d
+
+plugin_option(DAV1D "Dav1d AV1 decoder" OFF ON)
+if (WITH_DAV1D)
+    find_package(DAV1D)
+endif()
+
+# aom
+
+plugin_option(AOM_DECODER "AOM AV1 decoder" ON OFF)
+plugin_option(AOM_ENCODER "AOM AV1 encoder" ON OFF)
+if (WITH_AOM_ENCODER OR WITH_AOM_DECODER)
+    find_package(AOM)
+endif()
+
+# svt
+
+plugin_option(SvtEnc "SVT AV1 encoder" OFF ON)
+if (WITH_SvtEnc)
+    find_package(SvtEnc)
+endif()
+
+# rav1e
+
+plugin_option(RAV1E "Rav1e AV1 encoder" OFF ON)
+if (WITH_RAV1E)
+    find_package(RAV1E)
+endif()
+
+# jpeg
+
+plugin_option(JPEG_DECODER "JPEG decoder" OFF OFF)
+plugin_option(JPEG_ENCODER "JPEG encoder" OFF OFF)
+if (WITH_JPEG_ENCODER OR WITH_JPEG_DECODER)
+    find_package(JPEG)
+endif()
+
+# openjpeg
+
+plugin_option(OpenJPEG_ENCODER "OpenJPEG J2K encoder" OFF ON)
+plugin_option(OpenJPEG_DECODER "OpenJPEG J2K decoder" OFF ON)
+if (WITH_OpenJPEG_ENCODER OR WITH_OpenJPEG_DECODER)
+    find_package(OpenJPEG)
+endif()
+
+# ffmpeg
+
+plugin_option(FFMPEG_DECODER "FFMPEG HEVC decoder (HW accelerated)" OFF OFF)
+if (WITH_FFMPEG_DECODER)
+    find_package(FFMPEG COMPONENTS avcodec)
+endif ()
+
+# uncompressed
+
+option(WITH_UNCOMPRESSED_CODEC " Support internal ISO/IEC 23001-17 uncompressed codec (experimental) " OFF)
+
+
+# --- show codec compilation summary
+
+message("=== Summary of compiled codecs ===")
+plugin_compilation_info(LIBDE265 LIBDE265 "libde265 HEVC decoder")
+plugin_compilation_info(FFMPEG_DECODER FFMPEG_avcodec "FFMPEG HEVC decoder (HW acc)")
+plugin_compilation_info(X265 X265 "x265 HEVC encoder")
+plugin_compilation_info(KVAZAAR KVAZAAR "Kvazaar HEVC encoder")
+plugin_compilation_info(AOM_DECODER AOM "AOM AV1 decoder")
+plugin_compilation_info(AOM_ENCODER AOM "AOM AV1 encoder")
+plugin_compilation_info(DAV1D DAV1D "Dav1d AV1 decoder")
+plugin_compilation_info(SvtEnc SvtEnc "SVT AV1 encoder")
+plugin_compilation_info(RAV1E RAV1E "Rav1e AV1 encoder")
+plugin_compilation_info(JPEG_DECODER JPEG "JPEG decoder")
+plugin_compilation_info(JPEG_ENCODER JPEG "JPEG encoder")
+plugin_compilation_info(OpenJPEG_DECODER OpenJPEG "OpenJPEG J2K decoder")
+plugin_compilation_info(OpenJPEG_ENCODER OpenJPEG "OpenJPEG J2K encoder")
+
+
+# --- Libsharpyuv color space transforms
+
 option(WITH_LIBSHARPYUV "Build libsharpyuv" ON)
 if (WITH_LIBSHARPYUV)
     find_package(libsharpyuv)
@@ -125,23 +222,33 @@ if(IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
 else()
     set(includedir "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
 endif()
-if (LIBDE265_FOUND AND NOT WITH_LIBDE265_PLUGIN)
+if (LIBDE265_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_LIBDE265_PLUGIN))
     list(APPEND REQUIRES_PRIVATE "libde265")
 endif()
-if (X265_FOUND AND NOT WITH_X265_PLUGIN)
+if (X265_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_X265_PLUGIN))
     list(APPEND REQUIRES_PRIVATE "x265")
 endif()
-if ((AOM_DECODER_FOUND AND NOT WITH_AOM_DECODER_PLUGIN) OR (AOM_ENCODER_FOUND AND NOT WITH_AOM_ENCODER_PLUGIN))
+if ((AOM_DECODER_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_AOM_DECODER_PLUGIN))
+        OR (AOM_ENCODER_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_AOM_ENCODER_PLUGIN)))
     list(APPEND REQUIRES_PRIVATE "aom")
 endif()
-if (DAV1D_FOUND AND NOT WITH_DAV1D_PLUGIN)
+if (FFMPEG_DECODER_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_FFMPEG_DECODER_PLUGIN))
+    list(APPEND REQUIRES_PRIVATE "ffmpeg")
+endif()
+if (DAV1D_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_DAV1D_PLUGIN))
     list(APPEND REQUIRES_PRIVATE "dav1d")
 endif()
-if (RAV1E_FOUND AND NOT WITH_RAV1E_PLUGIN)
+if (RAV1E_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_RAV1E_PLUGIN))
     list(APPEND REQUIRES_PRIVATE "rav1e")
 endif()
-if (SvtEnc_FOUND AND NOT WITH_SvtEnc_PLUGIN)
+if (SvtEnc_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_SvtEnc_PLUGIN))
     list(APPEND REQUIRES_PRIVATE "SvtAv1Enc")
+endif()
+if (JPEG_FOUND AND ((WITH_JPEG_DECODER AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_JPEG_DECODER_PLUGIN)) OR (WITH_JPEG_ENCODER AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_JPEG_ENCODER_PLUGIN))))
+    list(APPEND REQUIRES_PRIVATE "libjpeg")
+endif()
+if (OpenJPEG_FOUND AND ((WITH_OpenJPEG_DECODER AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_OpenJPEG_DECODER_PLUGIN)) OR (WITH_OpenJPEG_ENCODER AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_OpenJPEG_ENCODER_PLUGIN))))
+    list(APPEND REQUIRES_PRIVATE "libopenjp2")
 endif()
 if (LIBSHARPYUV_FOUND)
     list(APPEND REQUIRES_PRIVATE "libsharpyuv")
@@ -174,18 +281,36 @@ if(WITH_EXAMPLES)
     add_subdirectory (examples)
 endif()
 
+# --- API documentation
+
+# check if Doxygen is installed
+find_package(Doxygen)
+if (DOXYGEN_FOUND)
+    # set input and output files
+    set(DOXYGEN_IN ${CMAKE_CURRENT_SOURCE_DIR}/libheif/Doxyfile.in)
+    set(DOXYGEN_OUT ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
+
+    # request to configure the file
+    configure_file(${DOXYGEN_IN} ${DOXYGEN_OUT} @ONLY)
+    message("Doxygen build started")
+
+    # note the option ALL which allows to build the docs together with the application
+    add_custom_target( doc_doxygen ALL
+        COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_OUT}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Generating API documentation with Doxygen"
+        VERBATIM )
+else (DOXYGEN_FOUND)
+  message("Doxygen tool needs to be installed to generate the API documentation")
+endif (DOXYGEN_FOUND)
+
 # --- Testing
 
-# Disable testing by default because this requires building with full symbol visibility (switched off WITH_REDUCED_VISIBILITY).
-option(BUILD_TESTING "" OFF)
+option(BUILD_TESTING "" ON)
 include(CTest)
 if(BUILD_TESTING)
     # TODO: fix tests on windows.
     add_subdirectory (tests)
-endif()
-
-if (BUILD_TESTING AND WITH_REDUCED_VISIBILITY)
-    message(FATAL_ERROR "Tests can only be compiled with full symbol visibility (WITH_REDUCED_VISIBILITY=OFF)")
 endif()
 
 
@@ -243,7 +368,6 @@ set(CPACK_SOURCE_IGNORE_FILES
 /Makefile$
 /libtool$
 /libheif.pc$
-/config.h$
 stamp-h1$
 )
 include(CPack)

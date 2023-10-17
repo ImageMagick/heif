@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2023, Dirk Farin <dirk.farin@gmail.com>
+ * Copyright (c) 2023 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -54,6 +54,7 @@ Op_drop_alpha_plane::state_after_conversion(const ColorState& input_state,
 
 std::shared_ptr<HeifPixelImage>
 Op_drop_alpha_plane::convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
+                                        const ColorState& input_state,
                                         const ColorState& target_state,
                                         const heif_color_conversion_options& options) const
 {

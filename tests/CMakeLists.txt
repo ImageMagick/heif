@@ -8,12 +8,24 @@ configure_file(test-config.cc.in ${CMAKE_BINARY_DIR}/generated/test-config.cc)
 
 macro(add_libheif_test TEST_FILE)
     set(TEST_NAME ${TEST_FILE})
-    add_executable(${TEST_NAME} main.cc catch.hpp ${CMAKE_BINARY_DIR}/generated/test-config.cc ${TEST_FILE}.cc)
+    add_executable(${TEST_NAME} main.cc catch.hpp ${CMAKE_BINARY_DIR}/generated/test-config.cc test_utils.cc ${TEST_FILE}.cc)
     target_link_libraries(${TEST_NAME} PRIVATE heif)
     add_test(NAME ${TEST_NAME} COMMAND ./${TEST_NAME})
 endmacro()
 
-add_libheif_test(conversion)
+# --- tests that require access to internal symbols
+
+if (WITH_REDUCED_VISIBILITY)
+    message("Conversion and JPEG 2000 box unit tests can only be compiled with full symbol visibility (WITH_REDUCED_VISIBILITY=OFF)")
+else()
+    add_libheif_test(conversion)
+    add_libheif_test(jpeg2000)
+endif()
+
+# --- tests that only access the public API
+
 add_libheif_test(encode)
+add_libheif_test(region)
 add_libheif_test(uncompressed_decode)
+add_libheif_test(uncompressed_encode)
 

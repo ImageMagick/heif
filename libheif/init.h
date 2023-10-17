@@ -23,6 +23,8 @@
 #define LIBHEIF_INIT_H
 
 #include "libheif/heif.h"
+#include <string>
+#include <vector>
 
 extern heif_error error_dlopen;
 extern heif_error error_plugin_not_loaded;
@@ -43,5 +45,10 @@ public:
   virtual struct heif_plugin_info* get_plugin_info() = 0;
 };
 
+
+std::vector<std::string> get_plugin_paths();
+
+// This is for implicit initialization when heif_init() is not called.
+void load_plugins_if_not_initialized_yet();
 
 #endif //LIBHEIF_INIT_H

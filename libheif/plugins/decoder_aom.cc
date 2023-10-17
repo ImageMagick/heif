@@ -1,6 +1,6 @@
 /*
  * AVIF codec.
- * Copyright (c) 2019 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2019 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -21,11 +21,6 @@
 #include "libheif/heif.h"
 #include "libheif/heif_plugin.h"
 #include "decoder_aom.h"
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
 #include <memory>
 #include <cstring>
 #include <cassert>

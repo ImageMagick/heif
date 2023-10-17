@@ -3,7 +3,7 @@
 
   MIT License
 
-  Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+  Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -23,9 +23,7 @@
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 */
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
+#include <cstdint>
 
 #include <errno.h>
 #include <string.h>
@@ -40,12 +38,16 @@
 #endif
 
 #include <libheif/heif.h>
+#include <libheif/heif_regions.h>
+#include <libheif/heif_properties.h>
 
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <getopt.h>
 #include <assert.h>
+#include <stdio.h>
+#include "common.h"
 
 
 /*
@@ -68,6 +70,7 @@ static struct option long_options[] = {
     //{"output",    required_argument, 0, 'o' },
     {(char* const) "dump-boxes", no_argument, 0, 'd'},
     {(char* const) "help",       no_argument, 0, 'h'},
+    {(char* const) "version",    no_argument, 0, 'v'},
     {0, 0,                                    0, 0}
 };
 
@@ -93,6 +96,7 @@ void show_help(const char* argv0)
   //fprintf(stderr,"  -o, --output NAME    output file name for image selected by -w\n");
   fprintf(stderr, "  -d, --dump-boxes     show a low-level dump of all MP4 file boxes\n");
   fprintf(stderr, "  -h, --help           show help\n");
+  fprintf(stderr, "  -v, --version        show version\n");
 }
 
 
@@ -118,7 +122,7 @@ int main(int argc, char** argv)
 
   while (true) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "dh", long_options, &option_index);
+    int c = getopt_long(argc, argv, "dhv", long_options, &option_index);
     if (c == -1)
       break;
 
@@ -136,6 +140,9 @@ int main(int argc, char** argv)
       case 'o':
         output_filename = optarg;
         break;
+      case 'v':
+        show_version();
+        return 0;
     }
   }
 
@@ -247,6 +254,63 @@ int main(int argc, char** argv)
     printf("image: %dx%d (id=%d)%s\n", width, height, IDs[i], primary ? ", primary" : "");
 
 
+    heif_colorspace colorspace;
+    heif_chroma chroma;
+    err = heif_image_handle_get_preferred_decoding_colorspace(handle, &colorspace, &chroma);
+    if (err.code) {
+      std::cerr << err.message << "\n";
+      return 10;
+    }
+
+    printf("  colorspace: ");
+    switch (colorspace) {
+      case heif_colorspace_YCbCr:
+        printf("YCbCr, ");
+        break;
+      case heif_colorspace_RGB:
+        printf("RGB");
+        break;
+      case heif_colorspace_monochrome:
+        printf("monochrome");
+        break;
+      default:
+        printf("unknown");
+        break;
+    }
+
+    if (colorspace==heif_colorspace_YCbCr) {
+      switch (chroma) {
+        case heif_chroma_420:
+          printf("4:2:0");
+          break;
+        case heif_chroma_422:
+          printf("4:2:2");
+          break;
+        case heif_chroma_444:
+          printf("4:4:4");
+          break;
+        default:
+          printf("unknown");
+          break;
+      }
+    }
+
+    printf("\n");
+
+    // --- bit depth
+
+    int luma_depth = heif_image_handle_get_luma_bits_per_pixel(handle);
+    int chroma_depth = heif_image_handle_get_chroma_bits_per_pixel(handle);
+
+    printf("  bit depth: ");
+    if (chroma == heif_chroma_monochrome || luma_depth==chroma_depth) {
+      printf("%d\n", luma_depth);
+    }
+    else {
+      printf("%d,%d\n", luma_depth, chroma_depth);
+    }
+
+
     // --- thumbnails
 
     int nThumbnails = heif_image_handle_get_number_of_thumbnails(handle);
@@ -305,9 +369,13 @@ int main(int argc, char** argv)
         return 1;
       }
 
-      printf(" (%dx%d)\n",
+      printf("    size: %dx%d\n",
              heif_image_handle_get_width(depth_handle),
              heif_image_handle_get_height(depth_handle));
+
+      int depth_luma_bpp = heif_image_handle_get_luma_bits_per_pixel(depth_handle);
+      printf("    bits per pixel: %d\n", depth_luma_bpp);
+
 
       const struct heif_depth_representation_info* depth_info;
       if (heif_image_handle_get_depth_image_representation_info(handle, depth_id, &depth_info)) {
@@ -360,9 +428,13 @@ int main(int argc, char** argv)
       for (int n = 0; n < numMetadata; n++) {
         std::string itemtype = heif_image_handle_get_metadata_type(handle, ids[n]);
         std::string contenttype = heif_image_handle_get_metadata_content_type(handle, ids[n]);
+        std::string item_uri_type = heif_image_handle_get_metadata_item_uri_type(handle, ids[n]);
         std::string ID{"unknown"};
         if (itemtype == "Exif") {
           ID = itemtype;
+        }
+        else if (itemtype == "uri ") {
+          ID = itemtype + "/" + item_uri_type;
         }
         else if (contenttype == "application/rdf+xml") {
           ID = "XMP";
@@ -458,14 +530,6 @@ int main(int argc, char** argv)
             uint32_t h;
             heif_region_get_rectangle(regions[j], &x, &y, &w, &h);
             printf("      rectangle [x=%i, y=%i, w=%u, h=%u]\n", x, y, w, h);
-#if 0
-            double dx;
-            double dy;
-            double dw;
-            double dh;
-            heif_region_get_rectangle_scaled(regions[j], &dx, &dy, &dw, &dh, IDs[i]);
-            printf("      rectangle [x=%lf, y=%lf, w=%lf, h=%lf]\n", dx, dy, dw, dh);
-#endif
           }
           else if (type == heif_region_type_ellipse) {
             int32_t x;
@@ -485,6 +549,15 @@ int main(int argc, char** argv)
             }
             printf("]\n");
           }
+          else if (type == heif_region_type_referenced_mask) {
+            int32_t x;
+            int32_t y;
+            uint32_t w;
+            uint32_t h;
+            heif_item_id referenced_item;
+            heif_region_get_referenced_mask_ID(regions[j], &x, &y, &w, &h, &referenced_item);
+            printf("      referenced mask [x=%i, y=%i, w=%u, h=%u, item=%u]\n", x, y, w, h, referenced_item);
+          }
           else if (type == heif_region_type_polyline) {
             int32_t numPoints = heif_region_get_polyline_num_points(regions[j]);
             std::vector<int32_t> pts(numPoints*2);
@@ -494,6 +567,16 @@ int main(int argc, char** argv)
               printf("(%d;%d)", pts[2*p+0], pts[2*p+1]);
             }
             printf("]\n");
+          }
+          else if (type == heif_region_type_inline_mask) {
+            int32_t x;
+            int32_t y;
+            uint32_t w;
+            uint32_t h;
+            size_t data_len = heif_region_get_inline_mask_data_len(regions[j]);
+            std::vector<uint8_t> mask_data(data_len);
+            heif_region_get_inline_mask_data(regions[j], &x, &y, &w, &h, mask_data.data());
+            printf("      inline mask [x=%i, y=%i, w=%u, h=%u, data len=%zu]\n", x, y, w, h, mask_data.size());
           }
       }
 

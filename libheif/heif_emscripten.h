@@ -8,6 +8,8 @@
 #include <sstream>
 #include <utility>
 #include <vector>
+#include <string.h>
+#include <cassert>
 
 #include "heif.h"
 
@@ -20,21 +22,6 @@ static struct heif_error _heif_context_read_from_memory(
     struct heif_context* context, const std::string& data)
 {
   return heif_context_read_from_memory(context, data.data(), data.size(), nullptr);
-}
-
-static void strided_copy(void* dest, const void* src, int width, int height,
-                         int stride)
-{
-  if (width == stride) {
-    memcpy(dest, src, width * height);
-  }
-  else {
-    const uint8_t* _src = static_cast<const uint8_t*>(src);
-    uint8_t* _dest = static_cast<uint8_t*>(dest);
-    for (int y = 0; y < height; y++, _dest += width, _src += stride) {
-      memcpy(_dest, _src, width);
-    }
-  }
 }
 
 static emscripten::val heif_js_context_get_image_handle(
@@ -88,6 +75,22 @@ static emscripten::val heif_js_context_get_list_of_top_level_image_IDs(
   return result;
 }
 
+#if 0
+static void strided_copy(void* dest, const void* src, int width, int height,
+                         int stride)
+{
+  if (width == stride) {
+    memcpy(dest, src, width * height);
+  }
+  else {
+    const uint8_t* _src = static_cast<const uint8_t*>(src);
+    uint8_t* _dest = static_cast<uint8_t*>(dest);
+    for (int y = 0; y < height; y++, _dest += width, _src += stride) {
+      memcpy(_dest, _src, width);
+    }
+  }
+}
+
 static int round_odd(int v) {
   return (int) ((v / 2.0) + 0.5);
 }
@@ -108,11 +111,11 @@ static emscripten::val heif_js_decode_image(struct heif_image_handle* handle,
 
   result.set("is_primary", heif_image_handle_is_primary_image(handle));
   result.set("thumbnails", heif_image_handle_get_number_of_thumbnails(handle));
-  int width = heif_image_get_width(image, heif_channel_Y);
+  int width = heif_image_handle_get_width(handle);
   result.set("width", width);
-  int height = heif_image_get_height(image, heif_channel_Y);
+  int height = heif_image_handle_get_height(handle);
   result.set("height", height);
-  std::string data;
+  std::basic_string<unsigned char> data;
   result.set("chroma", heif_image_get_chroma_format(image));
   result.set("colorspace", heif_image_get_colorspace(image));
   switch (heif_image_get_colorspace(image)) {
@@ -127,7 +130,7 @@ static emscripten::val heif_js_decode_image(struct heif_image_handle* handle,
       const uint8_t* plane_v = heif_image_get_plane_readonly(image,
                                                              heif_channel_Cr, &stride_v);
       data.resize((width * height) + (2 * round_odd(width) * round_odd(height)));
-      char* dest = const_cast<char*>(data.data());
+      unsigned char* dest = const_cast<unsigned char*>(data.data());
       strided_copy(dest, plane_y, width, height, stride_y);
       strided_copy(dest + (width * height), plane_u,
                    round_odd(width), round_odd(height), stride_u);
@@ -136,14 +139,25 @@ static emscripten::val heif_js_decode_image(struct heif_image_handle* handle,
     }
       break;
     case heif_colorspace_RGB: {
-      assert(heif_image_get_chroma_format(image) ==
-             heif_chroma_interleaved_24bit);
-      int stride_rgb;
-      const uint8_t* plane_rgb = heif_image_get_plane_readonly(image,
-                                                               heif_channel_interleaved, &stride_rgb);
-      data.resize(width * height * 3);
-      char* dest = const_cast<char*>(data.data());
-      strided_copy(dest, plane_rgb, width * 3, height, stride_rgb);
+      if(heif_image_get_chroma_format(image) == heif_chroma_interleaved_RGB) {
+        int stride_rgb;
+        const uint8_t* plane_rgb = heif_image_get_plane_readonly(image,
+                                                                 heif_channel_interleaved, &stride_rgb);
+        data.resize(width * height * 3);
+        unsigned char* dest = const_cast<unsigned char*>(data.data());
+        strided_copy(dest, plane_rgb, width * 3, height, stride_rgb);
+      }
+      else if (heif_image_get_chroma_format(image) == heif_chroma_interleaved_RGBA) {
+        int stride_rgba;
+        const uint8_t* plane_rgba = heif_image_get_plane_readonly(image,
+                                                                 heif_channel_interleaved, &stride_rgba);
+        data.resize(width * height * 4);
+        unsigned char* dest = const_cast<unsigned char*>(data.data());
+        strided_copy(dest, plane_rgba, width * 4, height, stride_rgba);
+      }
+      else {
+        assert(false);
+      }
     }
       break;
     case heif_colorspace_monochrome: {
@@ -153,7 +167,7 @@ static emscripten::val heif_js_decode_image(struct heif_image_handle* handle,
       const uint8_t* plane_grey = heif_image_get_plane_readonly(image,
                                                                 heif_channel_Y, &stride_grey);
       data.resize(width * height);
-      char* dest = const_cast<char*>(data.data());
+      unsigned char* dest = const_cast<unsigned char*>(data.data());
       strided_copy(dest, plane_grey, width, height, stride_grey);
     }
       break;
@@ -162,9 +176,89 @@ static emscripten::val heif_js_decode_image(struct heif_image_handle* handle,
       break;
   }
   result.set("data", std::move(data));
+
+  if (heif_image_has_channel(image, heif_channel_Alpha)) {
+    std::basic_string<unsigned char> alpha;
+    int stride_alpha;
+    const uint8_t* plane_alpha = heif_image_get_plane_readonly(image,
+							       heif_channel_Alpha, &stride_alpha);
+    alpha.resize(width * height);
+    unsigned char* dest = const_cast<unsigned char*>(alpha.data());
+    strided_copy(dest, plane_alpha, width, height, stride_alpha);
+    result.set("alpha", std::move(alpha));
+  }
+
   heif_image_release(image);
   return result;
 }
+#endif
+
+/*
+ * The returned object includes a pointer to an heif_image in the property "image".
+ * This image has to be released after the image data has been read (copied) with heif_image_release().
+ */
+static emscripten::val heif_js_decode_image2(struct heif_image_handle* handle,
+                                             enum heif_colorspace colorspace, enum heif_chroma chroma)
+{
+  emscripten::val result = emscripten::val::object();
+  if (!handle) {
+    return result;
+  }
+
+  struct heif_image* image;
+  struct heif_error err = heif_decode_image(handle, &image, colorspace, chroma, nullptr);
+  if (err.code != heif_error_Ok) {
+    return emscripten::val(err);
+  }
+
+  result.set("image", image);
+
+  int width = heif_image_handle_get_width(handle);
+  result.set("width", width);
+
+  int height = heif_image_handle_get_height(handle);
+  result.set("height", height);
+
+  std::basic_string<unsigned char> data;
+  result.set("chroma", heif_image_get_chroma_format(image));
+  result.set("colorspace", heif_image_get_colorspace(image));
+
+  std::vector<heif_channel> channels {
+    heif_channel_Y,
+    heif_channel_Cb,
+    heif_channel_Cr,
+    heif_channel_R,
+    heif_channel_G,
+    heif_channel_B,
+    heif_channel_Alpha,
+    heif_channel_interleaved
+  };
+
+  emscripten::val val_channels = emscripten::val::array();
+
+  for (auto channel : channels) {
+    if (heif_image_has_channel(image, channel)) {
+      emscripten::val val_channel_info = emscripten::val::object();
+      val_channel_info.set("id", channel);
+
+      int stride;
+      const uint8_t* plane = heif_image_get_plane_readonly(image, channel, &stride);
+
+      val_channel_info.set("stride", stride);
+      val_channel_info.set("data", emscripten::val(emscripten::typed_memory_view(stride * height, plane)));
+
+      val_channel_info.set("width", heif_image_get_width(image, channel));
+      val_channel_info.set("height", heif_image_get_height(image, channel));
+
+      val_channels.call<void>("push", val_channel_info);
+    }
+  }
+
+  result.set("channels", val_channels);
+
+  return result;
+}
+
 
 #define EXPORT_HEIF_FUNCTION(name) \
   emscripten::function(#name, &name, emscripten::allow_raw_pointers())
@@ -183,9 +277,15 @@ EMSCRIPTEN_BINDINGS(libheif) {
     &heif_js_context_get_list_of_top_level_image_IDs, emscripten::allow_raw_pointers());
     emscripten::function("heif_js_context_get_image_handle",
     &heif_js_context_get_image_handle, emscripten::allow_raw_pointers());
-    emscripten::function("heif_js_decode_image",
-    &heif_js_decode_image, emscripten::allow_raw_pointers());
+    //emscripten::function("heif_js_decode_image",
+    //&heif_js_decode_image, emscripten::allow_raw_pointers());
+    emscripten::function("heif_js_decode_image2",
+    &heif_js_decode_image2, emscripten::allow_raw_pointers());
     EXPORT_HEIF_FUNCTION(heif_image_handle_release);
+    EXPORT_HEIF_FUNCTION(heif_image_handle_get_width);
+    EXPORT_HEIF_FUNCTION(heif_image_handle_get_height);
+    EXPORT_HEIF_FUNCTION(heif_image_handle_is_primary_image);
+    EXPORT_HEIF_FUNCTION(heif_image_release);
 
     emscripten::enum_<heif_error_code>("heif_error_code")
     .value("heif_error_Ok", heif_error_Ok)
@@ -273,7 +373,8 @@ EMSCRIPTEN_BINDINGS(libheif) {
     .value("heif_compression_VVC", heif_compression_VVC)
     .value("heif_compression_EVC", heif_compression_EVC)
     .value("heif_compression_JPEG2000", heif_compression_JPEG2000)
-    .value("heif_compression_uncompressed", heif_compression_uncompressed);
+    .value("heif_compression_uncompressed", heif_compression_uncompressed)
+    .value("heif_compression_mask", heif_compression_mask);
     emscripten::enum_<heif_chroma>("heif_chroma")
     .value("heif_chroma_undefined", heif_chroma_undefined)
     .value("heif_chroma_monochrome", heif_chroma_monochrome)

@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -20,10 +20,6 @@
 
 #ifndef LIBHEIF_LOGGING_H
 #define LIBHEIF_LOGGING_H
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
 
 #include <cinttypes>
 #include <cstddef>

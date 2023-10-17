@@ -1,6 +1,6 @@
 /*
  * AVIF codec.
- * Copyright (c) 2020 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2020 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -23,11 +23,6 @@
 #include "libheif/security_limits.h"
 #include "libheif/common_utils.h"
 #include "decoder_dav1d.h"
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
 #include <memory>
 #include <cstring>
 #include <cassert>

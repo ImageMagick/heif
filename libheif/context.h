@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -53,6 +53,7 @@ public:
   heif_item_id item_id;
   std::string item_type;  // e.g. "Exif"
   std::string content_type;
+  std::string item_uri_type;
   std::vector<uint8_t> m_data;
 };
 
@@ -119,6 +120,8 @@ public:
     int get_luma_bits_per_pixel() const;
 
     int get_chroma_bits_per_pixel() const;
+
+    Error get_preferred_decoding_colorspace(heif_colorspace* out_colorspace, heif_chroma* out_chroma) const;
 
     bool is_primary() const { return m_is_primary; }
 
@@ -339,6 +342,22 @@ public:
     return const_cast<HeifContext*>(this)->get_top_level_image(id);
   }
 
+  std::shared_ptr<Image> get_image(heif_item_id id)
+  {
+    auto iter = m_all_images.find(id);
+    if (iter == m_all_images.end()) {
+      return nullptr;
+    }
+    else {
+      return iter->second;
+    }
+  }
+
+  std::shared_ptr<const Image> get_image(heif_item_id id) const
+  {
+    return const_cast<HeifContext*>(this)->get_image(id);
+  }
+
   std::shared_ptr<Image> get_primary_image() { return m_primary_image; }
 
   bool is_image(heif_item_id ID) const;
@@ -383,11 +402,29 @@ public:
                             enum heif_image_input_class input_class,
                             std::shared_ptr<Image>& out_image);
 
+  Error encode_image_as_jpeg(const std::shared_ptr<HeifPixelImage>& image,
+                             struct heif_encoder* encoder,
+                             const struct heif_encoding_options& options,
+                             enum heif_image_input_class input_class,
+                             std::shared_ptr<Image>& out_image);
+
+  Error encode_image_as_jpeg2000(const std::shared_ptr<HeifPixelImage>& image,
+                                 struct heif_encoder* encoder,
+                                 const struct heif_encoding_options& options,
+                                 enum heif_image_input_class input_class,
+                                 std::shared_ptr<Image>& out_image);
+
   Error encode_image_as_uncompressed(const std::shared_ptr<HeifPixelImage>& src_image,
                                      struct heif_encoder* encoder,
                                      const struct heif_encoding_options& options,
                                      enum heif_image_input_class input_class,
-                                     std::shared_ptr<Image> out_image);
+                                     std::shared_ptr<Image>& out_image);
+
+  Error encode_image_as_mask(const std::shared_ptr<HeifPixelImage>& src_image,
+                             struct heif_encoder* encoder,
+                             const struct heif_encoding_options& options,
+                             enum heif_image_input_class input_class,
+                             std::shared_ptr<Image>& out_image);
 
   // write PIXI, CLLI, MDVC
   void write_image_metadata(std::shared_ptr<HeifPixelImage> src_image, int image_id);
@@ -424,7 +461,7 @@ public:
     m_region_items.push_back(std::move(region_item));
   }
 
-  std::shared_ptr<RegionItem>  add_region_item(uint32_t reference_width, uint32_t reference_height);
+  std::shared_ptr<RegionItem> add_region_item(uint32_t reference_width, uint32_t reference_height);
 
   std::shared_ptr<RegionItem> get_region_item(heif_item_id id) const
   {
@@ -435,6 +472,8 @@ public:
 
     return nullptr;
   }
+
+  void add_region_referenced_mask_ref(heif_item_id region_item_id, heif_item_id mask_item_id);
 
   void write(StreamWriter& writer);
 

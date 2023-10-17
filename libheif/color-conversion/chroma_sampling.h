@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2023, Dirk Farin <dirk.farin@gmail.com>
+ * Copyright (c) 2023 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -39,6 +39,24 @@ public:
 
   std::shared_ptr<HeifPixelImage>
   convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
+                     const ColorState& input_state,
+                     const ColorState& target_state,
+                     const heif_color_conversion_options& options) const override;
+};
+
+
+template <class Pixel>
+class Op_YCbCr444_to_YCbCr422_average : public ColorConversionOperation
+{
+public:
+  std::vector<ColorStateWithCost>
+  state_after_conversion(const ColorState& input_state,
+                         const ColorState& target_state,
+                         const heif_color_conversion_options& options) const override;
+
+  std::shared_ptr<HeifPixelImage>
+  convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
+                     const ColorState& input_state,
                      const ColorState& target_state,
                      const heif_color_conversion_options& options) const override;
 };
@@ -57,6 +75,23 @@ public:
 
   std::shared_ptr<HeifPixelImage>
   convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
+                     const ColorState& input_state,
+                     const ColorState& target_state,
+                     const heif_color_conversion_options& options) const override;
+};
+
+template <class Pixel>
+class Op_YCbCr422_bilinear_to_YCbCr444 : public ColorConversionOperation
+{
+public:
+  std::vector<ColorStateWithCost>
+  state_after_conversion(const ColorState& input_state,
+                         const ColorState& target_state,
+                         const heif_color_conversion_options& options) const override;
+
+  std::shared_ptr<HeifPixelImage>
+  convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
+                     const ColorState& input_state,
                      const ColorState& target_state,
                      const heif_color_conversion_options& options) const override;
 };

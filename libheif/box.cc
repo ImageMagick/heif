@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -17,22 +17,24 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "libheif/heif.h"
 #include <cstddef>
 #include <cstdint>
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
 #include "box.h"
 #include "security_limits.h"
 #include "nclx.h"
+#include "jpeg.h"
+#include "jpeg2000.h"
+#include "hevc.h"
+#include "mask_image.h"
+#include "vvc.h"
 
 #include <iomanip>
 #include <utility>
 #include <iostream>
 #include <algorithm>
 #include <cstring>
+#include <set>
 #include <cassert>
 
 #if WITH_UNCOMPRESSED_CODEC
@@ -68,14 +70,27 @@ Fraction::Fraction(uint32_t num, uint32_t den)
   *this = Fraction(int32_t(num), int32_t(den));
 }
 
+Fraction::Fraction(int64_t num, int64_t den)
+{
+  while (num < std::numeric_limits<int32_t>::min() || num > std::numeric_limits<int32_t>::max() ||
+         den < std::numeric_limits<int32_t>::min() || den > std::numeric_limits<int32_t>::max()) {
+    num = (num + (num>=0 ? 1 : -1)) / 2;
+    den = (den + (den>=0 ? 1 : -1)) / 2;
+  }
+
+  numerator = static_cast<int32_t>(num);
+  denominator = static_cast<int32_t>(den);
+}
+
 Fraction Fraction::operator+(const Fraction& b) const
 {
   if (denominator == b.denominator) {
     return Fraction{numerator + b.numerator, denominator};
   }
   else {
-    return Fraction{numerator * b.denominator + b.numerator * denominator,
-                    denominator * b.denominator};
+    int64_t n = int64_t{numerator} * b.denominator + int64_t{b.numerator} * denominator;
+    int64_t d = int64_t{denominator} * b.denominator;
+    return Fraction{n,d};
   }
 }
 
@@ -85,39 +100,40 @@ Fraction Fraction::operator-(const Fraction& b) const
     return Fraction{numerator - b.numerator, denominator};
   }
   else {
-    return Fraction{numerator * b.denominator - b.numerator * denominator,
-                    denominator * b.denominator};
+    int64_t n = int64_t{numerator} * b.denominator - int64_t{b.numerator} * denominator;
+    int64_t d = int64_t{denominator} * b.denominator;
+    return Fraction{n,d};
   }
 }
 
 Fraction Fraction::operator+(int v) const
 {
-  return Fraction{numerator + v * denominator, denominator};
+  return Fraction{numerator + v * int64_t(denominator), int64_t(denominator)};
 }
 
 Fraction Fraction::operator-(int v) const
 {
-  return Fraction{numerator - v * denominator, denominator};
+  return Fraction{numerator - v * int64_t(denominator), int64_t(denominator)};
 }
 
 Fraction Fraction::operator/(int v) const
 {
-  return Fraction{numerator, denominator * v};
+  return Fraction{int64_t(numerator), int64_t(denominator) * v};
 }
 
-int Fraction::round_down() const
+int32_t Fraction::round_down() const
 {
   return numerator / denominator;
 }
 
-int Fraction::round_up() const
+int32_t Fraction::round_up() const
 {
-  return (numerator + denominator - 1) / denominator;
+  return int32_t((numerator + int64_t(denominator) - 1) / denominator);
 }
 
-int Fraction::round() const
+int32_t Fraction::round() const
 {
-  return (numerator + denominator / 2) / denominator;
+  return int32_t((numerator + int64_t(denominator) / 2) / denominator);
 }
 
 bool Fraction::is_valid() const
@@ -548,6 +564,10 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result)
       box = std::make_shared<Box_udes>();
       break;
 
+    case fourcc("jpgC"):
+      box = std::make_shared<Box_jpgC>();
+      break;
+
 #if WITH_UNCOMPRESSED_CODEC
     case fourcc("cmpd"):
       box = std::make_shared<Box_cmpd>();
@@ -557,6 +577,34 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result)
       box = std::make_shared<Box_uncC>();
       break;
 #endif
+
+    // --- JPEG 2000
+      
+    case fourcc("j2kH"):
+      box = std::make_shared<Box_j2kH>();
+      break;
+
+    case fourcc("cdef"):
+      box = std::make_shared<Box_cdef>();
+      break;
+
+    case fourcc("cmap"):
+      box = std::make_shared<Box_cmap>();
+      break;
+
+    case fourcc("pclr"):
+      box = std::make_shared<Box_pclr>();
+      break;
+
+    case fourcc("j2kL"):
+      box = std::make_shared<Box_j2kL>();
+      break;
+
+    // --- mski
+      
+    case fourcc("mskC"):
+      box = std::make_shared<Box_mskC>();
+      break;
 
     default:
       box = std::make_shared<Box>();
@@ -793,15 +841,12 @@ Error Box_ftyp::parse(BitstreamRange& range)
 }
 
 
-bool Box_ftyp::has_compatible_brand(uint32_t brand) const
+bool Box_ftyp::has_compatible_brand(heif_brand2 brand) const
 {
-  for (uint32_t b : m_compatible_brands) {
-    if (b == brand) {
-      return true;
-    }
-  }
-
-  return false;
+  return std::find(m_compatible_brands.begin(),
+                   m_compatible_brands.end(),
+                   brand) !=
+         m_compatible_brands.end();
 }
 
 
@@ -828,11 +873,11 @@ std::string Box_ftyp::dump(Indent& indent) const
 }
 
 
-void Box_ftyp::add_compatible_brand(uint32_t brand)
+void Box_ftyp::add_compatible_brand(heif_brand2 brand)
 {
-  // TODO: check whether brand already exists in the list
-
-  m_compatible_brands.push_back(brand);
+  if (!has_compatible_brand(brand)) {
+    m_compatible_brands.push_back(brand);
+  }
 }
 
 
@@ -1137,7 +1182,9 @@ Error Box_iloc::read_data(const Item& item,
                           const std::shared_ptr<Box_idat>& idat,
                           std::vector<uint8_t>* dest) const
 {
-  //istr.clear();
+  // TODO: this function should always append the data to the output vector as this is used when
+  //       the image data is concatenated with data in a configuration box. However, it seems that
+  //       this function clears the array in some cases. This should be corrected.
 
   for (const auto& extent : item.extents) {
     if (item.construction_method == 0) {
@@ -1737,239 +1784,6 @@ std::string Box_ipco::dump(Indent& indent) const
   return sstr.str();
 }
 
-Error color_profile_nclx::parse(BitstreamRange& range)
-{
-  StreamReader::grow_status status;
-  status = range.wait_for_available_bytes(7);
-  if (status != StreamReader::size_reached) {
-    // TODO: return recoverable error at timeout
-    return Error(heif_error_Invalid_input,
-                 heif_suberror_End_of_data);
-  }
-
-  m_colour_primaries = range.read16();
-  m_transfer_characteristics = range.read16();
-  m_matrix_coefficients = range.read16();
-  m_full_range_flag = (range.read8() & 0x80 ? true : false);
-
-  return Error::Ok;
-}
-
-Error color_profile_nclx::get_nclx_color_profile(struct heif_color_profile_nclx** out_data) const
-{
-  *out_data = alloc_nclx_color_profile();
-
-  if (*out_data == nullptr) {
-    return Error(heif_error_Memory_allocation_error,
-                 heif_suberror_Unspecified);
-  }
-
-  struct heif_color_profile_nclx* nclx = *out_data;
-
-  struct heif_error err;
-
-  nclx->version = 1;
-
-  err = heif_nclx_color_profile_set_color_primaries(nclx, get_colour_primaries());
-  if (err.code) {
-    return {err.code, err.subcode};
-  }
-
-  err = heif_nclx_color_profile_set_transfer_characteristics(nclx, get_transfer_characteristics());
-  if (err.code) {
-    return {err.code, err.subcode};
-  }
-
-  err = heif_nclx_color_profile_set_matrix_coefficients(nclx, get_matrix_coefficients());
-  if (err.code) {
-    return {err.code, err.subcode};
-  }
-
-  nclx->full_range_flag = get_full_range_flag();
-
-  // fill color primaries
-
-  auto primaries = ::get_colour_primaries(nclx->color_primaries);
-
-  nclx->color_primary_red_x = primaries.redX;
-  nclx->color_primary_red_y = primaries.redY;
-  nclx->color_primary_green_x = primaries.greenX;
-  nclx->color_primary_green_y = primaries.greenY;
-  nclx->color_primary_blue_x = primaries.blueX;
-  nclx->color_primary_blue_y = primaries.blueY;
-  nclx->color_primary_white_x = primaries.whiteX;
-  nclx->color_primary_white_y = primaries.whiteY;
-
-  return Error::Ok;
-}
-
-
-struct heif_color_profile_nclx* color_profile_nclx::alloc_nclx_color_profile()
-{
-  auto profile = (heif_color_profile_nclx*) malloc(sizeof(struct heif_color_profile_nclx));
-
-  if (profile) {
-    profile->version = 1;
-    profile->color_primaries = heif_color_primaries_unspecified;
-    profile->transfer_characteristics = heif_transfer_characteristic_unspecified;
-    profile->matrix_coefficients = heif_matrix_coefficients_ITU_R_BT_601_6;
-    profile->full_range_flag = true;
-  }
-
-  return profile;
-}
-
-
-void color_profile_nclx::free_nclx_color_profile(struct heif_color_profile_nclx* profile)
-{
-  free(profile);
-}
-
-
-void color_profile_nclx::set_default()
-{
-  m_colour_primaries = 2;
-  m_transfer_characteristics = 2;
-  m_matrix_coefficients = 6;
-  m_full_range_flag = true;
-}
-
-
-void color_profile_nclx::set_undefined()
-{
-  m_colour_primaries = 2;
-  m_transfer_characteristics = 2;
-  m_matrix_coefficients = 2;
-  m_full_range_flag = true;
-}
-
-
-void color_profile_nclx::set_from_heif_color_profile_nclx(const struct heif_color_profile_nclx* nclx)
-{
-  m_colour_primaries = nclx->color_primaries;
-  m_transfer_characteristics = nclx->transfer_characteristics;
-  m_matrix_coefficients = nclx->matrix_coefficients;
-  m_full_range_flag = nclx->full_range_flag;
-}
-
-
-Error Box_colr::parse(BitstreamRange& range)
-{
-  StreamReader::grow_status status;
-  uint32_t colour_type = range.read32();
-
-  if (colour_type == fourcc("nclx")) {
-    auto color_profile = std::make_shared<color_profile_nclx>();
-    m_color_profile = color_profile;
-    Error err = color_profile->parse(range);
-    if (err) {
-      return err;
-    }
-  }
-  else if (colour_type == fourcc("prof") ||
-           colour_type == fourcc("rICC")) {
-    uint64_t profile_size_64 = get_box_size() - get_header_size() - 4;
-    if (profile_size_64 > std::numeric_limits<size_t>::max()) {
-      return Error(heif_error_Invalid_input, heif_suberror_Security_limit_exceeded, "Color profile exceeds maximum supported size");
-    }
-
-    size_t profile_size = static_cast<size_t>(profile_size_64);
-
-    status = range.wait_for_available_bytes(profile_size);
-    if (status != StreamReader::size_reached) {
-      // TODO: return recoverable error at timeout
-      return Error(heif_error_Invalid_input,
-                   heif_suberror_End_of_data);
-    }
-
-    std::vector<uint8_t> rawData(profile_size);
-    for (size_t i = 0; i < profile_size; i++) {
-      rawData[i] = range.read8();
-    }
-
-    m_color_profile = std::make_shared<color_profile_raw>(colour_type, rawData);
-  }
-  else {
-    return Error(heif_error_Invalid_input,
-                 heif_suberror_Unknown_color_profile_type);
-  }
-
-  return range.get_error();
-}
-
-
-std::string Box_colr::dump(Indent& indent) const
-{
-  std::ostringstream sstr;
-  sstr << Box::dump(indent);
-
-  if (m_color_profile) {
-    sstr << indent << "colour_type: " << to_fourcc(get_color_profile_type()) << "\n";
-    sstr << m_color_profile->dump(indent);
-  }
-  else {
-    sstr << indent << "colour_type: ---\n";
-    sstr << "no color profile\n";
-  }
-
-  return sstr.str();
-}
-
-
-std::string color_profile_raw::dump(Indent& indent) const
-{
-  std::ostringstream sstr;
-  sstr << indent << "profile size: " << m_data.size() << "\n";
-  return sstr.str();
-}
-
-
-std::string color_profile_nclx::dump(Indent& indent) const
-{
-  std::ostringstream sstr;
-  sstr << indent << "colour_primaries: " << m_colour_primaries << "\n"
-       << indent << "transfer_characteristics: " << m_transfer_characteristics << "\n"
-       << indent << "matrix_coefficients: " << m_matrix_coefficients << "\n"
-       << indent << "full_range_flag: " << m_full_range_flag << "\n";
-  return sstr.str();
-}
-
-
-Error color_profile_nclx::write(StreamWriter& writer) const
-{
-  writer.write16(m_colour_primaries);
-  writer.write16(m_transfer_characteristics);
-  writer.write16(m_matrix_coefficients);
-  writer.write8(m_full_range_flag ? 0x80 : 0x00);
-
-  return Error::Ok;
-}
-
-Error color_profile_raw::write(StreamWriter& writer) const
-{
-  writer.write(m_data);
-
-  return Error::Ok;
-}
-
-Error Box_colr::write(StreamWriter& writer) const
-{
-  size_t box_start = reserve_box_header_space(writer);
-
-  assert(m_color_profile);
-
-  writer.write32(m_color_profile->get_type());
-
-  Error err = m_color_profile->write(writer);
-  if (err) {
-    return err;
-  }
-
-  prepend_header(writer, box_start);
-
-  return Error::Ok;
-}
-
 
 Error Box_pixi::parse(BitstreamRange& range)
 {
@@ -2099,87 +1913,6 @@ Error Box_lsel::write(StreamWriter& writer) const
 }
 
 
-Error Box_a1op::parse(BitstreamRange& range)
-{
-  op_index = range.read8();
-
-  return range.get_error();
-}
-
-
-std::string Box_a1op::dump(Indent& indent) const
-{
-  std::ostringstream sstr;
-  sstr << Box::dump(indent);
-
-  sstr << indent << "op-index: " << ((int) op_index) << "\n";
-
-  return sstr.str();
-}
-
-
-Error Box_a1op::write(StreamWriter& writer) const
-{
-  size_t box_start = reserve_box_header_space(writer);
-
-  writer.write8(op_index);
-
-  prepend_header(writer, box_start);
-
-  return Error::Ok;
-}
-
-
-Error Box_a1lx::parse(BitstreamRange& range)
-{
-  uint8_t flags = range.read8();
-
-  for (int i = 0; i < 3; i++) {
-    if (flags & 1) {
-      layer_size[i] = range.read32();
-    }
-    else {
-      layer_size[i] = range.read16();
-    }
-  }
-
-  return range.get_error();
-}
-
-
-std::string Box_a1lx::dump(Indent& indent) const
-{
-  std::ostringstream sstr;
-  sstr << Box::dump(indent);
-
-  sstr << indent << "layer-sizes: [" << layer_size[0] << "," << layer_size[1] << "," << layer_size[2] << "]\n";
-
-  return sstr.str();
-}
-
-
-Error Box_a1lx::write(StreamWriter& writer) const
-{
-  size_t box_start = reserve_box_header_space(writer);
-
-  bool large = (layer_size[0] > 0xFFFF || layer_size[1] > 0xFFFF || layer_size[2] > 0xFFFF);
-  writer.write8(large ? 1 : 0);
-
-  for (int i = 0; i < 3; i++) {
-    if (large) {
-      writer.write32(layer_size[i]);
-    }
-    else {
-      writer.write16((uint16_t) layer_size[i]);
-    }
-  }
-
-  prepend_header(writer, box_start);
-
-  return Error::Ok;
-}
-
-
 Error Box_clli::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
@@ -2213,6 +1946,14 @@ Error Box_clli::write(StreamWriter& writer) const
   prepend_header(writer, box_start);
 
   return Error::Ok;
+}
+
+
+Box_mdcv::Box_mdcv()
+{
+  set_short_type(fourcc("mdcv"));
+  
+  memset(&mdcv, 0, sizeof(heif_mastering_display_colour_volume));
 }
 
 
@@ -2693,6 +2434,9 @@ std::string Box_imir::dump(Indent& indent) const
     case heif_transform_mirror_direction_horizontal:
       sstr << "horizontal\n";
       break;
+    case heif_transform_mirror_direction_invalid:
+      sstr << "invalid\n";
+      break;
   }
 
   return sstr.str();
@@ -2874,6 +2618,72 @@ Error Box_iref::parse(BitstreamRange& range)
     m_references.push_back(ref);
   }
 
+
+  // --- check number of total refs
+
+  size_t nTotalRefs = 0;
+  for (const auto& ref : m_references) {
+    nTotalRefs += ref.to_item_ID.size();
+  }
+
+  if (nTotalRefs > MAX_IREF_REFERENCES) {
+    return Error(heif_error_Memory_allocation_error, heif_suberror_Security_limit_exceeded,
+                 "Number of iref references exceeds security limit.");
+  }
+
+  // --- check for duplicate references
+
+  for (const auto& ref : m_references) {
+    std::set<heif_item_id> to_ids;
+    for (const auto to_id : ref.to_item_ID) {
+      if (to_ids.find(to_id) == to_ids.end()) {
+        to_ids.insert(to_id);
+      }
+      else {
+        return Error(heif_error_Invalid_input,
+                     heif_suberror_Unspecified,
+                     "'iref' has double references");
+      }
+    }
+  }
+
+
+  // --- check for cyclic references
+
+  for (const auto& ref : m_references) {
+    std::set<heif_item_id> reached_ids; // IDs that we have already reached in the DAG
+    std::set<heif_item_id> todo;    // IDs that still need to be followed
+
+    todo.insert(ref.from_item_ID);  // start at base item
+
+    while (!todo.empty()) {
+      // transfer ID into set of reached IDs
+      auto id = *todo.begin();
+      todo.erase(id);
+      reached_ids.insert(id);
+
+      // if this ID refers to another 'iref', follow it
+
+      for (const auto& succ_ref : m_references) {
+        if (succ_ref.from_item_ID == id) {
+
+          // Check whether any successor IDs has been visited yet, which would be an error.
+          // Otherwise, put that ID into the 'todo' set.
+
+          for (const auto& succ_ref_id : succ_ref.to_item_ID) {
+            if (reached_ids.find(succ_ref_id) != reached_ids.end()) {
+              return Error(heif_error_Invalid_input,
+                           heif_suberror_Unspecified,
+                           "'iref' has cyclic references");
+            }
+
+            todo.insert(succ_ref_id);
+          }
+        }
+      }
+    }
+  }
+
   return range.get_error();
 }
 
@@ -2986,7 +2796,7 @@ std::vector<uint32_t> Box_iref::get_references(uint32_t itemID, uint32_t ref_typ
 }
 
 
-void Box_iref::add_reference(heif_item_id from_id, uint32_t type, const std::vector<heif_item_id>& to_ids)
+void Box_iref::add_references(heif_item_id from_id, uint32_t type, const std::vector<heif_item_id>& to_ids)
 {
   Reference ref;
   ref.header.set_short_type(type);
@@ -2994,503 +2804,6 @@ void Box_iref::add_reference(heif_item_id from_id, uint32_t type, const std::vec
   ref.to_item_ID = to_ids;
 
   m_references.push_back(ref);
-}
-
-
-Error Box_hvcC::parse(BitstreamRange& range)
-{
-  //parse_full_box_header(range);
-
-  uint8_t byte;
-
-  auto& c = m_configuration; // abbreviation
-
-  c.configuration_version = range.read8();
-  byte = range.read8();
-  c.general_profile_space = (byte >> 6) & 3;
-  c.general_tier_flag = (byte >> 5) & 1;
-  c.general_profile_idc = (byte & 0x1F);
-
-  c.general_profile_compatibility_flags = range.read32();
-
-  for (int i = 0; i < 6; i++) {
-    byte = range.read8();
-
-    for (int b = 0; b < 8; b++) {
-      c.general_constraint_indicator_flags[i * 8 + b] = (byte >> (7 - b)) & 1;
-    }
-  }
-
-  c.general_level_idc = range.read8();
-  c.min_spatial_segmentation_idc = range.read16() & 0x0FFF;
-  c.parallelism_type = range.read8() & 0x03;
-  c.chroma_format = range.read8() & 0x03;
-  c.bit_depth_luma = static_cast<uint8_t>((range.read8() & 0x07) + 8);
-  c.bit_depth_chroma = static_cast<uint8_t>((range.read8() & 0x07) + 8);
-  c.avg_frame_rate = range.read16();
-
-  byte = range.read8();
-  c.constant_frame_rate = (byte >> 6) & 0x03;
-  c.num_temporal_layers = (byte >> 3) & 0x07;
-  c.temporal_id_nested = (byte >> 2) & 1;
-
-  m_length_size = static_cast<uint8_t>((byte & 0x03) + 1);
-
-  int nArrays = range.read8();
-
-  for (int i = 0; i < nArrays && !range.error(); i++) {
-    byte = range.read8();
-
-    NalArray array;
-
-    array.m_array_completeness = (byte >> 6) & 1;
-    array.m_NAL_unit_type = (byte & 0x3F);
-
-    int nUnits = range.read16();
-    for (int u = 0; u < nUnits && !range.error(); u++) {
-
-      std::vector<uint8_t> nal_unit;
-      int size = range.read16();
-      if (!size) {
-        // Ignore empty NAL units.
-        continue;
-      }
-
-      if (range.prepare_read(size)) {
-        nal_unit.resize(size);
-        bool success = range.get_istream()->read((char*) nal_unit.data(), size);
-        assert(success);
-        (void) success;
-      }
-
-      array.m_nal_units.push_back(std::move(nal_unit));
-    }
-
-    m_nal_array.push_back(std::move(array));
-  }
-
-  range.skip_to_end_of_box();
-
-  return range.get_error();
-}
-
-
-std::string Box_hvcC::dump(Indent& indent) const
-{
-  std::ostringstream sstr;
-  sstr << Box::dump(indent);
-
-  const auto& c = m_configuration; // abbreviation
-
-  sstr << indent << "configuration_version: " << ((int) c.configuration_version) << "\n"
-       << indent << "general_profile_space: " << ((int) c.general_profile_space) << "\n"
-       << indent << "general_tier_flag: " << c.general_tier_flag << "\n"
-       << indent << "general_profile_idc: " << ((int) c.general_profile_idc) << "\n";
-
-  sstr << indent << "general_profile_compatibility_flags: ";
-  for (int i = 0; i < 32; i++) {
-    sstr << ((c.general_profile_compatibility_flags >> (31 - i)) & 1);
-    if ((i % 8) == 7) sstr << ' ';
-    else if ((i % 4) == 3) sstr << '.';
-  }
-  sstr << "\n";
-
-  sstr << indent << "general_constraint_indicator_flags: ";
-  int cnt = 0;
-  for (int i = 0; i < configuration::NUM_CONSTRAINT_INDICATOR_FLAGS; i++) {
-    bool b = c.general_constraint_indicator_flags[i];
-
-    sstr << (b ? 1 : 0);
-    cnt++;
-    if ((cnt % 8) == 0)
-      sstr << ' ';
-  }
-  sstr << "\n";
-
-  sstr << indent << "general_level_idc: " << ((int) c.general_level_idc) << "\n"
-       << indent << "min_spatial_segmentation_idc: " << c.min_spatial_segmentation_idc << "\n"
-       << indent << "parallelism_type: " << ((int) c.parallelism_type) << "\n"
-       << indent << "chroma_format: ";
-
-  switch (c.chroma_format) {
-    case 1:
-      sstr << "4:2:0";
-      break;
-    case 2:
-      sstr << "4:2:2";
-      break;
-    case 3:
-      sstr << "4:4:4";
-      break;
-    default:
-      sstr << ((int) c.chroma_format);
-      break;
-  }
-
-  sstr << "\n"
-       << indent << "bit_depth_luma: " << ((int) c.bit_depth_luma) << "\n"
-       << indent << "bit_depth_chroma: " << ((int) c.bit_depth_chroma) << "\n"
-       << indent << "avg_frame_rate: " << c.avg_frame_rate << "\n"
-       << indent << "constant_frame_rate: " << ((int) c.constant_frame_rate) << "\n"
-       << indent << "num_temporal_layers: " << ((int) c.num_temporal_layers) << "\n"
-       << indent << "temporal_id_nested: " << ((int) c.temporal_id_nested) << "\n"
-       << indent << "length_size: " << ((int) m_length_size) << "\n";
-
-  for (const auto& array : m_nal_array) {
-    sstr << indent << "<array>\n";
-
-    indent++;
-    sstr << indent << "array_completeness: " << ((int) array.m_array_completeness) << "\n"
-         << indent << "NAL_unit_type: " << ((int) array.m_NAL_unit_type) << "\n";
-
-    for (const auto& unit : array.m_nal_units) {
-      //sstr << "  unit with " << unit.size() << " bytes of data\n";
-      sstr << indent;
-      for (uint8_t b : unit) {
-        sstr << std::setfill('0') << std::setw(2) << std::hex << ((int) b) << " ";
-      }
-      sstr << "\n";
-      sstr << std::dec;
-    }
-
-    indent--;
-  }
-
-  return sstr.str();
-}
-
-
-bool Box_hvcC::get_headers(std::vector<uint8_t>* dest) const
-{
-  for (const auto& array : m_nal_array) {
-    for (const auto& unit : array.m_nal_units) {
-
-      dest->push_back((unit.size() >> 24) & 0xFF);
-      dest->push_back((unit.size() >> 16) & 0xFF);
-      dest->push_back((unit.size() >> 8) & 0xFF);
-      dest->push_back((unit.size() >> 0) & 0xFF);
-
-      /*
-      dest->push_back(0);
-      dest->push_back(0);
-      dest->push_back(1);
-      */
-
-      dest->insert(dest->end(), unit.begin(), unit.end());
-    }
-  }
-
-  return true;
-}
-
-
-void Box_hvcC::append_nal_data(const std::vector<uint8_t>& nal)
-{
-  NalArray array;
-  array.m_array_completeness = 0;
-  array.m_NAL_unit_type = uint8_t(nal[0] >> 1);
-  array.m_nal_units.push_back(nal);
-
-  m_nal_array.push_back(array);
-}
-
-void Box_hvcC::append_nal_data(const uint8_t* data, size_t size)
-{
-  std::vector<uint8_t> nal;
-  nal.resize(size);
-  memcpy(nal.data(), data, size);
-
-  NalArray array;
-  array.m_array_completeness = 0;
-  array.m_NAL_unit_type = uint8_t(nal[0] >> 1);
-  array.m_nal_units.push_back(std::move(nal));
-
-  m_nal_array.push_back(array);
-}
-
-
-Error Box_hvcC::write(StreamWriter& writer) const
-{
-  size_t box_start = reserve_box_header_space(writer);
-
-  const auto& c = m_configuration; // abbreviation
-
-  writer.write8(c.configuration_version);
-
-  writer.write8((uint8_t) (((c.general_profile_space & 3) << 6) |
-                           ((c.general_tier_flag & 1) << 5) |
-                           (c.general_profile_idc & 0x1F)));
-
-  writer.write32(c.general_profile_compatibility_flags);
-
-  for (int i = 0; i < 6; i++) {
-    uint8_t byte = 0;
-
-    for (int b = 0; b < 8; b++) {
-      if (c.general_constraint_indicator_flags[i * 8 + b]) {
-        byte |= 1;
-      }
-
-      byte = (uint8_t) (byte << 1);
-    }
-
-    writer.write8(byte);
-  }
-
-  writer.write8(c.general_level_idc);
-  writer.write16((c.min_spatial_segmentation_idc & 0x0FFF) | 0xF000);
-  writer.write8(c.parallelism_type | 0xFC);
-  writer.write8(c.chroma_format | 0xFC);
-  writer.write8((uint8_t) ((c.bit_depth_luma - 8) | 0xF8));
-  writer.write8((uint8_t) ((c.bit_depth_chroma - 8) | 0xF8));
-  writer.write16(c.avg_frame_rate);
-
-  writer.write8((uint8_t) (((c.constant_frame_rate & 0x03) << 6) |
-                           ((c.num_temporal_layers & 0x07) << 3) |
-                           ((c.temporal_id_nested & 1) << 2) |
-                           ((m_length_size - 1) & 0x03)));
-
-  size_t nArrays = m_nal_array.size();
-  if (nArrays > 0xFF) {
-    // TODO: error: too many NAL units
-  }
-
-  writer.write8((uint8_t) nArrays);
-
-  for (const NalArray& array : m_nal_array) {
-
-    writer.write8((uint8_t) (((array.m_array_completeness & 1) << 6) |
-                             (array.m_NAL_unit_type & 0x3F)));
-
-    size_t nUnits = array.m_nal_units.size();
-    if (nUnits > 0xFFFF) {
-      // TODO: error: too many NAL units
-    }
-
-    writer.write16((uint16_t) nUnits);
-
-    for (const std::vector<uint8_t>& nal_unit : array.m_nal_units) {
-      writer.write16((uint16_t) nal_unit.size());
-      writer.write(nal_unit);
-    }
-  }
-
-  prepend_header(writer, box_start);
-
-  return Error::Ok;
-}
-
-
-Error Box_av1C::parse(BitstreamRange& range)
-{
-  //parse_full_box_header(range);
-
-  uint8_t byte;
-
-  auto& c = m_configuration; // abbreviation
-
-  byte = range.read8();
-  if ((byte & 0x80) == 0) {
-    // error: marker bit not set
-  }
-
-  c.version = byte & 0x7F;
-
-  byte = range.read8();
-  c.seq_profile = (byte >> 5) & 0x7;
-  c.seq_level_idx_0 = byte & 0x1f;
-
-  byte = range.read8();
-  c.seq_tier_0 = (byte >> 7) & 1;
-  c.high_bitdepth = (byte >> 6) & 1;
-  c.twelve_bit = (byte >> 5) & 1;
-  c.monochrome = (byte >> 4) & 1;
-  c.chroma_subsampling_x = (byte >> 3) & 1;
-  c.chroma_subsampling_y = (byte >> 2) & 1;
-  c.chroma_sample_position = byte & 3;
-
-  byte = range.read8();
-  c.initial_presentation_delay_present = (byte >> 4) & 1;
-  if (c.initial_presentation_delay_present) {
-    c.initial_presentation_delay_minus_one = byte & 0x0F;
-  }
-
-  const size_t configOBUs_bytes = range.get_remaining_bytes();
-  m_config_OBUs.resize(configOBUs_bytes);
-
-  if (!range.read(m_config_OBUs.data(), configOBUs_bytes)) {
-    // error
-  }
-
-  return range.get_error();
-}
-
-
-Error Box_av1C::write(StreamWriter& writer) const
-{
-  size_t box_start = reserve_box_header_space(writer);
-
-  const auto& c = m_configuration; // abbreviation
-
-  writer.write8(c.version | 0x80);
-
-  writer.write8((uint8_t) (((c.seq_profile & 0x7) << 5) |
-                           (c.seq_level_idx_0 & 0x1f)));
-
-  writer.write8((uint8_t) ((c.seq_tier_0 ? 0x80 : 0) |
-                           (c.high_bitdepth ? 0x40 : 0) |
-                           (c.twelve_bit ? 0x20 : 0) |
-                           (c.monochrome ? 0x10 : 0) |
-                           (c.chroma_subsampling_x ? 0x08 : 0) |
-                           (c.chroma_subsampling_y ? 0x04 : 0) |
-                           (c.chroma_sample_position & 0x03)));
-
-  writer.write8(0); // TODO initial_presentation_delay
-
-  prepend_header(writer, box_start);
-
-  return Error::Ok;
-}
-
-
-std::string Box_av1C::dump(Indent& indent) const
-{
-  std::ostringstream sstr;
-  sstr << Box::dump(indent);
-
-  const auto& c = m_configuration; // abbreviation
-
-  sstr << indent << "version: " << ((int) c.version) << "\n"
-       << indent << "seq_profile: " << ((int) c.seq_profile) << "\n"
-       << indent << "seq_level_idx_0: " << ((int) c.seq_level_idx_0) << "\n"
-       << indent << "high_bitdepth: " << ((int) c.high_bitdepth) << "\n"
-       << indent << "twelve_bit: " << ((int) c.twelve_bit) << "\n"
-       << indent << "chroma_subsampling_x: " << ((int) c.chroma_subsampling_x) << "\n"
-       << indent << "chroma_subsampling_y: " << ((int) c.chroma_subsampling_y) << "\n"
-       << indent << "chroma_sample_position: " << ((int) c.chroma_sample_position) << "\n"
-       << indent << "initial_presentation_delay: ";
-
-  if (c.initial_presentation_delay_present) {
-    sstr << c.initial_presentation_delay_minus_one + 1 << "\n";
-  }
-  else {
-    sstr << "not present\n";
-  }
-
-  sstr << indent << "config OBUs:";
-  for (size_t i = 0; i < m_config_OBUs.size(); i++) {
-    sstr << " " << std::hex << std::setfill('0') << std::setw(2)
-         << ((int) m_config_OBUs[i]);
-  }
-  sstr << std::dec << "\n";
-
-  return sstr.str();
-}
-
-
-Error Box_vvcC::parse(BitstreamRange& range)
-{
-  //parse_full_box_header(range);
-
-  uint8_t byte;
-
-  auto& c = m_configuration; // abbreviation
-
-  c.configurationVersion = range.read8();
-  c.avgFrameRate_times_256 = range.read16();
-
-  //printf("version: %d\n", c.configurationVersion);
-
-  byte = range.read8();
-  c.constantFrameRate = (byte & 0xc0) >> 6;
-  c.numTemporalLayers = (byte & 0x38) >> 3;
-  c.lengthSize = (byte & 0x06) + 1;
-  c.ptl_present_flag = (byte & 0x01);
-  // assert(c.ptl_present_flag == false); // TODO   (removed the assert since it will trigger the fuzzers)
-
-  byte = range.read8();
-  c.chroma_format_present_flag = (byte & 0x80);
-  c.chroma_format_idc = (byte & 0x60) >> 5;
-
-  c.bit_depth_present_flag = (byte & 0x10);
-  c.bit_depth = ((byte & 0x0e) >> 1) + 8;
-
-  c.numOfArrays = range.read8();
-
-#if 0
-  const int64_t configOBUs_bytes = range.get_remaining_bytes();
-  m_config_OBUs.resize(configOBUs_bytes);
-
-  if (!range.read(m_config_OBUs.data(), configOBUs_bytes)) {
-    // error
-  }
-#endif
-
-  return range.get_error();
-}
-
-
-Error Box_vvcC::write(StreamWriter& writer) const
-{
-  size_t box_start = reserve_box_header_space(writer);
-
-#if 0
-  const auto& c = m_configuration; // abbreviation
-
-  writer.write8(c.version | 0x80);
-
-  writer.write8((uint8_t) (((c.seq_profile & 0x7) << 5) |
-                           (c.seq_level_idx_0 & 0x1f)));
-#endif
-
-  prepend_header(writer, box_start);
-
-  return Error::Ok;
-}
-
-
-static const char* vvc_chroma_names[4] = {"mono", "4:2:0", "4:2:2", "4:4:4"};
-
-std::string Box_vvcC::dump(Indent& indent) const
-{
-  std::ostringstream sstr;
-  sstr << Box::dump(indent);
-
-  const auto& c = m_configuration; // abbreviation
-
-  sstr << indent << "version: " << ((int) c.configurationVersion) << "\n"
-       << indent << "frame-rate: " << (c.avgFrameRate_times_256 / 256.0f) << "\n"
-       << indent << "constant frame rate: " << (c.constantFrameRate == 1 ? "constant" : (c.constantFrameRate == 2 ? "multi-layer" : "unknown")) << "\n"
-       << indent << "num temporal layers: " << ((int) c.numTemporalLayers) << "\n"
-       << indent << "length size: " << ((int) c.lengthSize) << "\n"
-       << indent << "chroma-format: ";
-  if (c.chroma_format_present_flag) {
-    sstr << vvc_chroma_names[c.chroma_format_idc] << "\n";
-  }
-  else {
-    sstr << "---\n";
-  }
-
-  sstr << indent << "bit-depth: ";
-  if (c.bit_depth_present_flag) {
-    sstr << ((int) c.bit_depth) << "\n";
-  }
-  else {
-    sstr << "---\n";
-  }
-
-  sstr << "num of arrays: " << ((int) c.numOfArrays) << "\n";
-
-#if 0
-  sstr << indent << "config OBUs:";
-  for (size_t i = 0; i < m_config_OBUs.size(); i++) {
-    sstr << " " << std::hex << std::setfill('0') << std::setw(2)
-         << ((int) m_config_OBUs[i]);
-  }
-  sstr << std::dec << "\n";
-#endif
-
-  return sstr.str();
 }
 
 
@@ -3722,6 +3035,7 @@ std::string Box_url::dump(Indent& indent) const
   return sstr.str();
 }
 
+
 Error Box_udes::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
@@ -3753,4 +3067,3 @@ Error Box_udes::write(StreamWriter& writer) const
   prepend_header(writer, box_start);
   return Error::Ok;
 }
-

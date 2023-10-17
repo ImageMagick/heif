@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -21,11 +21,10 @@
 #ifndef LIBHEIF_FILE_H
 #define LIBHEIF_FILE_H
 
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
+#include "avif.h"
 #include "box.h"
+#include "hevc.h"
+#include "nclx.h"
 
 #include <map>
 #include <memory>
@@ -45,6 +44,7 @@ class HeifPixelImage;
 
 class HeifImage;
 
+class Box_j2kH;
 
 class HeifFile
 {
@@ -76,6 +76,8 @@ public:
   std::string get_item_type(heif_item_id ID) const;
 
   std::string get_content_type(heif_item_id ID) const;
+
+  std::string get_item_uri_type(heif_item_id ID) const;
 
   Error get_compressed_image_data(heif_item_id ID, std::vector<uint8_t>* out_data) const;
 
@@ -136,6 +138,9 @@ public:
 
   heif_item_id add_new_image(const char* item_type);
 
+  heif_item_id add_new_hidden_image(const char* item_type);
+
+
   std::shared_ptr<Box_infe> add_new_infe_box(const char* item_type);
 
   void add_hvcC_property(heif_item_id id);
@@ -149,6 +154,8 @@ public:
   void add_av1C_property(heif_item_id id);
 
   Error set_av1C_configuration(heif_item_id id, const Box_av1C::configuration& config);
+
+  std::shared_ptr<Box_j2kH> add_j2kH_property(heif_item_id id);
 
   void add_ispe_property(heif_item_id id, uint32_t width, uint32_t height);
 
@@ -221,6 +228,8 @@ private:
                                       std::unordered_set<heif_item_id>& parent_items) const;
 
   std::shared_ptr<Box_infe> get_infe(heif_item_id ID) const;
+
+  int jpeg_get_bits_per_pixel(heif_item_id imageID) const;
 };
 
 #endif

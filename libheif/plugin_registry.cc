@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -18,15 +18,13 @@
  * along with libheif.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
 #include <utility>
 #include <cstring>
 #include <algorithm>
 
 #include "plugin_registry.h"
+#include "init.h"
+
 
 #if HAVE_LIBDE265
 #include "libheif/plugins/decoder_libde265.h"
@@ -34,6 +32,10 @@
 
 #if HAVE_X265
 #include "libheif/plugins/encoder_x265.h"
+#endif
+
+#if HAVE_KVAZAAR
+#include "libheif/plugins/encoder_kvazaar.h"
 #endif
 
 #if HAVE_AOM_ENCODER
@@ -56,15 +58,52 @@
 #include "libheif/plugins/encoder_svt.h"
 #endif
 
+#if HAVE_FFMPEG_HEVC_DECODER
+#include "libheif/plugins/decoder_ffmpeg_hevc.h"
+#endif
+
 #if WITH_UNCOMPRESSED_CODEC
 #include "libheif/plugins/encoder_uncompressed.h"
 #endif
 
+#if HAVE_JPEG_DECODER
+#include "libheif/plugins/decoder_jpeg.h"
+#endif
+
+#if HAVE_JPEG_ENCODER
+#include "libheif/plugins/encoder_jpeg.h"
+#endif
+
+#if HAVE_OPENJPEG_ENCODER
+#include "libheif/plugins/encoder_openjpeg.h"
+#endif
+
+#if HAVE_OPENJPEG_DECODER
+#include "libheif/plugins/decoder_openjpeg.h"
+#endif
+
+#include "libheif/plugins/encoder_mask.h"
 
 std::set<const struct heif_decoder_plugin*> s_decoder_plugins;
 
 std::multiset<std::unique_ptr<struct heif_encoder_descriptor>,
               encoder_descriptor_priority_order> s_encoder_descriptors;
+
+std::set<const struct heif_decoder_plugin*>& get_decoder_plugins()
+{
+  load_plugins_if_not_initialized_yet();
+
+  return s_decoder_plugins;
+}
+
+extern std::multiset<std::unique_ptr<struct heif_encoder_descriptor>,
+                     encoder_descriptor_priority_order>& get_encoder_descriptors()
+{
+  load_plugins_if_not_initialized_yet();
+
+  return s_encoder_descriptors;
+}
+
 
 // Note: we cannot move this to 'heif_init' because we have to make sure that this is initialized
 // AFTER the two global std::set above.
@@ -88,6 +127,10 @@ void register_default_plugins()
   register_encoder(get_encoder_plugin_x265());
 #endif
 
+#if HAVE_KVAZAAR
+  register_encoder(get_encoder_plugin_kvazaar());
+#endif
+
 #if HAVE_AOM_ENCODER
   register_encoder(get_encoder_plugin_aom());
 #endif
@@ -108,9 +151,31 @@ void register_default_plugins()
   register_encoder(get_encoder_plugin_svt());
 #endif
 
+#if HAVE_FFMPEG_HEVC_DECODER
+  register_decoder(get_decoder_plugin_ffmpeg());
+#endif
+
+#if HAVE_JPEG_DECODER
+  register_decoder(get_decoder_plugin_jpeg());
+#endif
+
+#if HAVE_JPEG_ENCODER
+  register_encoder(get_encoder_plugin_jpeg());
+#endif
+
+#if HAVE_OPENJPEG_ENCODER
+  register_encoder(get_encoder_plugin_openjpeg());
+#endif
+
+#if HAVE_OPENJPEG_DECODER
+  register_decoder(get_decoder_plugin_openjpeg());
+#endif
+
 #if WITH_UNCOMPRESSED_CODEC
   register_encoder(get_encoder_plugin_uncompressed());
 #endif
+
+register_encoder(get_encoder_plugin_mask());
 }
 
 
@@ -126,6 +191,8 @@ void register_decoder(const heif_decoder_plugin* decoder_plugin)
 
 const struct heif_decoder_plugin* get_decoder(enum heif_compression_format type, const char* name_id)
 {
+  load_plugins_if_not_initialized_yet();
+
   int highest_priority = 0;
   const struct heif_decoder_plugin* best_plugin = nullptr;
 
@@ -164,6 +231,8 @@ void register_encoder(const heif_encoder_plugin* encoder_plugin)
 
 const struct heif_encoder_plugin* get_encoder(enum heif_compression_format type)
 {
+  load_plugins_if_not_initialized_yet();
+
   auto filtered_encoder_descriptors = get_filtered_encoder_descriptors(type, nullptr);
   if (filtered_encoder_descriptors.size() > 0) {
     return filtered_encoder_descriptors[0]->plugin;
@@ -195,3 +264,40 @@ get_filtered_encoder_descriptors(enum heif_compression_format format,
 
   return filtered_descriptors;
 }
+
+
+void heif_unregister_decoder_plugins()
+{
+  for (const auto* plugin : s_decoder_plugins) {
+    if (plugin->deinit_plugin) {
+      (*plugin->deinit_plugin)();
+    }
+  }
+  s_decoder_plugins.clear();
+}
+
+void heif_unregister_encoder_plugins()
+{
+  for (const auto& plugin : s_encoder_descriptors) {
+    if (plugin->plugin->cleanup_plugin) {
+      (*plugin->plugin->cleanup_plugin)();
+    }
+  }
+  s_encoder_descriptors.clear();
+}
+
+#if ENABLE_PLUGIN_LOADING
+void heif_unregister_encoder_plugin(const heif_encoder_plugin* plugin)
+{
+  if (plugin->cleanup_plugin) {
+    (*plugin->cleanup_plugin)();
+  }
+
+  for (auto iter = s_encoder_descriptors.begin() ; iter != s_encoder_descriptors.end(); ++iter) {
+    if ((*iter)->plugin == plugin) {
+      s_encoder_descriptors.erase(iter);
+      return;
+    }
+  }
+}
+#endif

@@ -1,6 +1,6 @@
 /*
  * HEIF codec.
- * Copyright (c) 2017 struktur AG, Dirk Farin <farin@struktur.de>
+ * Copyright (c) 2017 Dirk Farin <dirk.farin@gmail.com>
  *
  * This file is part of libheif.
  *
@@ -23,11 +23,7 @@
 
 #include <cstdint>
 #include "libheif/common_utils.h"
-
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
+#include "libheif/heif_properties.h"
 #include <cinttypes>
 #include <cstddef>
 
@@ -74,6 +70,9 @@ public:
 
   // may only use values up to int32_t maximum
   Fraction(uint32_t num, uint32_t den);
+
+  // Values will be reduced until they fit into int32_t.
+  Fraction(int64_t num, int64_t den);
 
   Fraction operator+(const Fraction&) const;
 
@@ -266,13 +265,13 @@ public:
 
   std::vector<uint32_t> list_brands() const { return m_compatible_brands; }
 
-  void set_major_brand(uint32_t major_brand) { m_major_brand = major_brand; }
+  void set_major_brand(heif_brand2 major_brand) { m_major_brand = major_brand; }
 
   void set_minor_version(uint32_t minor_version) { m_minor_version = minor_version; }
 
   void clear_compatible_brands() { m_compatible_brands.clear(); }
 
-  void add_compatible_brand(uint32_t brand);
+  void add_compatible_brand(heif_brand2 brand);
 
   Error write(StreamWriter& writer) const override;
 
@@ -282,7 +281,7 @@ protected:
 private:
   uint32_t m_major_brand = 0;
   uint32_t m_minor_version = 0;
-  std::vector<uint32_t> m_compatible_brands;
+  std::vector<heif_brand2> m_compatible_brands;
 };
 
 
@@ -469,6 +468,8 @@ public:
   void derive_box_version() override;
 
   Error write(StreamWriter& writer) const override;
+
+  const std::string& get_item_uri_type() const { return m_item_uri_type; }
 
 protected:
   Error parse(BitstreamRange& range) override;
@@ -761,7 +762,7 @@ public:
 
   std::vector<Reference> get_references_from(heif_item_id itemID) const;
 
-  void add_reference(heif_item_id from_id, uint32_t type, const std::vector<heif_item_id>& to_ids);
+  void add_references(heif_item_id from_id, uint32_t type, const std::vector<heif_item_id>& to_ids);
 
 protected:
   Error parse(BitstreamRange& range) override;
@@ -772,199 +773,6 @@ protected:
 
 private:
   std::vector<Reference> m_references;
-};
-
-
-class Box_hvcC : public Box
-{
-public:
-  Box_hvcC()
-  {
-    set_short_type(fourcc("hvcC"));
-  }
-
-  struct configuration
-  {
-    uint8_t configuration_version;
-    uint8_t general_profile_space;
-    bool general_tier_flag;
-    uint8_t general_profile_idc;
-    uint32_t general_profile_compatibility_flags;
-
-    static const int NUM_CONSTRAINT_INDICATOR_FLAGS = 48;
-    std::bitset<NUM_CONSTRAINT_INDICATOR_FLAGS> general_constraint_indicator_flags;
-
-    uint8_t general_level_idc;
-
-    uint16_t min_spatial_segmentation_idc;
-    uint8_t parallelism_type;
-    uint8_t chroma_format;
-    uint8_t bit_depth_luma;
-    uint8_t bit_depth_chroma;
-    uint16_t avg_frame_rate;
-
-    uint8_t constant_frame_rate;
-    uint8_t num_temporal_layers;
-    uint8_t temporal_id_nested;
-  };
-
-
-  std::string dump(Indent&) const override;
-
-  bool get_headers(std::vector<uint8_t>* dest) const;
-
-  void set_configuration(const configuration& config) { m_configuration = config; }
-
-  const configuration& get_configuration() const { return m_configuration; }
-
-  void append_nal_data(const std::vector<uint8_t>& nal);
-
-  void append_nal_data(const uint8_t* data, size_t size);
-
-  Error write(StreamWriter& writer) const override;
-
-protected:
-  Error parse(BitstreamRange& range) override;
-
-private:
-  struct NalArray
-  {
-    uint8_t m_array_completeness;
-    uint8_t m_NAL_unit_type;
-
-    std::vector<std::vector<uint8_t> > m_nal_units;
-  };
-
-  configuration m_configuration;
-  uint8_t m_length_size = 4; // default: 4 bytes for NAL unit lengths
-
-  std::vector<NalArray> m_nal_array;
-};
-
-
-class Box_av1C : public Box
-{
-public:
-  Box_av1C()
-  {
-    set_short_type(fourcc("av1C"));
-  }
-
-  struct configuration
-  {
-    //unsigned int (1) marker = 1;
-    uint8_t version = 1;
-    uint8_t seq_profile = 0;
-    uint8_t seq_level_idx_0 = 0;
-    uint8_t seq_tier_0 = 0;
-    uint8_t high_bitdepth = 0;
-    uint8_t twelve_bit = 0;
-    uint8_t monochrome = 0;
-    uint8_t chroma_subsampling_x = 0;
-    uint8_t chroma_subsampling_y = 0;
-    uint8_t chroma_sample_position = 0;
-    //uint8_t reserved = 0;
-
-    uint8_t initial_presentation_delay_present = 0;
-    uint8_t initial_presentation_delay_minus_one = 0;
-
-    //unsigned int (8)[] configOBUs;
-  };
-
-
-  std::string dump(Indent&) const override;
-
-  bool get_headers(std::vector<uint8_t>* dest) const
-  {
-    *dest = m_config_OBUs;
-    return true;
-  }
-
-  void set_configuration(const configuration& config) { m_configuration = config; }
-
-  const configuration& get_configuration() const { return m_configuration; }
-
-  //void append_nal_data(const std::vector<uint8_t>& nal);
-  //void append_nal_data(const uint8_t* data, size_t size);
-
-  Error write(StreamWriter& writer) const override;
-
-protected:
-  Error parse(BitstreamRange& range) override;
-
-private:
-  configuration m_configuration;
-
-  std::vector<uint8_t> m_config_OBUs;
-};
-
-
-class Box_vvcC : public Box
-{
-public:
-  Box_vvcC()
-  {
-    set_short_type(fourcc("vvcC"));
-  }
-
-  struct configuration
-  {
-    uint8_t configurationVersion = 1;
-    uint16_t avgFrameRate_times_256;
-    uint8_t constantFrameRate;
-    uint8_t numTemporalLayers;
-    uint8_t lengthSize;
-    bool ptl_present_flag;
-    //if (ptl_present_flag) {
-    //  VvcPTLRecord(numTemporalLayers) track_ptl;
-    //  uint16_t output_layer_set_idx;
-    //}
-    bool chroma_format_present_flag;
-    uint8_t chroma_format_idc;
-
-    bool bit_depth_present_flag;
-    uint8_t bit_depth;
-
-    uint8_t numOfArrays;
-#if 0
-    for (j=0; j < numOfArrays; j++) {
-      unsigned int(1) array_completeness;
-      bit(1) reserved = 0;
-      unsigned int(6) NAL_unit_type;
-      unsigned int(16) numNalus;
-      for (i=0; i< numNalus; i++) {
-        unsigned int(16) nalUnitLength;
-        bit(8*nalUnitLength) nalUnit;
-      }
-    }
-#endif
-  };
-
-
-  std::string dump(Indent&) const override;
-
-  bool get_headers(std::vector<uint8_t>* dest) const
-  {
-    *dest = m_config_NALs;
-    return true;
-  }
-
-  void set_configuration(const configuration& config) { m_configuration = config; }
-
-  const configuration& get_configuration() const { return m_configuration; }
-
-  //void append_nal_data(const std::vector<uint8_t>& nal);
-  //void append_nal_data(const uint8_t* data, size_t size);
-
-  Error write(StreamWriter& writer) const override;
-
-protected:
-  Error parse(BitstreamRange& range) override;
-
-private:
-  configuration m_configuration;
-
-  std::vector<uint8_t> m_config_NALs;
 };
 
 
@@ -1118,50 +926,15 @@ protected:
 };
 
 
-class Box_a1op : public Box
-{
-public:
-  Box_a1op()
-  {
-    set_short_type(fourcc("a1op"));
-  }
-
-  uint8_t op_index = 0;
-
-  std::string dump(Indent&) const override;
-
-  Error write(StreamWriter& writer) const override;
-
-protected:
-  Error parse(BitstreamRange& range) override;
-};
-
-
-class Box_a1lx : public Box
-{
-public:
-  Box_a1lx()
-  {
-    set_short_type(fourcc("a1lx"));
-  }
-
-  uint32_t layer_size[3]{};
-
-  std::string dump(Indent&) const override;
-
-  Error write(StreamWriter& writer) const override;
-
-protected:
-  Error parse(BitstreamRange& range) override;
-};
-
-
 class Box_clli : public Box
 {
 public:
   Box_clli()
   {
     set_short_type(fourcc("clli"));
+
+    clli.max_content_light_level = 0;
+    clli.max_pic_average_light_level = 0;
   }
 
   heif_content_light_level clli;
@@ -1178,10 +951,7 @@ protected:
 class Box_mdcv : public Box
 {
 public:
-  Box_mdcv()
-  {
-    set_short_type(fourcc("mdcv"));
-  }
+  Box_mdcv();
 
   heif_mastering_display_colour_volume mdcv;
 
@@ -1193,113 +963,6 @@ protected:
   Error parse(BitstreamRange& range) override;
 };
 
-
-class color_profile
-{
-public:
-  virtual ~color_profile() = default;
-
-  virtual uint32_t get_type() const = 0;
-
-  virtual std::string dump(Indent&) const = 0;
-
-  virtual Error write(StreamWriter& writer) const = 0;
-};
-
-class color_profile_raw : public color_profile
-{
-public:
-  color_profile_raw(uint32_t type, const std::vector<uint8_t>& data)
-      : m_type(type), m_data(data) {}
-
-  uint32_t get_type() const override { return m_type; }
-
-  const std::vector<uint8_t>& get_data() const { return m_data; }
-
-  std::string dump(Indent&) const override;
-
-  Error write(StreamWriter& writer) const override;
-
-private:
-  uint32_t m_type;
-  std::vector<uint8_t> m_data;
-};
-
-
-class color_profile_nclx : public color_profile
-{
-public:
-  color_profile_nclx() { set_default(); }
-
-  uint32_t get_type() const override { return fourcc("nclx"); }
-
-  std::string dump(Indent&) const override;
-
-  Error parse(BitstreamRange& range);
-
-  Error write(StreamWriter& writer) const override;
-
-  uint16_t get_colour_primaries() const { return m_colour_primaries; }
-
-  uint16_t get_transfer_characteristics() const { return m_transfer_characteristics; }
-
-  uint16_t get_matrix_coefficients() const { return m_matrix_coefficients; }
-
-  bool get_full_range_flag() const { return m_full_range_flag; }
-
-  void set_colour_primaries(uint16_t primaries) { m_colour_primaries = primaries; }
-
-  void set_transfer_characteristics(uint16_t characteristics) { m_transfer_characteristics = characteristics; }
-
-  void set_matrix_coefficients(uint16_t coefficients) { m_matrix_coefficients = coefficients; }
-
-  void set_full_range_flag(bool full_range) { m_full_range_flag = full_range; }
-
-  void set_default();
-
-  void set_undefined();
-
-  Error get_nclx_color_profile(struct heif_color_profile_nclx** out_data) const;
-
-  static struct heif_color_profile_nclx* alloc_nclx_color_profile();
-
-  static void free_nclx_color_profile(struct heif_color_profile_nclx* profile);
-
-  void set_from_heif_color_profile_nclx(const struct heif_color_profile_nclx* nclx);
-
-private:
-  uint16_t m_colour_primaries = heif_color_primaries_unspecified;
-  uint16_t m_transfer_characteristics = heif_transfer_characteristic_unspecified;
-  uint16_t m_matrix_coefficients = heif_matrix_coefficients_unspecified;
-  bool m_full_range_flag = true;
-};
-
-
-class Box_colr : public Box
-{
-public:
-  Box_colr()
-  {
-    set_short_type(fourcc("colr"));
-  }
-
-  std::string dump(Indent&) const override;
-
-  uint32_t get_color_profile_type() const { return m_color_profile->get_type(); }
-
-  const std::shared_ptr<const color_profile>& get_color_profile() const { return m_color_profile; }
-
-  void set_color_profile(const std::shared_ptr<const color_profile>& prof) { m_color_profile = prof; }
-
-
-  Error write(StreamWriter& writer) const override;
-
-protected:
-  Error parse(BitstreamRange& range) override;
-
-private:
-  std::shared_ptr<const color_profile> m_color_profile;
-};
 
 /**
  * User Description property.
