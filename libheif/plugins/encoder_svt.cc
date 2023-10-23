@@ -569,6 +569,8 @@ struct heif_error svt_encode_image(void* encoder_raw, const struct heif_image* i
   auto* encoder = (struct encoder_struct_svt*) encoder_raw;
   EbErrorType res = EB_ErrorNone;
 
+  encoder->compressed_data.clear();
+
   int w = heif_image_get_width(image, heif_channel_Y);
   int h = heif_image_get_height(image, heif_channel_Y);
 
@@ -585,7 +587,7 @@ struct heif_error svt_encode_image(void* encoder_raw, const struct heif_image* i
   }
 
   const heif_chroma chroma = heif_image_get_chroma_format(image);
-  int bitdepth_y = heif_image_get_bits_per_pixel(image, heif_channel_Y);
+  int bitdepth_y = heif_image_get_bits_per_pixel_range(image, heif_channel_Y);
 
   uint8_t yShift = 0;
   EbColorFormat color_format = EB_YUV420;

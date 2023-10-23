@@ -1,6 +1,12 @@
 cmake_minimum_required (VERSION 3.16.3) # Oldest Ubuntu LTS (20.04 currently)
 
-project(libheif LANGUAGES C CXX VERSION 1.17.0)
+project(libheif LANGUAGES C CXX VERSION 1.17.1)
+
+# compatibility_version is never allowed to be decreased for any specific SONAME.
+# Libtool in the libheif-1.15.1 release had set it to 17.0.0, so we have to use this for the v1.x.y versions.
+# With v2.0.0, we can reset this to more closely follow the real version name, i.e. "2.0.0".
+# CMake 3.17.0 added "MACHO_COMPATIBILITY_VERSION", but we are currently stuck at cmake 3.16.3.
+set(MACOS_COMPATIBLE_VERSION "17.0.0")
 
 # https://cmake.org/cmake/help/v3.1/policy/CMP0054.html
 cmake_policy(VERSION 3.0...3.22)
@@ -112,7 +118,7 @@ endif()
 plugin_option(KVAZAAR "kvazaar HEVC encoder" OFF OFF)
 if (WITH_KVAZAAR)
     find_package(kvazaar)
-    if (HAVE_KVAZAAR_ENABLE_LOGGING)
+    if ("${HAVE_KVAZAAR_ENABLE_LOGGING}")
         add_definitions(-DHAVE_KVAZAAR_ENABLE_LOGGING=1)
     else ()
         add_definitions(-DHAVE_KVAZAAR_ENABLE_LOGGING=0)
@@ -183,8 +189,8 @@ plugin_compilation_info(LIBDE265 LIBDE265 "libde265 HEVC decoder")
 plugin_compilation_info(FFMPEG_DECODER FFMPEG_avcodec "FFMPEG HEVC decoder (HW acc)")
 plugin_compilation_info(X265 X265 "x265 HEVC encoder")
 plugin_compilation_info(KVAZAAR KVAZAAR "Kvazaar HEVC encoder")
-plugin_compilation_info(AOM_DECODER AOM "AOM AV1 decoder")
-plugin_compilation_info(AOM_ENCODER AOM "AOM AV1 encoder")
+plugin_compilation_info(AOM_DECODER AOM_DECODER "AOM AV1 decoder")
+plugin_compilation_info(AOM_ENCODER AOM_ENCODER "AOM AV1 encoder")
 plugin_compilation_info(DAV1D DAV1D "Dav1d AV1 decoder")
 plugin_compilation_info(SvtEnc SvtEnc "SVT AV1 encoder")
 plugin_compilation_info(RAV1E RAV1E "Rav1e AV1 encoder")
@@ -254,6 +260,14 @@ if (LIBSHARPYUV_FOUND)
     list(APPEND REQUIRES_PRIVATE "libsharpyuv")
 endif()
 list(JOIN REQUIRES_PRIVATE " " REQUIRES_PRIVATE)
+
+include(CheckCXXSymbolExists)
+check_cxx_symbol_exists(_LIBCPP_VERSION cstdlib HAVE_LIBCPP)
+if(HAVE_LIBCPP)
+  set(LIBS_PRIVATE "-lc++")
+else()
+  set(LIBS_PRIVATE "-lstdc++")
+endif()
 
 configure_file(libheif.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libheif.pc @ONLY)
 

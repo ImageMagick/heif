@@ -85,7 +85,9 @@ Fraction::Fraction(int64_t num, int64_t den)
 Fraction Fraction::operator+(const Fraction& b) const
 {
   if (denominator == b.denominator) {
-    return Fraction{numerator + b.numerator, denominator};
+    int64_t n = numerator + b.numerator;
+    int64_t d = denominator;
+    return Fraction{n,d};
   }
   else {
     int64_t n = int64_t{numerator} * b.denominator + int64_t{b.numerator} * denominator;
@@ -97,7 +99,9 @@ Fraction Fraction::operator+(const Fraction& b) const
 Fraction Fraction::operator-(const Fraction& b) const
 {
   if (denominator == b.denominator) {
-    return Fraction{numerator - b.numerator, denominator};
+    int64_t n = numerator - b.numerator;
+    int64_t d = denominator;
+    return Fraction{n,d};
   }
   else {
     int64_t n = int64_t{numerator} * b.denominator - int64_t{b.numerator} * denominator;
@@ -2648,6 +2652,20 @@ Error Box_iref::parse(BitstreamRange& range)
   }
 
 
+#if 0
+  // Note: This input sanity check does not work as expected.
+  // Its idea was to prevent infinite recursions while decoding when the input file
+  // contains cyclic references. However, apparently there are cases where cyclic
+  // references are actually allowed, like with images that have premultiplied alpha channels:
+  // | Box: iref -----
+  // | size: 40   (header size: 12)
+  // | reference with type 'auxl' from ID: 2 to IDs: 1
+  // | reference with type 'prem' from ID: 1 to IDs: 2
+  //
+  // TODO: implement the infinite recursion detection in a different way. E.g. by passing down
+  //       the already processed item-ids while decoding an image and checking whether the current
+  //       item has already been decoded before.
+
   // --- check for cyclic references
 
   for (const auto& ref : m_references) {
@@ -2683,6 +2701,7 @@ Error Box_iref::parse(BitstreamRange& range)
       }
     }
   }
+#endif
 
   return range.get_error();
 }

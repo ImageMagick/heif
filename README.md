@@ -168,7 +168,7 @@ Further options are:
 * `ENABLE_MULTITHREADING_SUPPORT`: can be used to disable any multithreading support, e.g. for embedded platforms.
 * `ENABLE_PARALLEL_TILE_DECODING`: when enabled, libheif will decode tiled images in parallel to speed up compilation.
 * `PLUGIN_DIRECTORY`: the directory where libheif will search for dynamic plugins when the environment
-  variable `LIBHEIF_PLUGIN_PAT` is not set.
+  variable `LIBHEIF_PLUGIN_PATH` is not set.
 * `WITH_REDUCED_VISIBILITY`: only export those symbols into the library that are public API.
   Has to be turned off for running the tests.
 
@@ -365,6 +365,7 @@ You can [sponsor](https://github.com/sponsors/farindk) the development using the
 
 A big thank you goes to these major sponsors for supporting the development of libheif:
 
+* Pinterest
 * Shopify <img src="logos/sponsors/shopify.svg" alt="shopify-logo" height="20"/>
 * StrukturAG
 
