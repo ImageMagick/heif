@@ -85,7 +85,7 @@ Fraction::Fraction(int64_t num, int64_t den)
 Fraction Fraction::operator+(const Fraction& b) const
 {
   if (denominator == b.denominator) {
-    int64_t n = numerator + b.numerator;
+    int64_t n = int64_t{numerator} + b.numerator;
     int64_t d = denominator;
     return Fraction{n,d};
   }
@@ -99,7 +99,7 @@ Fraction Fraction::operator+(const Fraction& b) const
 Fraction Fraction::operator-(const Fraction& b) const
 {
   if (denominator == b.denominator) {
-    int64_t n = numerator - b.numerator;
+    int64_t n = int64_t{numerator} - b.numerator;
     int64_t d = denominator;
     return Fraction{n,d};
   }
@@ -617,7 +617,7 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result)
 
   box->set_short_header(hdr);
 
-  if (hdr.get_box_size() < hdr.get_header_size()) {
+  if (hdr.has_fixed_box_size() && hdr.get_box_size() < hdr.get_header_size()) {
     std::stringstream sstr;
     sstr << "Box size (" << hdr.get_box_size() << " bytes) smaller than header size ("
          << hdr.get_header_size() << " bytes)";
@@ -636,13 +636,14 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result)
   }
 
 
-  auto status = range.wait_for_available_bytes(hdr.get_box_size() - hdr.get_header_size());
-  if (status != StreamReader::size_reached) {
-    // TODO: return recoverable error at timeout
-    return Error(heif_error_Invalid_input,
-                 heif_suberror_End_of_data);
+  if (hdr.has_fixed_box_size()) {
+    auto status = range.wait_for_available_bytes(hdr.get_box_size() - hdr.get_header_size());
+    if (status != StreamReader::size_reached) {
+      // TODO: return recoverable error at timeout
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_End_of_data);
+    }
   }
-
 
   // Security check: make sure that box size does not exceed int64 size.
 
@@ -652,7 +653,7 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result)
   }
 
   int64_t box_size = static_cast<int64_t>(hdr.get_box_size());
-  int64_t box_size_without_header = box_size - hdr.get_header_size();
+  int64_t box_size_without_header = hdr.has_fixed_box_size() ? (box_size - hdr.get_header_size()) : (int64_t)range.get_remaining_bytes();
 
   // Box size may not be larger than remaining bytes in parent box.
 

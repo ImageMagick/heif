@@ -83,24 +83,19 @@ uint32_t heif_get_version_number(void)
   return (LIBHEIF_NUMERIC_VERSION);
 }
 
-static uint8_t bcd2dec(uint8_t v)
-{
-  return uint8_t((v >> 4) * 10 + (v & 0x0F));
-}
-
 int heif_get_version_number_major(void)
 {
-  return bcd2dec(((LIBHEIF_NUMERIC_VERSION) >> 24) & 0xFF);
+  return ((LIBHEIF_NUMERIC_VERSION) >> 24) & 0xFF;
 }
 
 int heif_get_version_number_minor(void)
 {
-  return bcd2dec(((LIBHEIF_NUMERIC_VERSION) >> 16) & 0xFF);
+  return ((LIBHEIF_NUMERIC_VERSION) >> 16) & 0xFF;
 }
 
 int heif_get_version_number_maintenance(void)
 {
-  return bcd2dec(((LIBHEIF_NUMERIC_VERSION) >> 8) & 0xFF);
+  return ((LIBHEIF_NUMERIC_VERSION) >> 8) & 0xFF;
 }
 
 
@@ -2606,7 +2601,7 @@ static void set_default_options(heif_encoding_options& options)
   options.macOS_compatibility_workaround = false;
   options.save_two_colr_boxes_when_ICC_and_nclx_available = false;
   options.output_nclx_profile = nullptr;
-  options.macOS_compatibility_workaround_no_nclx_profile = true;
+  options.macOS_compatibility_workaround_no_nclx_profile = false;
   options.image_orientation = heif_orientation_normal;
 
   options.color_conversion_options.version = 1;
