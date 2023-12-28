@@ -534,6 +534,9 @@ int UncompressedImageCodec::get_luma_bits_per_pixel_from_configuration_unci(cons
   int alternate_channel_bits = 0;
   for (Box_uncC::Component component : uncC_box->get_components()) {
     uint16_t component_index = component.component_index;
+    if (component_index >= cmpd_box->get_components().size()) {
+      return -1;
+    }
     auto component_type = cmpd_box->get_components()[component_index].component_type;
     switch (component_type) {
       case component_type_monochrome:
@@ -606,6 +609,12 @@ Error UncompressedImageCodec::decode_uncompressed_image(const std::shared_ptr<co
                                                         uint32_t maximum_image_height_limit,
                                                         const std::vector<uint8_t>& uncompressed_data)
 {
+  if (uncompressed_data.empty()) {
+    return {heif_error_Invalid_input,
+            heif_suberror_Unspecified,
+            "Uncompressed image data is empty"};
+  }
+
   // Get the properties for this item
   // We need: ispe, cmpd, uncC
   std::vector<std::shared_ptr<Box>> item_properties;
@@ -613,6 +622,7 @@ Error UncompressedImageCodec::decode_uncompressed_image(const std::shared_ptr<co
   if (error) {
     return error;
   }
+
   uint32_t width = 0;
   uint32_t height = 0;
   bool found_ispe = false;
