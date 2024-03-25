@@ -19,7 +19,7 @@ LIBHEIF_EXPORTS
 [DIRECTORIES]
 libheif
 libheif\color-conversion
-ibheif\plugins
+libheif\plugins
 
 [INCLUDES]
 aom->.
