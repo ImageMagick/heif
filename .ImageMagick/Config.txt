@@ -7,13 +7,16 @@ COPYING
 ENABLE_PARALLEL_TILE_DECODING
 HAVE_AOM_DECODER
 HAVE_AOM_ENCODER
+HAVE_BROTLI
 HAVE_LIBDE265
+HAVE_ZLIB
 LIBDE265_STATIC_BUILD
 
 [DEFINES_LIB]
 LIBHEIF_STATIC_BUILD
 
 [DEFINES_DLL]
+BROTLI_SHARED_COMPILATION
 LIBHEIF_EXPORTS
 
 [DIRECTORIES]
@@ -25,10 +28,12 @@ libheif\plugins
 
 [INCLUDES]
 aom->.
+brotli->c\include
 de265->.
 heif->.
 libheif
 libheif\api
+zlib->.
 
 [EXCLUDES]
 decoder_dav1d.cc
@@ -49,7 +54,9 @@ plugins_*
 
 [DEPENDENCIES]
 aom
+brotli
 de265
+zlib
 
 [CONFIG_DEFINE]
 /*
