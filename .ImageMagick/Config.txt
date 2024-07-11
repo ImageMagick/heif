@@ -18,6 +18,8 @@ LIBHEIF_EXPORTS
 
 [DIRECTORIES]
 libheif
+libheif\api\libheif
+libheif\codecs
 libheif\color-conversion
 libheif\plugins
 
@@ -25,17 +27,23 @@ libheif\plugins
 aom->.
 de265->.
 heif->.
+libheif
+libheif\api
 
 [EXCLUDES]
 decoder_dav1d.cc
 decoder_ffmpeg.cc
 decoder_jpeg.cc
 decoder_openjpeg.cc
+decoder_vvdec.cc
 encoder_rav1e.cc
 encoder_jpeg.cc
 encoder_openjpeg.cc
+encoder_openjph.cc
 encoder_kvazaar.cc
 encoder_svt.cc
+encoder_uvg266.cc
+encoder_vvenc.cc
 encoder_x265.cc
 plugins_*
 
