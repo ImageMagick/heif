@@ -55,6 +55,7 @@ const (
 	CompressionEVC          = C.heif_compression_EVC
 	CompressionUncompressed = C.heif_compression_uncompressed
 	CompressionMask         = C.heif_compression_mask
+	CompressionHTJ2K        = C.heif_compression_HTJ2K
 )
 
 type Chroma C.enum_heif_chroma
@@ -250,6 +251,8 @@ const (
 
 	SuberrorCannotReadPluginDirectory = C.heif_suberror_Cannot_read_plugin_directory
 
+	SuberrorNoMatchingDecoderInstalled = C.heif_suberror_No_matching_decoder_installed
+
 	SuberrorNoOrInvalidPrimaryItem = C.heif_suberror_No_or_invalid_primary_item
 
 	SuberrorNoInfeBox = C.heif_suberror_No_infe_box
@@ -262,12 +265,20 @@ const (
 
 	SuberrorInvalidImageSize = C.heif_suberror_Invalid_image_size
 
+	SuberrorCameraIntrinsicMatrixUndefined = C.heif_suberror_Camera_intrinsic_matrix_undefined
+
+	SuberrorCameraExtrinsicMatrixUndefined = C.heif_suberror_Camera_extrinsic_matrix_undefined
+
+	SuberrorDecompressionInvalidData = C.heif_suberror_Decompression_invalid_data
+
 	// --- Memory_allocation_error ---
 
 	// A security limit preventing unreasonable memory allocations was exceeded by the input file.
 	// Please check whether the file is valid. If it is, contact us so that we could increase the
 	// security limits further.
 	SuberrorSecurityLimitExceeded = C.heif_suberror_Security_limit_exceeded
+
+	CompressionInitialisationError = C.heif_suberror_Compression_initialisation_error
 
 	// --- Usage_error ---
 
@@ -300,6 +311,8 @@ const (
 
 	SuberrorInvalidRegionData = C.heif_suberror_Invalid_region_data
 
+	SuberrorNoIspeProperty = C.heif_suberror_No_ispe_property
+
 	SuberrorWrongTileImagePixelDepth = C.heif_suberror_Wrong_tile_image_pixel_depth
 
 	SuberrorUnknownNCLXColorPrimaries = C.heif_suberror_Unknown_NCLX_color_primaries
@@ -307,6 +320,12 @@ const (
 	SuberrorUnknownNCLXTransferCharacteristics = C.heif_suberror_Unknown_NCLX_transfer_characteristics
 
 	SuberrorUnknownNCLXMatrixCoefficients = C.heif_suberror_Unknown_NCLX_matrix_coefficients
+
+	SuberrorInvalidJ2KCodestream = C.heif_suberror_Invalid_J2K_codestream
+
+	SuberrorNoVcCBox = C.heif_suberror_No_vvcC_box
+
+	SuberrorNoIcbrBox = C.heif_suberror_No_icbr_box
 
 	// --- Unsupported_feature ---
 
@@ -317,6 +336,8 @@ const (
 	SuberrorUnsupportedImageType = C.heif_suberror_Unsupported_image_type
 
 	SuberrorUnsupportedDataVersion = C.heif_suberror_Unsupported_data_version
+
+	SuberrorUnsupportedGenericCompressionMethod = C.heif_suberror_Unsupported_generic_compression_method
 
 	// The conversion of the source image to the requested chroma / colorspace is not supported.
 	SuberrorUnsupportedColorConversion = C.heif_suberror_Unsupported_color_conversion

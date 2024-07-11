@@ -107,6 +107,14 @@ if [ ! -z "$WITH_GRAPHICS" ]; then
         libgdk-pixbuf2.0-dev \
         libjpeg-dev \
         libpng-dev \
+        libtiff-dev \
+        "
+fi
+
+if [ ! -z "$WITH_UNCOMPRESSED_CODEC" ]; then
+    INSTALL_PACKAGES="$INSTALL_PACKAGES \
+        libbrotli-dev \
+        zlib-dev \
         "
 fi
 

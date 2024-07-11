@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.16.3) # Oldest Ubuntu LTS (20.04 currently)
 
-project(libheif LANGUAGES C CXX VERSION 1.17.6)
+project(libheif LANGUAGES C CXX VERSION 1.18.0)
 
 # compatibility_version is never allowed to be decreased for any specific SONAME.
 # Libtool in the libheif-1.15.1 release had set it to 17.0.0, so we have to use this for the v1.x.y versions.
@@ -93,8 +93,8 @@ macro(plugin_compilation_info optionVariableName detectionVariable displayName)
     endif ()
 
     string(LENGTH "${displayName}" len)
-    math(EXPR fill "29 - ${len}")
-    string(SUBSTRING "                                                " 0 ${fill} filler)
+    math(EXPR fill "32 - ${len}")
+    string(SUBSTRING "                                                   " 0 ${fill} filler)
     message("${displayName}${filler}: ${msg}")
     unset(msg)
 endmacro()
@@ -125,6 +125,42 @@ if (WITH_KVAZAAR)
     endif ()
 endif ()
 
+# uvg266
+
+plugin_option(UVG266 "uvg266 VVC encoder (experimental)" OFF OFF)
+if (WITH_UVG266)
+    find_package(UVG266)
+    if ("${HAVE_UVG266_ENABLE_LOGGING}")
+        add_definitions(-DHAVE_UVG266_ENABLE_LOGGING=1)
+    else ()
+        add_definitions(-DHAVE_UVG266_ENABLE_LOGGING=0)
+    endif ()
+endif ()
+
+# vvdec
+
+plugin_option(VVDEC "vvdec VVC decoder (experimental)" OFF OFF)
+if (WITH_VVDEC)
+    # TODO: how to do configure vvdec cleanly?
+    find_package(Threads REQUIRED)
+    find_package(vvdec 2.3.0)
+    if (vvdec_FOUND)
+        set(vvdec_LIBRARIES vvdec::vvdec)
+    endif()
+endif ()
+
+# vvenc
+
+plugin_option(VVENC "vvenc VVC encoder (experimental)" OFF OFF)
+if (WITH_VVENC)
+    # TODO: how to do configure vvenc cleanly?
+    find_package(Threads REQUIRED)
+    find_package(vvenc 1.12.0)
+    if (vvenc_FOUND)
+        set(vvenc_LIBRARIES vvenc::vvenc)
+    endif()
+endif ()
+
 # dav1d
 
 plugin_option(DAV1D "Dav1d AV1 decoder" OFF ON)
@@ -138,6 +174,14 @@ plugin_option(AOM_DECODER "AOM AV1 decoder" ON OFF)
 plugin_option(AOM_ENCODER "AOM AV1 encoder" ON OFF)
 if (WITH_AOM_ENCODER OR WITH_AOM_DECODER)
     find_package(AOM)
+
+    # When decoding/encoding is disabled, overwrite the *_FOUND variables, because they are used to ultimately decide what to build.
+    if (NOT WITH_AOM_DECODER)
+        set(AOM_DECODER_FOUND FALSE)
+    endif()
+    if (NOT WITH_AOM_ENCODER)
+        set(AOM_ENCODER_FOUND FALSE)
+    endif()
 endif()
 
 # svt
@@ -167,15 +211,23 @@ endif()
 plugin_option(OpenJPEG_ENCODER "OpenJPEG J2K encoder" OFF ON)
 plugin_option(OpenJPEG_DECODER "OpenJPEG J2K decoder" OFF ON)
 if (WITH_OpenJPEG_ENCODER OR WITH_OpenJPEG_DECODER)
-    find_package(OpenJPEG)
+    find_package(OpenJPEG 2)
 endif()
 
 # ffmpeg
 
 plugin_option(FFMPEG_DECODER "FFMPEG HEVC decoder (HW accelerated)" OFF OFF)
 if (WITH_FFMPEG_DECODER)
-    find_package(FFMPEG COMPONENTS avcodec)
+    find_package(FFMPEG COMPONENTS avcodec avutil)
 endif ()
+
+# openjph
+
+plugin_option(OPENJPH_ENCODER "OpenJPH HT-J2K encoder" OFF ON)
+# plugin_option(OPENJPH_DECODER "OpenJPH HT-J2K decoder" OFF ON)
+if (WITH_OPENJPH_ENCODER OR WITH_OPENJPH_DECODER)
+    find_package(OPENJPH)
+endif()
 
 # uncompressed
 
@@ -184,7 +236,7 @@ option(WITH_UNCOMPRESSED_CODEC " Support internal ISO/IEC 23001-17 uncompressed 
 
 # --- show codec compilation summary
 
-message("=== Summary of compiled codecs ===")
+message("\n=== Summary of compiled codecs ===")
 plugin_compilation_info(LIBDE265 LIBDE265 "libde265 HEVC decoder")
 plugin_compilation_info(FFMPEG_DECODER FFMPEG_avcodec "FFMPEG HEVC decoder (HW acc)")
 plugin_compilation_info(X265 X265 "x265 HEVC encoder")
@@ -198,7 +250,88 @@ plugin_compilation_info(JPEG_DECODER JPEG "JPEG decoder")
 plugin_compilation_info(JPEG_ENCODER JPEG "JPEG encoder")
 plugin_compilation_info(OpenJPEG_DECODER OpenJPEG "OpenJPEG J2K decoder")
 plugin_compilation_info(OpenJPEG_ENCODER OpenJPEG "OpenJPEG J2K encoder")
+# plugin_compilation_info(OPENJPH_DECODER OPENJPH "OpenJPH HT-J2K decoder")
+plugin_compilation_info(OPENJPH_ENCODER OPENJPH "OpenJPH HT-J2K encoder")
+plugin_compilation_info(UVG266_ENCODER UVG266 "uvg266 VVC enc. (experimental)")
+plugin_compilation_info(VVENC vvenc "vvenc VVC enc. (experimental)")
+plugin_compilation_info(VVDEC vvdec "vvdec VVC dec. (experimental)")
 
+# --- show summary which formats are supported
+
+macro(format_compilation_info formatName decoding_supported encoding_supported)
+    if (${decoding_supported})
+        set(decoding "YES")
+    else()
+        set(decoding "NO ")
+    endif()
+
+    if (${encoding_supported})
+        set(encoding "YES")
+    else()
+        set(encoding "NO ")
+    endif()
+
+    string(LENGTH "${formatName}" len)
+    math(EXPR fill "12 - ${len}")
+    string(SUBSTRING "                                        " 0 ${fill} filler)
+    message("${formatName}${filler}    ${decoding}        ${encoding}")
+    unset(msg)
+endmacro()
+
+
+if (LIBDE265_FOUND OR FFMPEG_avcodec_FOUND)
+    set(SUPPORTS_HEIC_DECODING TRUE)
+endif()
+if (X265_FOUND OR KVAZAAR_FOUND)
+    set(SUPPORTS_HEIC_ENCODING TRUE)
+endif()
+if (AOM_DECODER_FOUND OR DAV1D_FOUND)
+    set(SUPPORTS_AVIF_DECODING TRUE)
+endif()
+if (AOM_ENCODER_FOUND OR RAV1E_FOUND OR SvtEnc_FOUND)
+    set(SUPPORTS_AVIF_ENCODING TRUE)
+endif ()
+if (JPEG_FOUND AND WITH_JPEG_DECODER)
+    set(SUPPORTS_JPEG_DECODING TRUE)
+endif()
+if (JPEG_FOUND AND WITH_JPEG_ENCODER)
+    set(SUPPORTS_JPEG_ENCODING TRUE)
+endif()
+if (OpenJPEG_FOUND AND WITH_OpenJPEG_DECODER)
+    set(SUPPORTS_J2K_DECODING TRUE)
+    set(SUPPORTS_J2K_HT_DECODING TRUE)
+endif()
+if (OpenJPEG_FOUND AND WITH_OpenJPEG_ENCODER)
+    set(SUPPORTS_J2K_ENCODING TRUE)
+endif()
+if (OPENJPH_FOUND AND WITH_OPENJPH_ENCODER)
+    set(SUPPORTS_J2K_HT_ENCODING TRUE)
+endif()
+if (OPENJPH_FOUND AND WITH_OPENJPH_DECODER)
+    set(SUPPORTS_J2K_HT_ENCODING TRUE)
+endif()
+if (UVG266_FOUND OR vvenc_FOUND)
+    set(SUPPORTS_VVC_ENCODING TRUE)
+endif()
+if (vvdec_FOUND AND WITH_VVDEC)
+    set(SUPPORTS_VVC_DECODING TRUE)
+endif()
+
+if (WITH_UNCOMPRESSED_CODEC)
+    set(SUPPORTS_UNCOMPRESSED_DECODING TRUE)
+    set(SUPPORTS_UNCOMPRESSED_ENCODING TRUE)
+endif()
+
+message("\n=== Supported formats ===")
+message("format        decoding   encoding")
+format_compilation_info("HEIC" SUPPORTS_HEIC_DECODING SUPPORTS_HEIC_ENCODING)
+format_compilation_info("AVIF" SUPPORTS_AVIF_DECODING SUPPORTS_AVIF_ENCODING)
+format_compilation_info("VVC"  SUPPORTS_VVC_DECODING SUPPORTS_VVC_ENCODING)
+format_compilation_info("JPEG" SUPPORTS_JPEG_DECODING SUPPORTS_JPEG_ENCODING)
+format_compilation_info("JPEG2000" SUPPORTS_J2K_DECODING SUPPORTS_J2K_ENCODING)
+format_compilation_info("JPEG2000-HT" SUPPORTS_J2K_HT_DECODING SUPPORTS_J2K_HT_ENCODING)
+format_compilation_info("Uncompressed" SUPPORTS_UNCOMPRESSED_DECODING SUPPORTS_UNCOMPRESSED_ENCODING)
+message("")
 
 # --- Libsharpyuv color space transforms
 
@@ -234,6 +367,9 @@ endif()
 if (X265_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_X265_PLUGIN))
     list(APPEND REQUIRES_PRIVATE "x265")
 endif()
+if (KVAZAAR_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_KVAZAAR_PLUGIN))
+    list(APPEND REQUIRES_PRIVATE "kvazaar")
+endif()
 if ((AOM_DECODER_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_AOM_DECODER_PLUGIN))
         OR (AOM_ENCODER_FOUND AND NOT (PLUGIN_LOADING_SUPPORTED_AND_ENABLED AND WITH_AOM_ENCODER_PLUGIN)))
     list(APPEND REQUIRES_PRIVATE "aom")
@@ -259,8 +395,22 @@ endif()
 if (LIBSHARPYUV_FOUND)
     list(APPEND REQUIRES_PRIVATE "libsharpyuv")
 endif()
-if (WITH_DEFLATE_HEADER_COMPRESSION)
-    list(APPEND REQUIRES_PRIVATE "zlib")
+if (WITH_HEADER_COMPRESSION OR WITH_UNCOMPRESSED_CODEC)
+    find_package(ZLIB)
+    if (ZLIB_FOUND)
+        message("zlib found")
+        list(APPEND REQUIRES_PRIVATE "zlib")
+    else()
+        message("zlib not found")
+    endif()
+
+    find_package(Brotli)
+    if (Brotli_FOUND)
+        message("Brotli found")
+        list(APPEND REQUIRES_PRIVATE "libbrotli")
+    else()
+        message("Brotli not found")
+    endif()
 endif()
 
 list(JOIN REQUIRES_PRIVATE " " REQUIRES_PRIVATE)
@@ -285,7 +435,7 @@ option(WITH_GDK_PIXBUF "Build gdk-pixbuf plugin" ON)
 
 option(WITH_REDUCED_VISIBILITY "Reduced symbol visibility in library" ON)
 
-option(WITH_DEFLATE_HEADER_COMPRESSION OFF)
+option(WITH_HEADER_COMPRESSION OFF)
 option(ENABLE_MULTITHREADING_SUPPORT "Switch off for platforms without multithreading support" ON)
 option(ENABLE_PARALLEL_TILE_DECODING "Will launch multiple decoders to decode tiles in parallel (requires ENABLE_MULTITHREADING_SUPPORT)" ON)
 
@@ -323,6 +473,24 @@ else (DOXYGEN_FOUND)
 endif (DOXYGEN_FOUND)
 
 # --- Testing
+
+option(ENABLE_COVERAGE "" OFF)
+if(ENABLE_COVERAGE)
+  # set compiler flags
+  set(CMAKE_CXX_FLAGS "-O0 -coverage")
+
+  # find required tools
+  find_program(LCOV lcov REQUIRED)
+  find_program(GENHTML genhtml REQUIRED)
+
+  # add coverage target
+  add_custom_target(coverage
+    # gather data
+    COMMAND ${LCOV} --directory . --capture --output-file coverage.info
+    # generate report
+    COMMAND ${GENHTML} --demangle-cpp -o coverage coverage.info
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()
 
 option(BUILD_TESTING "" ON)
 include(CTest)
