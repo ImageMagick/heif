@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.16.3) # Oldest Ubuntu LTS (20.04 currently)
 
-project(libheif LANGUAGES C CXX VERSION 1.18.0)
+project(libheif LANGUAGES C CXX VERSION 1.18.1)
 
 # compatibility_version is never allowed to be decreased for any specific SONAME.
 # Libtool in the libheif-1.15.1 release had set it to 17.0.0, so we have to use this for the v1.x.y versions.
@@ -407,7 +407,7 @@ if (WITH_HEADER_COMPRESSION OR WITH_UNCOMPRESSED_CODEC)
     find_package(Brotli)
     if (Brotli_FOUND)
         message("Brotli found")
-        list(APPEND REQUIRES_PRIVATE "libbrotli")
+        list(APPEND REQUIRES_PRIVATE "libbrotlidec")
     else()
         message("Brotli not found")
     endif()
