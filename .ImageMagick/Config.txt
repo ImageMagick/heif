@@ -11,6 +11,7 @@ HAVE_BROTLI
 HAVE_LIBDE265
 HAVE_ZLIB
 LIBDE265_STATIC_BUILD
+WITH_UNCOMPRESSED_CODEC
 
 [DEFINES_LIB]
 LIBHEIF_STATIC_BUILD
@@ -20,10 +21,13 @@ BROTLI_SHARED_COMPILATION
 LIBHEIF_EXPORTS
 
 [DIRECTORIES]
+heifio
 libheif
 libheif\api\libheif
 libheif\codecs
+libheif\codecs\uncompressed
 libheif\color-conversion
+libheif\image-items
 libheif\plugins
 
 [INCLUDES]
@@ -40,17 +44,25 @@ decoder_dav1d.cc
 decoder_ffmpeg.cc
 decoder_jpeg.cc
 decoder_openjpeg.cc
+decoder_openh264.cc
+decoder_png.cc
+decoder_tiff.cc
 decoder_vvdec.cc
+decoder_y4m.cc
 encoder_rav1e.cc
 encoder_jpeg.cc
 encoder_openjpeg.cc
 encoder_openjph.cc
+encoder_png.cc
 encoder_kvazaar.cc
 encoder_svt.cc
+encoder_tiff.cc
 encoder_uvg266.cc
 encoder_vvenc.cc
 encoder_x265.cc
+encoder_y4m.cc
 plugins_*
+stubs.cc
 
 [DEPENDENCIES]
 aom
