@@ -28,6 +28,7 @@
 #include <string>
 #include <thread>
 #include <memory>
+#include <utility>
 #include "encoder_aom.h"
 
 #include <aom/aom_encoder.h>
@@ -71,6 +72,7 @@ struct encoder_struct_aom
   int threads;
   bool lossless;
   bool lossless_alpha;
+  bool auto_tiles;
 
 #if defined(HAVE_AOM_CODEC_SET_OPTION)
   std::vector<custom_option> custom_options;
@@ -124,8 +126,8 @@ void encoder_struct_aom::add_custom_option(const custom_option& p)
 void encoder_struct_aom::add_custom_option(std::string name, std::string value)
 {
   custom_option p;
-  p.name = name;
-  p.value = value;
+  p.name = std::move(name);
+  p.value = std::move(value);
   add_custom_option(p);
 }
 
@@ -159,6 +161,7 @@ static const char* kParam_alpha_quality = "alpha-quality";
 static const char* kParam_alpha_min_q = "alpha-min-q";
 static const char* kParam_alpha_max_q = "alpha-max-q";
 static const char* kParam_lossless_alpha = "lossless-alpha";
+static const char* kParam_auto_tiles = "auto-tiles";
 static const char* kParam_threads = "threads";
 static const char* kParam_realtime = "realtime";
 static const char* kParam_speed = "speed";
@@ -197,7 +200,7 @@ static const char* aom_plugin_name()
 }
 
 
-#define MAX_NPARAMETERS 14
+#define MAX_NPARAMETERS 15
 
 static struct heif_encoder_parameter aom_encoder_params[MAX_NPARAMETERS];
 static const struct heif_encoder_parameter* aom_encoder_parameter_ptrs[MAX_NPARAMETERS + 1];
@@ -357,6 +360,14 @@ static void aom_init_parameters()
   assert(i < MAX_NPARAMETERS);
   p->version = 2;
   p->name = kParam_lossless_alpha;
+  p->type = heif_encoder_parameter_type_boolean;
+  p->boolean.default_value = false;
+  p->has_default = true;
+  d[i++] = p++;
+
+  assert(i < MAX_NPARAMETERS);
+  p->version = 2;
+  p->name = kParam_auto_tiles;
   p->type = heif_encoder_parameter_type_boolean;
   p->boolean.default_value = false;
   p->has_default = true;
@@ -571,6 +582,9 @@ struct heif_error aom_set_parameter_boolean(void* encoder_raw, const char* name,
           encoder->alpha_min_q_set = true;
       }
       return heif_error_ok;
+  } else if (strcmp(name, kParam_auto_tiles) == 0) {
+      encoder->auto_tiles = value;
+      return heif_error_ok;
   }
 
   set_value(kParam_realtime, realtime_mode);
@@ -764,8 +778,6 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 
   // --- copy libheif image to aom image
 
-  aom_image_t input_image;
-
   aom_img_fmt_t img_format = AOM_IMG_FMT_NONE;
 
   int chroma_height = 0;
@@ -799,8 +811,10 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
     img_format = (aom_img_fmt_t) (img_format | AOM_IMG_FMT_HIGHBITDEPTH);
   }
 
-  if (!aom_img_alloc(&input_image, img_format,
-                     source_width, source_height, 1)) {
+  std::unique_ptr<aom_image_t, void (*)(aom_image_t*)> input_image(aom_img_alloc(nullptr, img_format,
+                                                                                 source_width, source_height, 1),
+                                                                   aom_img_free);
+  if (!input_image) {
     err = {heif_error_Memory_allocation_error,
            heif_suberror_Unspecified,
            "Failed to allocate image"};
@@ -809,8 +823,8 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 
 
   for (int plane = 0; plane < 3; plane++) {
-    unsigned char* buf = input_image.planes[plane];
-    const int stride = input_image.stride[plane];
+    unsigned char* buf = input_image->planes[plane];
+    const int stride = input_image->stride[plane];
 
     if (chroma == heif_chroma_monochrome && plane != 0) {
       if (bpp_y == 8) {
@@ -980,13 +994,18 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 #endif
   }
 
+#if defined(AOM_CTRL_AV1E_SET_AUTO_TILES)
+  // aom 3.10.0
+  aom_codec_control(&codec, AV1E_SET_AUTO_TILES, encoder->auto_tiles);
+#endif
+
   // TODO: set AV1E_SET_TILE_ROWS and AV1E_SET_TILE_COLUMNS.
 
 
   struct heif_color_profile_nclx* nclx = nullptr;
   err = heif_image_get_nclx_color_profile(image, &nclx);
   if (err.code != heif_error_Ok) {
-    nclx = nullptr;
+    assert(nclx == nullptr);
   }
 
   // make sure NCLX profile is deleted at end of function
@@ -1028,14 +1047,10 @@ struct heif_error aom_encode_image(void* encoder_raw, const struct heif_image* i
 
   // --- encode frame
 
-  res = aom_codec_encode(&codec, &input_image,
+  res = aom_codec_encode(&codec, input_image.get(),
                          0, // only encoding a single frame
                          1,
                          0); // no flags
-
-  // Note: we are freeing the input image directly after use.
-  // This covers the usual success case and also all error cases that occur below.
-  aom_img_free(&input_image);
 
   if (res != AOM_CODEC_OK) {
     err = {

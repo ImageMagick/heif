@@ -23,8 +23,11 @@
 #include <utility>
 #include <cstring>
 #include <cassert>
+#include <bit>
 
 #define MAX_UVLC_LEADING_ZEROS 20
+
+#define AVOID_FUZZER_FALSE_POSITIVE 0
 
 
 StreamReader_istream::StreamReader_istream(std::unique_ptr<std::istream>&& istr)
@@ -35,19 +38,19 @@ StreamReader_istream::StreamReader_istream(std::unique_ptr<std::istream>&& istr)
   m_istr->seekg(0, std::ios_base::beg);
 }
 
-int64_t StreamReader_istream::get_position() const
+uint64_t StreamReader_istream::get_position() const
 {
   return m_istr->tellg();
 }
 
-StreamReader::grow_status StreamReader_istream::wait_for_file_size(int64_t target_size)
+StreamReader::grow_status StreamReader_istream::wait_for_file_size(uint64_t target_size)
 {
-  return (target_size > m_length) ? size_beyond_eof : size_reached;
+  return (target_size > m_length) ? grow_status::size_beyond_eof : grow_status::size_reached;
 }
 
 bool StreamReader_istream::read(void* data, size_t size)
 {
-  int64_t end_pos = get_position() + size;
+  uint64_t end_pos = get_position() + size;
   if (end_pos > m_length) {
     return false;
   }
@@ -56,7 +59,7 @@ bool StreamReader_istream::read(void* data, size_t size)
   return true;
 }
 
-bool StreamReader_istream::seek(int64_t position)
+bool StreamReader_istream::seek(uint64_t position)
 {
   if (position > m_length)
     return false;
@@ -88,19 +91,19 @@ StreamReader_memory::~StreamReader_memory()
   }
 }
 
-int64_t StreamReader_memory::get_position() const
+uint64_t StreamReader_memory::get_position() const
 {
   return m_position;
 }
 
-StreamReader::grow_status StreamReader_memory::wait_for_file_size(int64_t target_size)
+StreamReader::grow_status StreamReader_memory::wait_for_file_size(uint64_t target_size)
 {
-  return (target_size > m_length) ? size_beyond_eof : size_reached;
+  return (target_size > m_length) ? grow_status::size_beyond_eof : grow_status::size_reached;
 }
 
 bool StreamReader_memory::read(void* data, size_t size)
 {
-  int64_t end_pos = m_position + size;
+  uint64_t end_pos = m_position + size;
   if (end_pos > m_length) {
     return false;
   }
@@ -111,9 +114,9 @@ bool StreamReader_memory::read(void* data, size_t size)
   return true;
 }
 
-bool StreamReader_memory::seek(int64_t position)
+bool StreamReader_memory::seek(uint64_t position)
 {
-  if (position > m_length || position < 0)
+  if (position > m_length)
     return false;
 
   m_position = position;
@@ -126,19 +129,19 @@ StreamReader_CApi::StreamReader_CApi(const heif_reader* func_table, void* userda
 {
 }
 
-StreamReader::grow_status StreamReader_CApi::wait_for_file_size(int64_t target_size)
+StreamReader::grow_status StreamReader_CApi::wait_for_file_size(uint64_t target_size)
 {
   heif_reader_grow_status status = m_func_table->wait_for_file_size(target_size, m_userdata);
   switch (status) {
     case heif_reader_grow_status_size_reached:
-      return size_reached;
+      return grow_status::size_reached;
     case heif_reader_grow_status_timeout:
-      return timeout;
+      return grow_status::timeout;
     case heif_reader_grow_status_size_beyond_eof:
-      return size_beyond_eof;
+      return grow_status::size_beyond_eof;
     default:
       assert(0);
-      return size_beyond_eof;
+      return grow_status::size_beyond_eof;
   }
 }
 
@@ -151,6 +154,17 @@ BitstreamRange::BitstreamRange(std::shared_ptr<StreamReader> istr,
   if (parent) {
     m_nesting_level = parent->m_nesting_level + 1;
   }
+}
+
+
+BitstreamRange::BitstreamRange(std::shared_ptr<StreamReader> istr,
+                               size_t start,
+                               size_t end) // one past end
+  : m_istr(std::move(istr)), m_remaining(end)
+{
+  bool success = m_istr->seek(start);
+  assert(success);
+  (void)success; // TODO
 }
 
 
@@ -205,13 +219,35 @@ int16_t BitstreamRange::read16s()
   uint16_t v = read16();
 
   if (v & 0x8000) {
-    return -static_cast<int16_t>((~v) & 0x7fff) -1;
+    auto val = static_cast<int16_t>((~v) & 0x7fff);
+    return static_cast<int16_t>(-val - 1);
   }
   else {
     return static_cast<int16_t>(v);
   }
 }
 
+
+uint32_t BitstreamRange::read24()
+{
+  if (!prepare_read(3)) {
+    return 0;
+  }
+
+  uint8_t buf[3];
+
+  auto istr = get_istream();
+  bool success = istr->read((char*) buf, 3);
+
+  if (!success) {
+    set_eof_while_reading();
+    return 0;
+  }
+
+  return (uint32_t) ((buf[0] << 16) |
+                     (buf[1] << 8) |
+                     (buf[2]));
+}
 
 uint32_t BitstreamRange::read32()
 {
@@ -235,6 +271,41 @@ uint32_t BitstreamRange::read32()
                      (buf[3]));
 }
 
+
+uint64_t BitstreamRange::read_uint(int len)
+{
+  switch (len)
+  {
+    case 8:
+      return read8();
+    case 16:
+      return read16();
+    case 24:
+      return read24();
+    case 32:
+      return read32();
+    case 64:
+      return read64();
+    default:
+      assert(false);
+      return 0;
+  }
+}
+
+
+int32_t BitstreamRange::read32s()
+{
+  uint32_t v = read32();
+
+  if (v & 0x80000000) {
+    return -static_cast<int32_t>((~v) & 0x7fffffff) -1;
+  }
+  else {
+    return static_cast<int32_t>(v);
+  }
+}
+
+
 uint64_t BitstreamRange::read64()
 {
   if (!prepare_read(8)) {
@@ -251,26 +322,63 @@ uint64_t BitstreamRange::read64()
     return 0;
   }
 
-  return (uint64_t) (((uint64_t)buf[0] << 56) |
-                     ((uint64_t)buf[1] << 48) |
-                     ((uint64_t)buf[2] << 40) |
-                     ((uint64_t)buf[3] << 32) |
-                     ((uint64_t)buf[4] << 24) |
-                     ((uint64_t)buf[5] << 16) |
-                     ((uint64_t)buf[6] << 8) |
-                     ((uint64_t)buf[7]));
+  return ((static_cast<uint64_t>(buf[0]) << 56) |
+          (static_cast<uint64_t>(buf[1]) << 48) |
+          (static_cast<uint64_t>(buf[2]) << 40) |
+          (static_cast<uint64_t>(buf[3]) << 32) |
+          (static_cast<uint64_t>(buf[4]) << 24) |
+          (static_cast<uint64_t>(buf[5]) << 16) |
+          (static_cast<uint64_t>(buf[6]) << 8) |
+          (static_cast<uint64_t>(buf[7])));
 }
 
-int32_t BitstreamRange::read32s()
-{
-  uint32_t v = read32();
 
-  if (v & 0x80000000) {
-    return -static_cast<int32_t>((~v) & 0x7fffffff) -1;
+int64_t BitstreamRange::read64s()
+{
+  uint64_t v = read64();
+
+  if (v & 0x8000000000000000) {
+    return -static_cast<int64_t >((~v) & 0x7fffffffffffffff) -1;
   }
   else {
-    return static_cast<int32_t>(v);
+    return static_cast<int64_t >(v);
   }
+}
+
+
+float BitstreamRange::read_float32()
+{
+#if __cpp_lib_bit_cast >= 201806L
+  uint32_t i = read32();
+  return std::bit_cast<float>(i); // this works directly on the value layout, thus we do not have to worry about memory layout
+#else
+  // compiler too old to support bit_cast
+
+  // TODO: I am not sure this works everywhere as there seem to be systems where
+  //       the float byte order is different from the integer endianness
+  //       https://en.wikipedia.org/wiki/Endianness#Floating_point
+  int i = read32();
+  float f;
+  memcpy(&f, &i, sizeof(float));
+  return f;
+#endif
+}
+
+
+void StreamWriter::write_float32(float v)
+{
+#if __cpp_lib_bit_cast >= 201806L
+  write32(std::bit_cast<uint32_t>(v)); // this works directly on the value layout, thus we do not have to worry about memory layout
+#else
+  // compiler too old to support bit_cast
+
+  // TODO: I am not sure this works everywhere as there seem to be systems where
+  //       the float byte order is different from the integer endianness
+  //       https://en.wikipedia.org/wiki/Endianness#Floating_point
+  uint32_t i;
+  memcpy(&i, &v, sizeof(float));
+  write32(i);
+#endif
 }
 
 
@@ -387,8 +495,11 @@ BitReader::BitReader(const uint8_t* buffer, int len)
   refill();
 }
 
-int BitReader::get_bits(int n)
+
+uint32_t BitReader::get_bits(int n)
 {
+  assert(n <= 32);
+
   if (nextbits_cnt < n) {
     refill();
   }
@@ -396,10 +507,12 @@ int BitReader::get_bits(int n)
   uint64_t val = nextbits;
   val >>= 64 - n;
 
+  if (AVOID_FUZZER_FALSE_POSITIVE) nextbits &= (0xffffffffffffffffULL >> n);
+
   nextbits <<= n;
   nextbits_cnt -= n;
 
-  return (int) val;
+  return static_cast<uint32_t>(val);
 }
 
 
@@ -409,6 +522,39 @@ uint8_t BitReader::get_bits8(int n)
   return static_cast<uint8_t>(get_bits(n));
 }
 
+uint16_t BitReader::get_bits16(int n)
+{
+  assert(n>0 && n <= 16);
+  return static_cast<uint16_t>(get_bits(n));
+}
+
+uint32_t BitReader::get_bits32(int n)
+{
+  assert(n>0 && n <= 32);
+  return static_cast<uint32_t>(get_bits(n));
+}
+
+int32_t BitReader::get_bits32s()
+{
+  uint32_t bits = get_bits(32);
+  return static_cast<int32_t>(bits);
+}
+
+
+bool BitReader::get_flag()
+{
+  return (get_bits(1) == 0x01);
+}
+
+std::vector<uint8_t> BitReader::read_bytes(uint32_t n)
+{
+  // TODO: this implementation isn't very efficient
+  std::vector<uint8_t> bytes;
+  for (uint32_t i = 0; i < n; i++) {
+    bytes.push_back(get_bits8(8));
+  }
+  return bytes;
+}
 
 int BitReader::get_bits_fast(int n)
 {
@@ -449,12 +595,14 @@ void BitReader::skip_bits(int n)
     refill();
   }
 
+  if (AVOID_FUZZER_FALSE_POSITIVE) nextbits &= (0xffffffffffffffffULL >> n);
   nextbits <<= n;
   nextbits_cnt -= n;
 }
 
 void BitReader::skip_bits_fast(int n)
 {
+  if (AVOID_FUZZER_FALSE_POSITIVE) nextbits &= (0xffffffffffffffffULL >> n);
   nextbits <<= n;
   nextbits_cnt -= n;
 }
@@ -463,6 +611,7 @@ void BitReader::skip_to_byte_boundary()
 {
   int nskip = (nextbits_cnt & 7);
 
+  if (AVOID_FUZZER_FALSE_POSITIVE) nextbits &= (0xffffffffffffffffULL >> nskip);
   nextbits <<= nskip;
   nextbits_cnt -= nskip;
 }
@@ -567,10 +716,25 @@ void StreamWriter::write16s(int16_t v16s)
     v = static_cast<uint16_t>(v16s);
   }
   else {
-    v = ~static_cast<uint16_t>((-v16s-1));
+    auto val = static_cast<uint16_t>((-v16s-1));
+    v = static_cast<uint16_t>(~val);
   }
 
   write16(v);
+}
+
+
+void StreamWriter::write24(uint32_t v)
+{
+  size_t required_size = m_position + 3;
+
+  if (required_size > m_data.size()) {
+    m_data.resize(required_size);
+  }
+
+  m_data[m_position++] = uint8_t((v >> 16) & 0xFF);
+  m_data[m_position++] = uint8_t((v >> 8) & 0xFF);
+  m_data[m_position++] = uint8_t(v & 0xFF);
 }
 
 
@@ -619,6 +783,12 @@ void StreamWriter::write64(uint64_t v)
   m_data[m_position++] = uint8_t((v >> 16) & 0xFF);
   m_data[m_position++] = uint8_t((v >> 8) & 0xFF);
   m_data[m_position++] = uint8_t(v & 0xFF);
+}
+
+
+void StreamWriter::write64s(int64_t v)
+{
+  write64(reinterpret_cast<uint64_t&>(v));
 }
 
 

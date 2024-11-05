@@ -126,7 +126,7 @@ enum heif_item_property_type heif_item_get_property_type(const struct heif_conte
     return heif_item_property_type_invalid;
   }
 
-  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+  if (propertyId < 1 || propertyId - 1 >= properties.size()) {
     return heif_item_property_type_invalid;
   }
 
@@ -160,7 +160,7 @@ struct heif_error heif_item_get_property_user_description(const struct heif_cont
     return err.error_struct(context->context.get());
   }
 
-  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+  if (propertyId < 1 || propertyId - 1 >= properties.size()) {
     return {heif_error_Usage_error, heif_suberror_Invalid_property, "property index out of range"};
   }
 
@@ -220,7 +220,7 @@ enum heif_transform_mirror_direction heif_item_get_property_transform_mirror(con
     return heif_transform_mirror_direction_invalid;
   }
 
-  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+  if (propertyId < 1 || propertyId - 1 >= properties.size()) {
     return heif_transform_mirror_direction_invalid;
   }
 
@@ -245,7 +245,7 @@ int heif_item_get_property_transform_rotation_ccw(const struct heif_context* con
     return -1;
   }
 
-  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+  if (propertyId < 1 || propertyId - 1 >= properties.size()) {
     return -1;
   }
 
@@ -254,7 +254,7 @@ int heif_item_get_property_transform_rotation_ccw(const struct heif_context* con
     return -1;
   }
 
-  return irot->get_rotation();
+  return irot->get_rotation_ccw();
 }
 
 
@@ -272,7 +272,7 @@ void heif_item_get_property_transform_crop_borders(const struct heif_context* co
     return;
   }
 
-  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
+  if (propertyId < 1 || propertyId - 1 >= properties.size()) {
     return;
   }
 
@@ -335,15 +335,12 @@ struct heif_error heif_item_add_raw_property(const struct heif_context* context,
 }
 
 
-struct heif_error heif_item_get_property_raw_size(const struct heif_context* context,
-                                                  heif_item_id itemId,
-                                                  heif_property_id propertyId,
-                                                  size_t* size_out)
+template<typename T>
+struct heif_error find_property(const struct heif_context* context,
+                                heif_item_id itemId,
+                                heif_property_id propertyId,
+                                std::shared_ptr<T>* box_casted)
 {
-  if (!context || !size_out) {
-    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL argument passed in"};
-  }
-
   auto file = context->context->get_heif_file();
 
   std::vector<std::shared_ptr<Box>> properties;
@@ -357,14 +354,197 @@ struct heif_error heif_item_get_property_raw_size(const struct heif_context* con
   }
 
   auto box = properties[propertyId - 1];
-  auto box_other = std::dynamic_pointer_cast<Box_other>(box);
+  *box_casted = std::dynamic_pointer_cast<T>(box);
+  return heif_error_success;
+}
+
+
+#if ENABLE_EXPERIMENTAL_FEATURES
+const uint64_t heif_tai_clock_info_unknown_time_uncertainty = 0xFFFFFFFFFFFFFFFF;
+const uint64_t heif_unknown_tai_timestamp = 0xFFFFFFFFFFFFFFFF;
+const int32_t heif_tai_clock_info_unknown_drift_rate = 0x7FFFFFFF;
+
+
+int heif_is_tai_clock_info_drift_rate_undefined(int32_t drift_rate)
+{
+  if (drift_rate == heif_tai_clock_info_unknown_drift_rate) {
+    return 1;
+  }
+  return 0;
+}
+
+
+struct heif_error heif_property_set_clock_info(struct heif_context* ctx,
+                                               heif_item_id itemId,
+                                               const heif_tai_clock_info* clock,
+                                               heif_property_id* out_propertyId)
+{
+  if (!ctx || !clock) {
+    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL passed"};
+  }
+
+  // Check if itemId exists
+  auto file = ctx->context->get_heif_file();
+  if (!file->image_exists(itemId)) {
+    return {heif_error_Input_does_not_exist, heif_suberror_Invalid_parameter_value, "itemId does not exist"};
+  }
+
+  // Create new taic if one doesn't exist for the itemId.
+  auto taic = ctx->context->get_heif_file()->get_property<Box_taic>(itemId);
+  if (!taic) {
+    taic = std::make_shared<Box_taic>();
+  }
+
+  taic->set_time_uncertainty(clock->time_uncertainty);
+  taic->set_clock_resolution(clock->clock_resolution);
+  taic->set_clock_drift_rate(clock->clock_drift_rate);
+  taic->set_clock_type(clock->clock_type);
+
+  bool essential = false;
+  heif_property_id id = ctx->context->add_property(itemId, taic, essential);
+
+  if (out_propertyId) {
+    *out_propertyId = id;
+  }
+
+  return heif_error_success;
+}
+
+
+struct heif_error heif_property_get_clock_info(const struct heif_context* ctx,
+                                               heif_item_id itemId,
+                                               heif_tai_clock_info* out_clock)
+{
+  if (!ctx) {
+    return {heif_error_Usage_error, heif_suberror_Invalid_parameter_value, "NULL heif_context passed in"};
+  } else if (!out_clock) {
+    return {heif_error_Input_does_not_exist, heif_suberror_Invalid_parameter_value, "NULL heif_tai_clock_info passed in"};
+  }
+
+  // Check if itemId exists
+  auto file = ctx->context->get_heif_file();
+  if (!file->image_exists(itemId)) {
+    return {heif_error_Input_does_not_exist, heif_suberror_Invalid_parameter_value, "itemId does not exist"};
+  }
+
+  // Check if taic exists for itemId
+  auto taic = file->get_property<Box_taic>(itemId);
+  if (!taic) {
+    out_clock = nullptr;
+    return {heif_error_Usage_error, heif_suberror_Invalid_property, "TAI Clock property not found for itemId"};
+
+  }
+
+  if (out_clock->version >= 1) {
+    out_clock->version = 1;
+    out_clock->time_uncertainty = taic->get_time_uncertainty();
+    out_clock->clock_resolution = taic->get_clock_resolution();
+    out_clock->clock_drift_rate = taic->get_clock_drift_rate();
+    out_clock->clock_type = taic->get_clock_type();
+  }
+
+  return heif_error_success;
+}
+
+
+struct heif_error heif_property_set_tai_timestamp(struct heif_context* ctx,
+                                                  heif_item_id itemId,
+                                                  heif_tai_timestamp_packet* timestamp,
+                                                  heif_property_id* out_propertyId)
+{
+  if (!ctx) {
+    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL passed"};
+  }
+
+  // Check if itemId exists
+  auto file = ctx->context->get_heif_file();
+  if (!file->image_exists(itemId)) {
+    return {heif_error_Input_does_not_exist, heif_suberror_Invalid_parameter_value, "itemId does not exist"};
+  }
+
+  // Create new itai if one doesn't exist for the itemId.
+  auto itai = file->get_property<Box_itai>(itemId);
+  if (!itai) {
+    itai = std::make_shared<Box_itai>();
+  }
+
+  // Set timestamp values
+  itai->set_tai_timestamp(timestamp->tai_timestamp);
+  itai->set_synchronization_state(timestamp->synchronization_state);
+  itai->set_timestamp_generation_failure(timestamp->timestamp_generation_failure);
+  itai->set_timestamp_is_modified(timestamp->timestamp_is_modified);
+  heif_property_id id = ctx->context->add_property(itemId, itai, false);
+  
+  // Create new taic if one doesn't exist for the itemId.
+  auto taic = file->get_property<Box_taic>(itemId);
+  if (!taic) {
+    taic = std::make_shared<Box_taic>();
+    ctx->context->add_property(itemId, taic, false);
+    // Should we output taic_id?
+  }
+    
+
+  if (out_propertyId) {
+    *out_propertyId = id;
+  }
+
+  return heif_error_success;
+}
+
+struct heif_error heif_property_get_tai_timestamp(const struct heif_context* ctx,
+                                                  heif_item_id itemId,
+                                                  heif_tai_timestamp_packet* out_timestamp)
+{
+  if (!ctx) {
+    return {heif_error_Usage_error, heif_suberror_Invalid_parameter_value, "NULL passed"};
+  }
+
+  // Check if itemId exists
+  auto file = ctx->context->get_heif_file();
+  if (!file->image_exists(itemId)) {
+    return {heif_error_Input_does_not_exist, heif_suberror_Invalid_parameter_value, "itemId does not exist"};
+  }
+
+  //Check if itai exists for itemId
+  auto itai = file->get_property<Box_itai>(itemId);
+  if (!itai) {
+    out_timestamp = nullptr;
+    return {heif_error_Usage_error, heif_suberror_Invalid_property, "Timestamp property not found for itemId"};
+  }
+
+  if (out_timestamp) {
+    out_timestamp->version = 1;
+    out_timestamp->tai_timestamp = itai->get_tai_timestamp();
+    out_timestamp->synchronization_state = itai->get_synchronization_state();
+    out_timestamp->timestamp_generation_failure = itai->get_timestamp_generation_failure();
+    out_timestamp->timestamp_is_modified = itai->get_timestamp_is_modified();
+  }
+
+  return heif_error_success;
+}
+#endif
+
+
+struct heif_error heif_item_get_property_raw_size(const struct heif_context* context,
+                                                  heif_item_id itemId,
+                                                  heif_property_id propertyId,
+                                                  size_t* size_out)
+{
+  if (!context || !size_out) {
+    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL argument passed in"};
+  }
+  std::shared_ptr<Box_other> box_other;
+  struct heif_error err = find_property<Box_other>(context, itemId, propertyId, &box_other);
+  if (err.code) {
+    return err;
+  }
 
   // TODO: every Box (not just Box_other) should have a get_raw_data() method.
   if (box_other == nullptr) {
     return {heif_error_Usage_error, heif_suberror_Invalid_property, "this property is not read as a raw box"};
   }
 
-  auto data = box_other->get_raw_data();
+  const auto& data = box_other->get_raw_data();
 
   *size_out = data.size();
 
@@ -381,21 +561,11 @@ struct heif_error heif_item_get_property_raw_data(const struct heif_context* con
     return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL argument passed in"};
   }
 
-  auto file = context->context->get_heif_file();
-
-  std::vector<std::shared_ptr<Box>> properties;
-  Error err = file->get_properties(itemId, properties);
-  if (err) {
-    return err.error_struct(context->context.get());
+  std::shared_ptr<Box_other> box_other;
+  struct heif_error err = find_property<Box_other>(context, itemId, propertyId, &box_other);
+  if (err.code) {
+    return err;
   }
-
-  if (propertyId - 1 < 0 || propertyId - 1 >= properties.size()) {
-    return {heif_error_Usage_error, heif_suberror_Invalid_property, "property index out of range"};
-  }
-
-
-  auto box = properties[propertyId - 1];
-  auto box_other = std::dynamic_pointer_cast<Box_other>(box);
 
   // TODO: every Box (not just Box_other) should have a get_raw_data() method.
   if (box_other == nullptr) {
@@ -406,6 +576,32 @@ struct heif_error heif_item_get_property_raw_data(const struct heif_context* con
 
 
   std::copy(data.begin(), data.end(), data_out);
+
+  return heif_error_success;
+}
+
+struct heif_error heif_item_get_property_uuid_type(const struct heif_context* context,
+                                                   heif_item_id itemId,
+                                                   heif_property_id propertyId,
+                                                   uint8_t extended_type[16])
+{
+  if (!context || !extended_type) {
+    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument, "NULL argument passed in"};
+  }
+
+  std::shared_ptr<Box_other> box_other;
+  struct heif_error err = find_property(context, itemId, propertyId, &box_other);
+  if (err.code) {
+    return err;
+  }
+
+  if (box_other == nullptr) {
+    return {heif_error_Usage_error, heif_suberror_Invalid_property, "this property is not read as a raw box"};
+  }
+
+  auto uuid = box_other->get_uuid_type();
+
+  std::copy(uuid.begin(), uuid.end(), extended_type);
 
   return heif_error_success;
 }

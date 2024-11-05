@@ -99,6 +99,7 @@ const (
 	ColorspaceYCbCr      = C.heif_colorspace_YCbCr
 	ColorspaceRGB        = C.heif_colorspace_RGB
 	ColorspaceMonochrome = C.heif_colorspace_monochrome
+	ColorspaceNonvisual  = C.heif_colorspace_nonvisual
 )
 
 type Channel C.enum_heif_channel
@@ -112,6 +113,9 @@ const (
 	ChannelB           = C.heif_channel_B
 	ChannelAlpha       = C.heif_channel_Alpha
 	ChannelInterleaved = C.heif_channel_interleaved
+	ChannelFilterArray = C.heif_channel_filter_array
+	ChannelDepth       = C.heif_channel_depth
+	ChannelDisparity   = C.heif_channel_disparity
 )
 
 type ProgressStep C.enum_heif_progress_step
@@ -175,6 +179,8 @@ const (
 	ErrorColorProfileDoesNotExist = C.heif_error_Color_profile_does_not_exist
 
 	ErrorPluginLoadingError = C.heif_error_Plugin_loading_error
+
+	ErrorCanceled = C.heif_error_Canceled
 )
 
 type ErrorSubcode C.enum_heif_suberror_code
@@ -234,6 +240,8 @@ const (
 	SuberrorMissingGridImages = C.heif_suberror_Missing_grid_images
 
 	SuberrorNoAV1CBox = C.heif_suberror_No_av1C_box
+
+	SuberrorNoAVCCBox = C.heif_suberror_No_avcC_box
 
 	SuberrorInvalidCleanAperture = C.heif_suberror_Invalid_clean_aperture
 
@@ -327,6 +335,8 @@ const (
 
 	SuberrorNoIcbrBox = C.heif_suberror_No_icbr_box
 
+	SuberrorInvalidMiniBox = C.heif_suberror_Invalid_mini_box
+
 	// --- Unsupported_feature ---
 
 	// Image was coded with an unsupported compression method.
@@ -338,6 +348,8 @@ const (
 	SuberrorUnsupportedDataVersion = C.heif_suberror_Unsupported_data_version
 
 	SuberrorUnsupportedGenericCompressionMethod = C.heif_suberror_Unsupported_generic_compression_method
+
+	SuberrorUnsupportedEssentialProperty = C.heif_suberror_Unsupported_essential_property
 
 	// The conversion of the source image to the requested chroma / colorspace is not supported.
 	SuberrorUnsupportedColorConversion = C.heif_suberror_Unsupported_color_conversion

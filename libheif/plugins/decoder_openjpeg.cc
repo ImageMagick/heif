@@ -30,7 +30,7 @@
 #include <memory>
 
 static const int OPENJPEG_PLUGIN_PRIORITY = 100;
-
+static const int OPENJPEG_PLUGIN_PRIORITY_HTJ2K = 90;
 
 struct openjpeg_decoder
 {
@@ -65,6 +65,9 @@ static int openjpeg_does_support_format(enum heif_compression_format format)
 {
   if (format == heif_compression_JPEG2000) {
     return OPENJPEG_PLUGIN_PRIORITY;
+  }
+  else if (format == heif_compression_HTJ2K) {
+    return OPENJPEG_PLUGIN_PRIORITY_HTJ2K;
   }
   else {
     return 0;
@@ -256,7 +259,7 @@ struct heif_error openjpeg_decode_image(void* decoder_raw, struct heif_image** o
 
   OPJ_BOOL success;
   opj_dparameters_t decompression_parameters;
-  std::unique_ptr<opj_codec_t, void (*)(opj_codec_t*)> l_codec(opj_create_decompress(OPJ_CODEC_J2K),
+  std::unique_ptr<opj_codec_t, void (OPJ_CALLCONV *)(opj_codec_t*)> l_codec(opj_create_decompress(OPJ_CODEC_J2K),
                                                                opj_destroy_codec);
 
   // Initialize Decoder
@@ -271,7 +274,7 @@ struct heif_error openjpeg_decode_image(void* decoder_raw, struct heif_image** o
   // Create Input Stream
 
   OPJ_BOOL is_read_stream = true;
-  std::unique_ptr<opj_stream_t, void (*)(opj_stream_t*)> stream(opj_stream_create_default_memory_stream(decoder, is_read_stream),
+  std::unique_ptr<opj_stream_t, void (OPJ_CALLCONV *)(opj_stream_t*)> stream(opj_stream_create_default_memory_stream(decoder, is_read_stream),
                                                                 opj_stream_destroy);
 
 
@@ -283,7 +286,7 @@ struct heif_error openjpeg_decode_image(void* decoder_raw, struct heif_image** o
     return err;
   }
 
-  std::unique_ptr<opj_image_t, void (*)(opj_image_t*)> image(image_ptr, opj_image_destroy);
+  std::unique_ptr<opj_image_t, void (OPJ_CALLCONV *)(opj_image_t*)> image(image_ptr, opj_image_destroy);
 
   if (image->numcomps != 3 && image->numcomps != 1) {
     //TODO - Handle other numbers of components

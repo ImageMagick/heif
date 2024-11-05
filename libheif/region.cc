@@ -446,11 +446,10 @@ RegionCoordinateTransform RegionCoordinateTransform::create(std::shared_ptr<Heif
     return {};
   }
 
-  int image_width = 0, image_height = 0;
+  uint32_t image_width = 0, image_height = 0;
 
   for (auto& property : properties) {
-    if (property->get_short_type() == fourcc("ispe")) {
-      auto ispe = std::dynamic_pointer_cast<Box_ispe>(property);
+    if (auto ispe = std::dynamic_pointer_cast<Box_ispe>(property)) {
       image_width = ispe->get_width();
       image_height = ispe->get_height();
       break;
@@ -484,7 +483,7 @@ RegionCoordinateTransform RegionCoordinateTransform::create(std::shared_ptr<Heif
       case fourcc("irot"): {
         auto irot = std::dynamic_pointer_cast<Box_irot>(property);
         RegionCoordinateTransform tmp;
-        switch (irot->get_rotation()) {
+        switch (irot->get_rotation_ccw()) {
           case 90:
             tmp.a = transform.c;
             tmp.b = transform.d;

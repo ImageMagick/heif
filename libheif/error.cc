@@ -27,7 +27,7 @@ const char Error::kSuccess[] = "Success";
 const char* cUnknownError = "Unknown error";
 
 
-Error Error::Ok(heif_error_Ok);
+const Error Error::Ok(heif_error_Ok);
 
 
 Error::Error() = default;
@@ -70,6 +70,8 @@ const char* Error::get_error_string(heif_error_code err)
       return "Color profile does not exist";
     case heif_error_Plugin_loading_error:
       return "Error while loading plugin";
+    case heif_error_Canceled:
+      return "Canceled by user";
   }
 
   assert(false);
@@ -106,6 +108,8 @@ const char* Error::get_error_string(heif_suberror_code err)
       return "No 'vvcC' box";
     case heif_suberror_No_av1C_box:
       return "No 'av1C' box";
+    case heif_suberror_No_avcC_box:
+      return "No 'avcC' box";
     case heif_suberror_No_pitm_box:
       return "No 'pitm' box";
     case heif_suberror_No_ipco_box:
@@ -161,7 +165,7 @@ const char* Error::get_error_string(heif_suberror_code err)
     case heif_suberror_Invalid_region_data:
       return "Invalid region item data";
     case heif_suberror_No_ispe_property:
-      return "No ispe property";
+      return "Image has no 'ispe' property";
     case heif_suberror_Camera_intrinsic_matrix_undefined:
       return "Camera intrinsic matrix undefined";
     case heif_suberror_Camera_extrinsic_matrix_undefined:
@@ -172,6 +176,8 @@ const char* Error::get_error_string(heif_suberror_code err)
       return "Invalid data in generic compression inflation";
     case heif_suberror_No_icbr_box:
       return "No 'icbr' box";
+    case heif_suberror_Invalid_mini_box:
+      return "Unsupported or invalid 'mini' box";
 
 
       // --- Memory_allocation_error ---
@@ -218,6 +224,8 @@ const char* Error::get_error_string(heif_suberror_code err)
       return "Unsupported header compression method";
     case heif_suberror_Unsupported_generic_compression_method:
       return "Unsupported generic compression method";
+    case heif_suberror_Unsupported_essential_property:
+      return "Unsupported essential item property";
 
       // --- Encoder_plugin_error --
 

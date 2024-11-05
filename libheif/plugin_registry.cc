@@ -76,6 +76,7 @@
 
 #if WITH_UNCOMPRESSED_CODEC
 #include "plugins/encoder_uncompressed.h"
+#include "plugins/decoder_uncompressed.h"
 #endif
 
 #if HAVE_JPEG_DECODER
@@ -84,6 +85,10 @@
 
 #if HAVE_JPEG_ENCODER
 #include "plugins/encoder_jpeg.h"
+#endif
+
+#if HAVE_OpenH264_DECODER
+#include "plugins/decoder_openh264.h"
 #endif
 
 #if HAVE_OPENJPEG_ENCODER
@@ -203,11 +208,16 @@ void register_default_plugins()
   register_encoder(get_encoder_plugin_openjph());
 #endif
 
-#if WITH_UNCOMPRESSED_CODEC
-  register_encoder(get_encoder_plugin_uncompressed());
+#if HAVE_OpenH264_DECODER
+  register_decoder(get_decoder_plugin_openh264());
 #endif
 
-register_encoder(get_encoder_plugin_mask());
+#if WITH_UNCOMPRESSED_CODEC
+  register_encoder(get_encoder_plugin_uncompressed());
+  register_decoder(get_decoder_plugin_uncompressed());
+#endif
+
+  register_encoder(get_encoder_plugin_mask());
 }
 
 
