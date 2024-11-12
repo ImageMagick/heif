@@ -208,7 +208,18 @@ public:
     return nullptr;
   }
 
+  template<typename T> bool replace_child_box(const std::shared_ptr<T>& box)
+  {
+    for (auto & b : m_children) {
+      if (std::dynamic_pointer_cast<T>(b) != nullptr) {
+        b = box;
+        return true;
+      }
+    }
 
+    append_child_box(box);
+    return false;
+  }
 
   template<typename T>
   std::vector<std::shared_ptr<T>> get_child_boxes() const
@@ -232,6 +243,8 @@ public:
   }
 
   bool has_child_boxes() const { return !m_children.empty(); }
+
+  bool remove_child_box(const std::shared_ptr<const Box>& box);
 
   virtual bool operator==(const Box& other) const;
 
@@ -409,6 +422,23 @@ private:
   uint32_t m_major_brand = 0;
   uint32_t m_minor_version = 0;
   std::vector<heif_brand2> m_compatible_brands;
+};
+
+
+class Box_free : public Box
+{
+public:
+  Box_free()
+  {
+    set_short_type(fourcc("free"));
+  }
+
+  std::string dump(Indent&) const override;
+
+  Error write(StreamWriter& writer) const override;
+
+protected:
+  Error parse(BitstreamRange& range, const heif_security_limits*) override;
 };
 
 

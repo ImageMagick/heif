@@ -36,6 +36,7 @@
 #include <vector>
 #include <unordered_set>
 #include <limits>
+#include <utility>
 
 #if ENABLE_PARALLEL_TILE_DECODING
 
@@ -72,6 +73,8 @@ public:
 
   void set_brand(heif_compression_format format, bool miaf_compatible);
 
+  void set_hdlr_box(std::shared_ptr<Box_hdlr> box) { m_hdlr_box = std::move(box); }
+
   void write(StreamWriter& writer);
 
   int get_num_images() const { return static_cast<int>(m_infe_boxes.size()); }
@@ -104,9 +107,13 @@ public:
 
   std::shared_ptr<Box_ftyp> get_ftyp_box() { return m_ftyp_box; }
 
+  void init_meta_box() { m_meta_box = std::make_shared<Box_meta>(); }
+
   std::shared_ptr<const Box_infe> get_infe_box(heif_item_id imageID) const;
 
   std::shared_ptr<Box_infe> get_infe_box(heif_item_id imageID);
+
+  void set_iref_box(std::shared_ptr<Box_iref>);
 
   std::shared_ptr<Box_iref> get_iref_box() { return m_iref_box; }
 
@@ -114,7 +121,11 @@ public:
 
   std::shared_ptr<Box_ipco> get_ipco_box() { return m_ipco_box; }
 
+  void set_ipco_box(std::shared_ptr<Box_ipco>);
+
   std::shared_ptr<Box_ipco> get_ipco_box() const { return m_ipco_box; }
+
+  void set_ipma_box(std::shared_ptr<Box_ipma>);
 
   std::shared_ptr<Box_ipma> get_ipma_box() { return m_ipma_box; }
 
@@ -128,7 +139,7 @@ public:
                        std::vector<std::shared_ptr<Box>>& properties) const;
 
   template<class BoxType>
-  std::shared_ptr<BoxType> get_property(heif_item_id imageID) const
+  std::shared_ptr<BoxType> get_property_for_item(heif_item_id imageID) const
   {
     std::vector<std::shared_ptr<Box>> properties;
     Error err = get_properties(imageID, properties);
@@ -168,6 +179,8 @@ public:
 
   Result<heif_item_id> add_infe(uint32_t item_type, const uint8_t* data, size_t size);
 
+  void add_infe_box(heif_item_id, std::shared_ptr<Box_infe> infe);
+
   Result<heif_item_id> add_infe_mime(const char* content_type, heif_metadata_compression content_encoding, const uint8_t* data, size_t size);
 
   Result<heif_item_id> add_precompressed_infe_mime(const char* content_type, std::string content_encoding, const uint8_t* data, size_t size);
@@ -181,6 +194,10 @@ public:
   void append_iloc_data(heif_item_id id, const std::vector<uint8_t>& nal_packets, uint8_t construction_method);
 
   void replace_iloc_data(heif_item_id id, uint64_t offset, const std::vector<uint8_t>& data, uint8_t construction_method = 0);
+
+  void set_iloc_box(std::shared_ptr<Box_iloc>);
+
+  std::shared_ptr<Box_iloc> get_iloc_box() { return m_iloc_box; }
 
   void set_primary_item_id(heif_item_id id);
 

@@ -1020,7 +1020,8 @@ struct heif_error heif_image_handle_get_tile_size(const struct heif_image_handle
 
 
 struct heif_entity_group* heif_context_get_entity_groups(const struct heif_context* ctx,
-                                                         uint32_t type_filter, uint32_t item_filter,
+                                                         uint32_t type_filter,
+                                                         heif_item_id item_filter,
                                                          int* out_num_groups)
 {
   std::shared_ptr<Box_grpl> grplBox = ctx->context->get_heif_file()->get_grpl_box();
@@ -1557,7 +1558,7 @@ void heif_image_get_content_light_level(const struct heif_image* image, struct h
 
 int heif_image_handle_get_content_light_level(const struct heif_image_handle* handle, struct heif_content_light_level* out)
 {
-  auto clli = handle->image->get_file()->get_property<Box_clli>(handle->image->get_id());
+  auto clli = handle->image->get_property<Box_clli>();
   if (out && clli) {
     *out = clli->clli;
   }
@@ -1587,7 +1588,7 @@ void heif_image_get_mastering_display_colour_volume(const struct heif_image* ima
 
 int heif_image_handle_get_mastering_display_colour_volume(const struct heif_image_handle* handle, struct heif_mastering_display_colour_volume* out)
 {
-  auto mdcv = handle->image->get_file()->get_property<Box_mdcv>(handle->image->get_id());
+  auto mdcv = handle->image->get_property<Box_mdcv>();
   if (out && mdcv) {
     *out = mdcv->mdcv;
   }
@@ -1664,7 +1665,7 @@ void heif_image_get_pixel_aspect_ratio(const struct heif_image* image, uint32_t*
 
 int heif_image_handle_get_pixel_aspect_ratio(const struct heif_image_handle* handle, uint32_t* aspect_h, uint32_t* aspect_v)
 {
-  auto pasp = handle->image->get_file()->get_property<Box_pasp>(handle->image->get_id());
+  auto pasp = handle->image->get_property<Box_pasp>();
   if (pasp) {
     *aspect_h = pasp->hSpacing;
     *aspect_v = pasp->vSpacing;
@@ -3055,7 +3056,7 @@ heif_encoder_parameter_get_valid_integer_range(const struct heif_encoder_paramet
   return heif_error_success;
 }
 
-LIBHEIF_API
+
 struct heif_error heif_encoder_parameter_get_valid_integer_values(const struct heif_encoder_parameter* param,
                                                                   int* have_minimum, int* have_maximum,
                                                                   int* minimum, int* maximum,
@@ -3650,7 +3651,7 @@ struct heif_error heif_context_add_image_tile(struct heif_context* ctx,
   }
 #endif
   else if (auto grid_item = std::dynamic_pointer_cast<ImageItem_Grid>(tiled_image->image)) {
-    Error err = grid_item->add_image_tile(tiled_image->image->get_id(), tile_x, tile_y, image->image, encoder);
+    Error err = grid_item->add_image_tile(tile_x, tile_y, image->image, encoder);
     return err.error_struct(ctx->context.get());
   }
   else {

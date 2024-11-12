@@ -24,7 +24,7 @@
   SOFTWARE.
 */
 
-#include "catch.hpp"
+#include "catch_amalgamated.hpp"
 #include "libheif/api_structs.h"
 #include "libheif/heif.h"
 #include "test-config.h"
@@ -40,14 +40,14 @@ TEST_CASE("make extended type") {
   heif_context *ctx = heif_context_alloc();
   heif_encoder *encoder;
   struct heif_error err;
-  err = heif_context_get_encoder_for_format(ctx, heif_compression_HEVC, &encoder);
-  REQUIRE(err.code == heif_error_Ok);
+  encoder = get_encoder_or_skip_test(heif_compression_HEVC);
 
   struct heif_encoding_options *options = heif_encoding_options_alloc();
 
   heif_image_handle *output_image_handle;
 
   err = heif_context_encode_image(ctx, input_image, encoder, nullptr, &output_image_handle);
+  UNSCOPED_INFO("heif_context_encode_image: " << err.message);
   REQUIRE(err.code == heif_error_Ok);
 
   heif_item_id itemId;

@@ -460,6 +460,11 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result, const heif_
       box = std::make_shared<Box_ftyp>();
       break;
 
+    case fourcc("free"):
+    case fourcc("skip"):
+      box = std::make_shared<Box_free>();
+      break;
+
     case fourcc("meta"):
       box = std::make_shared<Box_meta>();
       break;
@@ -854,6 +859,19 @@ bool Box::operator==(const Box& other) const
 }
 
 
+bool Box::remove_child_box(const std::shared_ptr<const Box>& box)
+{
+  for (int i=0; i<(int)m_children.size(); i++) {
+    if (m_children[i].get() == box.get()) {
+      m_children.erase(m_children.begin() + i);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
 bool Box::equal(const std::shared_ptr<Box>& box1, const std::shared_ptr<Box>& box2)
 {
     if (!box1 || !box2) {
@@ -881,22 +899,24 @@ Error Box::read_children(BitstreamRange& range, uint32_t max_number, const heif_
       return error;
     }
 
-    uint32_t max_children;
-    if (get_short_type() == fourcc("iinf")) {
-      max_children = limits->max_items;
-    }
-    else {
-      max_children = limits->max_children_per_box;
-    }
+    if (max_number == READ_CHILDREN_ALL) {
+      uint32_t max_children;
+      if (get_short_type() == fourcc("iinf")) {
+        max_children = limits->max_items;
+      }
+      else {
+        max_children = limits->max_children_per_box;
+      }
 
-    if (max_children && m_children.size() > max_children) {
-      std::stringstream sstr;
-      sstr << "Maximum number of child boxes (" << max_children << ") in '" << get_type_string() << "' box exceeded.";
+      if (max_children && m_children.size() > max_children) {
+        std::stringstream sstr;
+        sstr << "Maximum number of child boxes (" << max_children << ") in '" << get_type_string() << "' box exceeded.";
 
-      // Sanity check.
-      return Error(heif_error_Memory_allocation_error,
-                   heif_suberror_Security_limit_exceeded,
-                   sstr.str());
+        // Sanity check.
+        return Error(heif_error_Memory_allocation_error,
+                     heif_suberror_Security_limit_exceeded,
+                     sstr.str());
+      }
     }
 
     m_children.push_back(std::move(box));
@@ -1143,6 +1163,29 @@ Error Box_ftyp::write(StreamWriter& writer) const
 
   prepend_header(writer, box_start);
 
+  return Error::Ok;
+}
+
+
+Error Box_free::parse(BitstreamRange& range, const heif_security_limits* limits)
+{
+  range.skip_to_end_of_box();
+  return range.get_error();
+}
+
+
+std::string Box_free::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << BoxHeader::dump(indent);
+  return sstr.str();
+}
+
+
+Error Box_free::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+  prepend_header(writer, box_start);
   return Error::Ok;
 }
 
@@ -4589,7 +4632,7 @@ std::string Box_taic::dump(Indent& indent) const {
     sstr << m_clock_drift_rate << "\n";
   }
 
-  sstr << indent << "clock_type: " << m_clock_type << "\n";
+  sstr << indent << "clock_type: " << static_cast<int>(m_clock_type) << "\n";
   return sstr.str();
 }
 

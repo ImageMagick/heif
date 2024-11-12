@@ -25,7 +25,7 @@
 */
 
 #include "pixelimage.h"
-#include "catch.hpp"
+#include "catch_amalgamated.hpp"
 
 TEST_CASE( "uint32_t" )
 {

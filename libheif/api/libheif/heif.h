@@ -55,7 +55,7 @@ extern "C" {
 //  1.18           5            7             1             1            1            1
 //  1.19           6            7             2             1            1            1
 
-#if defined(_MSC_VER) && !defined(LIBHEIF_STATIC_BUILD)
+#if (defined(_WIN32) || defined __CYGWIN__) && !defined(LIBHEIF_STATIC_BUILD)
 #ifdef LIBHEIF_EXPORTS
 #define LIBHEIF_API __declspec(dllexport)
 #else
@@ -1324,7 +1324,10 @@ struct heif_entity_group
 // Use 0 for `type_filter` or `item_filter` to disable the filter.
 // Returns an array of heif_entity_group structs with *out_num_groups entries.
 LIBHEIF_API
-struct heif_entity_group* heif_context_get_entity_groups(const struct heif_context*, uint32_t type_filter, uint32_t item_filter, int* out_num_groups);
+struct heif_entity_group* heif_context_get_entity_groups(const struct heif_context*,
+                                                         uint32_t type_filter,
+                                                         heif_item_id item_filter,
+                                                         int* out_num_groups);
 
 // Release an array of entity groups returned by heif_context_get_entity_groups().
 LIBHEIF_API
@@ -2363,7 +2366,7 @@ struct heif_encoding_options
 
   // Set this to the NCLX parameters to be used in the output image or set to NULL
   // when the same parameters as in the input image should be used.
-  const struct heif_color_profile_nclx* output_nclx_profile;
+  struct heif_color_profile_nclx* output_nclx_profile;
 
   uint8_t macOS_compatibility_workaround_no_nclx_profile;
 

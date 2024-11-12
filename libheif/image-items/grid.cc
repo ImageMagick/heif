@@ -445,23 +445,27 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
 
   // --- generate the image canvas for combining all the tiles
 
-  if (!inout_image) { // this if avoids that we normally have to lock a mutex
+  if (!inout_image) { // this avoids that we normally have to lock a mutex
+#if ENABLE_PARALLEL_TILE_DECODING
     static std::mutex createImageMutex;
     std::lock_guard<std::mutex> lock(createImageMutex);
+#endif
 
     if (!inout_image) {
-      inout_image = std::make_shared<HeifPixelImage>();
-      inout_image->create_clone_image_at_new_size(tile_img, w, h);
+      auto grid_image = std::make_shared<HeifPixelImage>();
+      grid_image->create_clone_image_at_new_size(tile_img, w, h);
 
       // Fill alpha plane with opaque in case not all tiles have alpha planes
 
-      if (inout_image->has_channel(heif_channel_Alpha)) {
-        uint16_t alpha_bpp = inout_image->get_bits_per_pixel(heif_channel_Alpha);
+      if (grid_image->has_channel(heif_channel_Alpha)) {
+        uint16_t alpha_bpp = grid_image->get_bits_per_pixel(heif_channel_Alpha);
         assert(alpha_bpp <= 16);
 
         auto alpha_default_value = static_cast<uint16_t>((1UL << alpha_bpp) - 1UL);
-        inout_image->fill_plane(heif_channel_Alpha, alpha_default_value);
+        grid_image->fill_plane(heif_channel_Alpha, alpha_default_value);
       }
+
+      inout_image = grid_image; // We have to set this at the very end because of the unlocked check to `inout_image` above.
     }
   }
 
@@ -479,8 +483,10 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
   inout_image->copy_image_to(tile_img, x0, y0);
 
   if (options.on_progress) {
+#if ENABLE_PARALLEL_TILE_DECODING
     static std::mutex progressMutex;
     std::lock_guard<std::mutex> lock(progressMutex);
+#endif
 
     options.on_progress(heif_progress_step_total, ++progress_counter, options.progress_user_data);
   }
@@ -658,7 +664,7 @@ Result<std::shared_ptr<ImageItem_Grid>> ImageItem_Grid::add_new_grid_item(HeifCo
 }
 
 
-Error ImageItem_Grid::add_image_tile(heif_item_id grid_id, uint32_t tile_x, uint32_t tile_y,
+Error ImageItem_Grid::add_image_tile(uint32_t tile_x, uint32_t tile_y,
                                      const std::shared_ptr<HeifPixelImage>& image,
                                      struct heif_encoder* encoder)
 {
@@ -679,13 +685,13 @@ Error ImageItem_Grid::add_image_tile(heif_item_id grid_id, uint32_t tile_x, uint
 
   // Assign tile to grid
   heif_image_tiling tiling = get_heif_image_tiling();
-  file->set_iref_reference(grid_id, fourcc("dimg"), tile_y * tiling.num_columns + tile_x, encoded_image->get_id());
+  file->set_iref_reference(get_id(), fourcc("dimg"), tile_y * tiling.num_columns + tile_x, encoded_image->get_id());
 
   set_grid_tile_id(tile_x, tile_y, encoded_image->get_id());
 
   // Add PIXI property (copy from first tile)
-  auto pixi = file->get_property<Box_pixi>(encoded_image->get_id());
-  file->add_property(grid_id, pixi, true);
+  auto pixi = encoded_image->get_property<Box_pixi>();
+  add_property(pixi, true);
 
   return Error::Ok;
 }
@@ -715,6 +721,8 @@ Result<std::shared_ptr<ImageItem_Grid>> ImageItem_Grid::add_and_encode_full_grid
 
   std::vector<heif_item_id> tile_ids;
 
+  std::shared_ptr<Box_pixi> pixi_property;
+
   for (int i=0; i<rows*columns; i++) {
     std::shared_ptr<ImageItem> out_tile;
     auto encodingResult = ctx->encode_image(tiles[i],
@@ -728,6 +736,10 @@ Result<std::shared_ptr<ImageItem_Grid>> ImageItem_Grid::add_and_encode_full_grid
     heif_item_id tile_id = out_tile->get_id();
     file->get_infe_box(tile_id)->set_hidden_item(true); // only show the full grid
     tile_ids.push_back(out_tile->get_id());
+
+    if (!pixi_property) {
+      pixi_property = out_tile->get_property<Box_pixi>();
+    }
   }
 
   // Create Grid Item
@@ -746,12 +758,14 @@ Result<std::shared_ptr<ImageItem_Grid>> ImageItem_Grid::add_and_encode_full_grid
 
   uint32_t image_width = tile_width * columns;
   uint32_t image_height = tile_height * rows;
-  file->add_ispe_property(grid_id, image_width, image_height, false);
+
+  auto ispe = std::make_shared<Box_ispe>();
+  ispe->set_size(image_width, image_height);
+  griditem->add_property(ispe, false);
 
   // Add PIXI property (copy from first tile)
 
-  auto pixi = file->get_property<Box_pixi>(tile_ids[0]);
-  file->add_property(grid_id, pixi, true);
+  griditem->add_property(pixi_property, true);
 
   // Set Brands
 

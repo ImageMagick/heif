@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.16.3) # Oldest Ubuntu LTS (20.04 currently)
 
-project(libheif LANGUAGES C CXX VERSION 1.19.1)
+project(libheif LANGUAGES C CXX VERSION 1.19.3)
 
 # compatibility_version is never allowed to be decreased for any specific SONAME.
 # Libtool in the libheif-1.15.1 release had set it to 17.0.0, so we have to use this for the v1.x.y versions.
@@ -543,6 +543,7 @@ if(ENABLE_COVERAGE)
 endif()
 
 option(BUILD_TESTING "" ON)
+set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 include(CTest)
 if(BUILD_TESTING)
     # TODO: fix tests on windows.

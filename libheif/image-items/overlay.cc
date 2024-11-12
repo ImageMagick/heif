@@ -47,13 +47,12 @@ static int32_t readvec_signed(const std::vector<uint8_t>& data, int& ptr, int le
   }
 
   bool negative = (val & high_bit) != 0;
-  val &= ~high_bit;
 
   if (negative) {
-    return -(high_bit - val);
+    return -static_cast<int32_t>((~val) & 0x7fffffff) -1;
   }
   else {
-    return val;
+    return static_cast<int32_t>(val);
   }
 
   return val;
@@ -391,6 +390,15 @@ int ImageItem_Overlay::get_chroma_bits_per_pixel() const
 }
 
 
+Error ImageItem_Overlay::get_coded_image_colorspace(heif_colorspace* out_colorspace, heif_chroma* out_chroma) const
+{
+  *out_colorspace = heif_colorspace_RGB;
+  *out_chroma = heif_chroma_444;
+
+  return Error::Ok;
+}
+
+
 Result<std::shared_ptr<ImageItem_Overlay>> ImageItem_Overlay::add_new_overlay_item(HeifContext* ctx, const ImageOverlay& overlayspec)
 {
   if (overlayspec.get_num_offsets() > 0xFFFF) {
@@ -425,11 +433,13 @@ Result<std::shared_ptr<ImageItem_Overlay>> ImageItem_Overlay::add_new_overlay_it
   file->add_iref_reference(iovl_id, fourcc("dimg"), ref_ids);
 
   // Add ISPE property
-  file->add_ispe_property(iovl_id, overlayspec.get_canvas_width(), overlayspec.get_canvas_height(), false);
+  auto ispe = std::make_shared<Box_ispe>();
+  ispe->set_size(overlayspec.get_canvas_width(), overlayspec.get_canvas_height());
+  iovl_image->add_property(ispe, false);
 
   // Add PIXI property (copy from first image) - According to MIAF, all images shall have the same color information.
-  auto pixi = file->get_property<Box_pixi>(ref_ids[0]);
-  file->add_property(iovl_id, pixi, true);
+  auto pixi = file->get_property_for_item<Box_pixi>(ref_ids[0]);
+  iovl_image->add_property(pixi, true);
 
   // Set Brands
   //m_heif_file->set_brand(encoder->plugin->compression_format,

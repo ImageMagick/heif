@@ -23,6 +23,7 @@
 #include <iostream>
 #include <cassert>
 #include <utility>
+#include <bit>
 
 #include "common_utils.h"
 #include "context.h"
@@ -56,11 +57,6 @@ void AbstractDecoder::buildChannelList(std::shared_ptr<HeifPixelImage>& img)
   }
 }
 
-bool is_big_endian() {
-    uint16_t number = 0x1;
-    return *(reinterpret_cast<uint8_t*>(&number)) == 0;
-}
-
 void AbstractDecoder::memcpy_to_native_endian(uint8_t* dst, uint32_t value, uint32_t bytes_per_sample)
 {
   // TODO: this assumes that the file endianness is always big-endian. The endianness flags in the uncC header are not taken into account yet.
@@ -69,7 +65,7 @@ void AbstractDecoder::memcpy_to_native_endian(uint8_t* dst, uint32_t value, uint
     *dst = static_cast<uint8_t>(value);
     return;
   }
-  else if (is_big_endian()) {
+  else if (std::endian::native == std::endian::big) {
     for (uint32_t i = 0; i < bytes_per_sample; i++) {
       dst[bytes_per_sample - 1 - i] = static_cast<uint8_t>((value >> (i * 8)) & 0xFF);
     }
@@ -170,10 +166,16 @@ const Error AbstractDecoder::get_compressed_image_data_uncompressed(const HeifCo
                                                                     uint32_t tile_idx,
                                                                     const Box_iloc::Item* item) const
 {
+  auto image = context->get_image(ID, false);
+  if (!image) {
+    return {heif_error_Invalid_input,
+            heif_suberror_Nonexisting_item_referenced};
+  }
+
   // --- get codec configuration
 
-  std::shared_ptr<const Box_cmpC> cmpC_box = context->get_heif_file()->get_property<const Box_cmpC>(ID);
-  std::shared_ptr<const Box_icef> icef_box = context->get_heif_file()->get_property<const Box_icef>(ID);
+  std::shared_ptr<const Box_cmpC> cmpC_box = image->get_property<const Box_cmpC>();
+  std::shared_ptr<const Box_icef> icef_box = image->get_property<const Box_icef>();
 
   if (!cmpC_box) {
     // assume no generic compression
