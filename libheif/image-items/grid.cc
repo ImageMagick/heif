@@ -453,7 +453,10 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
 
     if (!inout_image) {
       auto grid_image = std::make_shared<HeifPixelImage>();
-      grid_image->create_clone_image_at_new_size(tile_img, w, h);
+      auto err = grid_image->create_clone_image_at_new_size(tile_img, w, h, get_context()->get_security_limits());
+      if (err) {
+        return err;
+      }
 
       // Fill alpha plane with opaque in case not all tiles have alpha planes
 
@@ -731,6 +734,9 @@ Result<std::shared_ptr<ImageItem_Grid>> ImageItem_Grid::add_and_encode_full_grid
                                             heif_image_input_class_normal);
     if (encodingResult.error) {
       return encodingResult.error;
+    }
+    else {
+      out_tile = *encodingResult;
     }
 
     heif_item_id tile_id = out_tile->get_id();

@@ -304,9 +304,8 @@ static void kvazaar_query_input_colorspace2(void* encoder_raw, heif_colorspace* 
   }
   else {
     *colorspace = heif_colorspace_YCbCr;
-    if (*chroma != heif_chroma_420 &&
-        *chroma != heif_chroma_422 &&
-        *chroma != heif_chroma_444) {
+    if (*chroma != heif_chroma_420) {
+      // Encoding to 4:2:2 and 4:4:4 currently does not work with Kvazaar (https://github.com/ultravideo/kvazaar/issues/418).
       *chroma = heif_chroma_420;
     }
   }
@@ -376,12 +375,25 @@ static struct heif_error kvazaar_encode_image(void* encoder_raw, const struct he
   bool isGreyscale = (heif_image_get_colorspace(image) == heif_colorspace_monochrome);
   heif_chroma chroma = heif_image_get_chroma_format(image);
 
-  const kvz_api* api = kvz_api_get(bit_depth);
-  if (api == nullptr) {
+  // Kvazaar uses a hard-coded bit depth (https://github.com/ultravideo/kvazaar/issues/399).
+  // Check whether this matches to the image bit depth.
+  // TODO: we should check the bit depth supported by the encoder (like query_input_colorspace2()) and output a warning
+  //       if we have to encode at a different bit depth than requested.
+  if (bit_depth != KVZ_BIT_DEPTH) {
     struct heif_error err = {
         heif_error_Encoder_plugin_error,
         heif_suberror_Unsupported_bit_depth,
         kError_unsupported_bit_depth
+    };
+    return err;
+  }
+
+  const kvz_api* api = kvz_api_get(bit_depth);
+  if (api == nullptr) {
+    struct heif_error err = {
+        heif_error_Encoder_plugin_error,
+        heif_suberror_Unspecified,
+        "Could not initialize Kvazaar API"
     };
     return err;
   }

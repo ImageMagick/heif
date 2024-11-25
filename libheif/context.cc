@@ -803,37 +803,40 @@ Error HeifContext::interpret_heif_file()
     // --- assign metadata to the image
 
     if (iref_box) {
-      std::vector<Box_iref::Reference> references = iref_box->get_references_from(id);
-      for (const auto& ref : references) {
-        if (ref.header.get_short_type() == fourcc("cdsc")) {
-          std::vector<uint32_t> refs = ref.to_item_ID;
-
-          for(uint32_t ref: refs) {
-            uint32_t exif_image_id = ref;
-            auto img_iter = m_all_images.find(exif_image_id);
-            if (img_iter == m_all_images.end()) {
-              if (!m_heif_file->has_item_with_id(exif_image_id)) {
-                return Error(heif_error_Invalid_input,
-                             heif_suberror_Nonexisting_item_referenced,
-                             "Metadata assigned to non-existing image");
-              }
-
-              continue;
-            }
-            img_iter->second->add_metadata(metadata);
-          }
-        }
-        else if (ref.header.get_short_type() == fourcc("prem")) {
-          uint32_t color_image_id = ref.from_item_ID;
-          auto img_iter = m_all_images.find(color_image_id);
-          if (img_iter == m_all_images.end()) {
+      std::vector<heif_item_id> references = iref_box->get_references(id, fourcc("cdsc"));
+      for (heif_item_id exif_image_id : references) {
+        auto img_iter = m_all_images.find(exif_image_id);
+        if (img_iter == m_all_images.end()) {
+          if (!m_heif_file->has_item_with_id(exif_image_id)) {
             return Error(heif_error_Invalid_input,
                          heif_suberror_Nonexisting_item_referenced,
-                         "`prem` link assigned to non-existing image");
+                         "Metadata assigned to non-existing image");
           }
 
-          img_iter->second->set_is_premultiplied_alpha(true);;
+          continue;
         }
+        img_iter->second->add_metadata(metadata);
+      }
+    }
+  }
+
+  // --- set premultiplied alpha flag
+
+  for (heif_item_id id : image_IDs) {
+    if (iref_box) {
+      std::vector<heif_item_id> references = iref_box->get_references(id, fourcc("prem"));
+      for (heif_item_id ref : references) {
+        (void)ref;
+
+        heif_item_id color_image_id = id;
+        auto img_iter = m_all_images.find(color_image_id);
+        if (img_iter == m_all_images.end()) {
+          return Error(heif_error_Invalid_input,
+                       heif_suberror_Nonexisting_item_referenced,
+                       "`prem` link assigned to non-existing image");
+        }
+
+        img_iter->second->set_is_premultiplied_alpha(true);
       }
     }
   }
@@ -1087,9 +1090,12 @@ Result<std::shared_ptr<HeifPixelImage>> HeifContext::decode_image(heif_item_id I
   // TODO: check BPP changed
   if (different_chroma || different_colorspace) {
 
-    img = convert_colorspace(img, target_colorspace, target_chroma, nullptr, bpp, options.color_conversion_options);
-    if (!img) {
-      return Error(heif_error_Unsupported_feature, heif_suberror_Unsupported_color_conversion);
+    auto img_result = convert_colorspace(img, target_colorspace, target_chroma, nullptr, bpp, options.color_conversion_options, get_security_limits());
+    if (img_result.error) {
+      return img_result.error;
+    }
+    else {
+      img = *img_result;
     }
   }
 
@@ -1099,8 +1105,9 @@ Result<std::shared_ptr<HeifPixelImage>> HeifContext::decode_image(heif_item_id I
 }
 
 
-static std::shared_ptr<HeifPixelImage>
-create_alpha_image_from_image_alpha_channel(const std::shared_ptr<HeifPixelImage>& image)
+static Result<std::shared_ptr<HeifPixelImage>>
+create_alpha_image_from_image_alpha_channel(const std::shared_ptr<HeifPixelImage>& image,
+                                            const heif_security_limits* limits)
 {
   // --- generate alpha image
 
@@ -1109,10 +1116,12 @@ create_alpha_image_from_image_alpha_channel(const std::shared_ptr<HeifPixelImage
                       heif_colorspace_monochrome, heif_chroma_monochrome);
 
   if (image->has_channel(heif_channel_Alpha)) {
-    alpha_image->copy_new_plane_from(image, heif_channel_Alpha, heif_channel_Y);
+    alpha_image->copy_new_plane_from(image, heif_channel_Alpha, heif_channel_Y, limits);
   }
   else if (image->get_chroma_format() == heif_chroma_interleaved_RGBA) {
-    alpha_image->extract_alpha_from_RGBA(image);
+    if (auto err = alpha_image->extract_alpha_from_RGBA(image, limits)) {
+      return err;
+    }
   }
   // TODO: 16 bit
 
@@ -1195,7 +1204,12 @@ Result<std::shared_ptr<ImageItem>> HeifContext::encode_image(const std::shared_p
     // TODO: can we directly code a monochrome image instead of the dummy color channels?
 
     std::shared_ptr<HeifPixelImage> alpha_image;
-    alpha_image = create_alpha_image_from_image_alpha_channel(colorConvertedImage);
+    auto alpha_image_result = create_alpha_image_from_image_alpha_channel(colorConvertedImage, get_security_limits());
+    if (!alpha_image_result) {
+      return alpha_image_result.error;
+    }
+
+    alpha_image = *alpha_image_result;
 
 
     // --- encode the alpha image
@@ -1290,7 +1304,7 @@ Result<std::shared_ptr<ImageItem>> HeifContext::encode_thumbnail(const std::shar
 
 
   std::shared_ptr<HeifPixelImage> thumbnail_image;
-  Error error = image->scale_nearest_neighbor(thumbnail_image, thumb_width, thumb_height);
+  Error error = image->scale_nearest_neighbor(thumbnail_image, thumb_width, thumb_height, get_security_limits());
   if (error) {
     return error;
   }

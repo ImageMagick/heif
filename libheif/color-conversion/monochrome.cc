@@ -49,11 +49,12 @@ Op_mono_to_YCbCr420::state_after_conversion(const ColorState& input_state,
 }
 
 
-std::shared_ptr<HeifPixelImage>
+Result<std::shared_ptr<HeifPixelImage>>
 Op_mono_to_YCbCr420::convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
                                         const ColorState& input_state,
                                         const ColorState& target_state,
-                                        const heif_color_conversion_options& options) const
+                                        const heif_color_conversion_options& options,
+                                        const heif_security_limits* limits) const
 {
   auto outimg = std::make_shared<HeifPixelImage>();
 
@@ -67,18 +68,18 @@ Op_mono_to_YCbCr420::convert_colorspace(const std::shared_ptr<const HeifPixelIma
   uint32_t chroma_width = (width + 1) / 2;
   uint32_t chroma_height = (height + 1) / 2;
 
-  if (!outimg->add_plane(heif_channel_Y, width, height, input_bpp) ||
-      !outimg->add_plane(heif_channel_Cb, chroma_width, chroma_height, input_bpp) ||
-      !outimg->add_plane(heif_channel_Cr, chroma_width, chroma_height, input_bpp)) {
-    return nullptr;
+  if (auto err = outimg->add_plane(heif_channel_Y, width, height, input_bpp, limits) ||
+                 outimg->add_plane(heif_channel_Cb, chroma_width, chroma_height, input_bpp, limits) ||
+                 outimg->add_plane(heif_channel_Cr, chroma_width, chroma_height, input_bpp, limits)) {
+    return err;
   }
 
   int alpha_bpp = 0;
   bool has_alpha = input->has_channel(heif_channel_Alpha);
   if (has_alpha) {
     alpha_bpp = input->get_bits_per_pixel(heif_channel_Alpha);
-    if (!outimg->add_plane(heif_channel_Alpha, width, height, alpha_bpp)) {
-      return nullptr;
+    if (auto err = outimg->add_plane(heif_channel_Alpha, width, height, alpha_bpp, limits)) {
+      return err;
     }
   }
 
@@ -200,17 +201,18 @@ Op_mono_to_RGB24_32::state_after_conversion(const ColorState& input_state,
 }
 
 
-std::shared_ptr<HeifPixelImage>
+Result<std::shared_ptr<HeifPixelImage>>
 Op_mono_to_RGB24_32::convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
                                         const ColorState& input_state,
                                         const ColorState& target_state,
-                                        const heif_color_conversion_options& options) const
+                                        const heif_color_conversion_options& options,
+                                        const heif_security_limits* limits) const
 {
   uint32_t width = input->get_width();
   uint32_t height = input->get_height();
 
   if (input->get_bits_per_pixel(heif_channel_Y) != 8) {
-    return nullptr;
+    return Error::InternalError;
   }
 
   auto outimg = std::make_shared<HeifPixelImage>();
@@ -224,8 +226,8 @@ Op_mono_to_RGB24_32::convert_colorspace(const std::shared_ptr<const HeifPixelIma
     outimg->create(width, height, heif_colorspace_RGB, heif_chroma_interleaved_24bit);
   }
 
-  if (!outimg->add_plane(heif_channel_interleaved, width, height, 8)) {
-    return nullptr;
+  if (auto err = outimg->add_plane(heif_channel_interleaved, width, height, 8, limits)) {
+    return err;
   }
 
   const uint8_t* in_y, * in_a = nullptr;

@@ -89,13 +89,13 @@ Op_RGB_to_YCbCr<Pixel>::state_after_conversion(const ColorState& input_state,
   return states;
 }
 
-
 template<class Pixel>
-std::shared_ptr<HeifPixelImage>
+Result<std::shared_ptr<HeifPixelImage>>
 Op_RGB_to_YCbCr<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
                                            const ColorState& input_state,
                                            const ColorState& target_state,
-                                           const heif_color_conversion_options& options) const
+                                           const heif_color_conversion_options& options,
+                                           const heif_security_limits* limits) const
 {
   bool hdr = !std::is_same<Pixel, uint8_t>::value;
 
@@ -108,13 +108,13 @@ Op_RGB_to_YCbCr<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
 
   int bpp = input->get_bits_per_pixel(heif_channel_R);
   if (bpp < 8 || (bpp > 8) != hdr) {
-    return nullptr;
+    return Error::InternalError;
   }
 
   bool has_alpha = input->has_channel(heif_channel_Alpha);
 
   if (has_alpha && input->get_bits_per_pixel(heif_channel_Alpha) != bpp) {
-    return nullptr;
+    return Error::InternalError;
   }
 
   auto outimg = std::make_shared<HeifPixelImage>();
@@ -124,15 +124,15 @@ Op_RGB_to_YCbCr<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
   uint32_t cwidth = (width + subH - 1) / subH;
   uint32_t cheight = (height + subV - 1) / subV;
 
-  if (!outimg->add_plane(heif_channel_Y, width, height, bpp) ||
-      !outimg->add_plane(heif_channel_Cb, cwidth, cheight, bpp) ||
-      !outimg->add_plane(heif_channel_Cr, cwidth, cheight, bpp)) {
-    return nullptr;
+  if (auto err = outimg->add_plane(heif_channel_Y, width, height, bpp, limits) ||
+                 outimg->add_plane(heif_channel_Cb, cwidth, cheight, bpp, limits) ||
+                 outimg->add_plane(heif_channel_Cr, cwidth, cheight, bpp, limits)) {
+    return err;
   }
 
   if (has_alpha) {
-    if (!outimg->add_plane(heif_channel_Alpha, width, height, bpp)) {
-      return nullptr;
+    if (auto err = outimg->add_plane(heif_channel_Alpha, width, height, bpp, limits)) {
+      return err;
     }
   }
 
@@ -336,11 +336,12 @@ Op_RRGGBBxx_HDR_to_YCbCr420::state_after_conversion(const ColorState& input_stat
 }
 
 
-std::shared_ptr<HeifPixelImage>
+Result<std::shared_ptr<HeifPixelImage>>
 Op_RRGGBBxx_HDR_to_YCbCr420::convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
                                                 const ColorState& input_state,
                                                 const ColorState& target_state,
-                                                const heif_color_conversion_options& options) const
+                                                const heif_color_conversion_options& options,
+                                                const heif_security_limits* limits) const
 {
   uint32_t width = input->get_width();
   uint32_t height = input->get_height();
@@ -359,15 +360,15 @@ Op_RRGGBBxx_HDR_to_YCbCr420::convert_colorspace(const std::shared_ptr<const Heif
   uint32_t cwidth = (width + 1) / 2;
   uint32_t cheight = (height + 1) / 2;
 
-  if (!outimg->add_plane(heif_channel_Y, width, height, bpp) ||
-      !outimg->add_plane(heif_channel_Cb, cwidth, cheight, bpp) ||
-      !outimg->add_plane(heif_channel_Cr, cwidth, cheight, bpp)) {
-    return nullptr;
+  if (auto err = outimg->add_plane(heif_channel_Y, width, height, bpp, limits) ||
+                 outimg->add_plane(heif_channel_Cb, cwidth, cheight, bpp, limits) ||
+                 outimg->add_plane(heif_channel_Cr, cwidth, cheight, bpp, limits)) {
+    return err;
   }
 
   if (has_alpha) {
-    if (!outimg->add_plane(heif_channel_Alpha, width, height, bpp)) {
-      return nullptr;
+    if (auto err = outimg->add_plane(heif_channel_Alpha, width, height, bpp, limits)) {
+      return err;
     }
   }
 
@@ -542,11 +543,12 @@ inline void set_chroma_pixels(uint8_t* out_cb, uint8_t* out_cr,
 }
 
 
-std::shared_ptr<HeifPixelImage>
+Result<std::shared_ptr<HeifPixelImage>>
 Op_RGB24_32_to_YCbCr::convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
                                          const ColorState& input_state,
                                          const ColorState& target_state,
-                                         const heif_color_conversion_options& options) const
+                                         const heif_color_conversion_options& options,
+                                         const heif_security_limits* limits) const
 {
   uint32_t width = input->get_width();
   uint32_t height = input->get_height();
@@ -565,15 +567,15 @@ Op_RGB24_32_to_YCbCr::convert_colorspace(const std::shared_ptr<const HeifPixelIm
   const bool has_alpha = (input->get_chroma_format() == heif_chroma_interleaved_32bit);
   const bool want_alpha = target_state.has_alpha;
 
-  if (!outimg->add_plane(heif_channel_Y, width, height, 8) ||
-      !outimg->add_plane(heif_channel_Cb, chroma_width, chroma_height, 8) ||
-      !outimg->add_plane(heif_channel_Cr, chroma_width, chroma_height, 8)) {
-    return nullptr;
+  if (auto err = outimg->add_plane(heif_channel_Y, width, height, 8, limits) ||
+                 outimg->add_plane(heif_channel_Cb, chroma_width, chroma_height, 8, limits) ||
+                 outimg->add_plane(heif_channel_Cr, chroma_width, chroma_height, 8, limits)) {
+    return err;
   }
 
   if (want_alpha) {
-    if (!outimg->add_plane(heif_channel_Alpha, width, height, 8)) {
-      return nullptr;
+    if (auto err = outimg->add_plane(heif_channel_Alpha, width, height, 8, limits)) {
+      return err;
     }
   }
 
@@ -814,11 +816,12 @@ Op_RGB24_32_to_YCbCr444_GBR::state_after_conversion(const ColorState& input_stat
 }
 
 
-std::shared_ptr<HeifPixelImage>
+Result<std::shared_ptr<HeifPixelImage>>
 Op_RGB24_32_to_YCbCr444_GBR::convert_colorspace(const std::shared_ptr<const HeifPixelImage>& input,
                                                 const ColorState& input_state,
                                                 const ColorState& target_state,
-                                                const heif_color_conversion_options& options) const
+                                                const heif_color_conversion_options& options,
+                                                const heif_security_limits* limits) const
 {
   uint32_t width = input->get_width();
   uint32_t height = input->get_height();
@@ -830,15 +833,15 @@ Op_RGB24_32_to_YCbCr444_GBR::convert_colorspace(const std::shared_ptr<const Heif
   const bool has_alpha = (input->get_chroma_format() == heif_chroma_interleaved_32bit);
   const bool want_alpha = target_state.has_alpha;
 
-  if (!outimg->add_plane(heif_channel_Y, width, height, 8) ||
-      !outimg->add_plane(heif_channel_Cb, width, height, 8) ||
-      !outimg->add_plane(heif_channel_Cr, width, height, 8)) {
-    return nullptr;
+  if (auto err = outimg->add_plane(heif_channel_Y, width, height, 8, limits) ||
+                 outimg->add_plane(heif_channel_Cb, width, height, 8, limits) ||
+                 outimg->add_plane(heif_channel_Cr, width, height, 8, limits)) {
+    return err;
   }
 
   if (want_alpha) {
-    if (!outimg->add_plane(heif_channel_Alpha, width, height, 8)) {
-      return nullptr;
+    if (auto err = outimg->add_plane(heif_channel_Alpha, width, height, 8, limits)) {
+      return err;
     }
   }
 
