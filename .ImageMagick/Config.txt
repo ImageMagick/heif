@@ -10,6 +10,7 @@ HAVE_AOM_DECODER
 HAVE_AOM_ENCODER
 HAVE_BROTLI
 HAVE_LIBDE265
+HAVE_OpenH264_DECODER
 HAVE_ZLIB
 LIBDE265_STATIC_BUILD
 WITH_UNCOMPRESSED_CODEC
@@ -38,6 +39,7 @@ de265->.
 heif->.
 libheif
 libheif\api
+openh264->codec\api
 zlib->.
 
 [EXCLUDES]
@@ -45,7 +47,6 @@ decoder_dav1d.cc
 decoder_ffmpeg.cc
 decoder_jpeg.cc
 decoder_openjpeg.cc
-decoder_openh264.cc
 decoder_png.cc
 decoder_tiff.cc
 decoder_vvdec.cc
@@ -69,6 +70,7 @@ stubs.cc
 aom
 brotli
 de265
+openh264
 zlib
 
 [CONFIG_DEFINE]
