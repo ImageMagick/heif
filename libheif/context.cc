@@ -276,6 +276,10 @@ void HeifContext::write(StreamWriter& writer)
     img.second->process_before_write();
   }
 
+  // --- sort item properties
+
+  m_heif_file->get_ipma_box()->sort_properties(m_heif_file->get_ipco_box());
+
   // --- write to file
 
   m_heif_file->write(writer);
@@ -634,16 +638,18 @@ Error HeifContext::interpret_heif_file()
 
               const auto& subtypes = auxC_property->get_subtypes();
 
-              std::vector<std::shared_ptr<SEIMessage>> sei_messages;
-              Error err = decode_hevc_aux_sei_messages(subtypes, sei_messages);
-              if (err) {
-                return err;
-              }
+              if (!subtypes.empty()) {
+                std::vector<std::shared_ptr<SEIMessage>> sei_messages;
+                Error err = decode_hevc_aux_sei_messages(subtypes, sei_messages);
+                if (err) {
+                  return err;
+                }
 
-              for (auto& msg : sei_messages) {
-                auto depth_msg = std::dynamic_pointer_cast<SEIMessage_depth_representation_info>(msg);
-                if (depth_msg) {
-                  image->set_depth_representation_info(*depth_msg);
+                for (auto& msg : sei_messages) {
+                  auto depth_msg = std::dynamic_pointer_cast<SEIMessage_depth_representation_info>(msg);
+                  if (depth_msg) {
+                    image->set_depth_representation_info(*depth_msg);
+                  }
                 }
               }
             }
@@ -939,6 +945,10 @@ bool HeifContext::has_alpha(heif_item_id ID) const
     return true;
   }
 
+  if (img->has_coded_alpha_channel()) {
+    return true;
+  }
+
   heif_colorspace colorspace;
   heif_chroma chroma;
   Error err = img->get_coded_image_colorspace(&colorspace, &chroma);
@@ -1043,6 +1053,18 @@ Error HeifContext::get_id_of_non_virtual_child_image(heif_item_id id, heif_item_
     }
   }
   else {
+    if (m_all_images.find(id) == m_all_images.end()) {
+      std::stringstream sstr;
+      sstr << "Image item " << id << " referenced, but it does not exist\n";
+
+      return Error(heif_error_Invalid_input,
+        heif_suberror_Nonexisting_item_referenced,
+        sstr.str());
+    }
+    else if (dynamic_cast<ImageItem_Error*>(m_all_images.find(id)->second.get())) {
+      // Should er return an error here or leave it to the follow-up code to detect that?
+    }
+
     out = id;
     return Error::Ok;
   }

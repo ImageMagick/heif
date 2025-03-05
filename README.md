@@ -35,6 +35,7 @@ Supported codecs:
 | AVC          | openh264            | -                            |
 | JPEG         | libjpeg(-turbo)     | libjpeg(-turbo)              |
 | JPEG2000     | OpenJPEG            | OpenJPEG                     |
+| HTJ2K        | OpenJPEG            | OpenJPH                      |
 | uncompressed | built-in            | built-in                     |
 
 ## API
@@ -264,7 +265,7 @@ You have to enable SVT-AV1 with CMake.
 
 ## Codec plugins
 
-Starting with v1.14.0, each codec backend can be compiled statically into libheif or as a dynamically loaded plugin (currently Linux only).
+Starting with v1.14.0, each codec backend can be compiled statically into libheif or as a dynamically loaded plugin.
 You can choose this individually for each codec backend in the CMake settings.
 Compiling a codec backend as dynamic plugin will generate a shared library that is installed in the system together with libheif.
 The advantage is that only the required plugins have to be installed and libheif has fewer dependencies.
@@ -293,6 +294,7 @@ A current benchmark of the AVIF encoders (as of 14 Oct 2022) can be found on the
 * Python: [pyheif](https://pypi.org/project/pyheif/), [pillow_heif](https://pypi.org/project/pillow-heif/)
 * Rust: [libheif-sys](https://github.com/Cykooz/libheif-sys)
 * Swift: [libheif-Xcode](https://swiftpackageregistry.com/SDWebImage/libheif-Xcode)
+* JavaFX: [LibHeifFx](https://github.com/lanthale/LibHeifFX)
 
 Languages that can directly interface with C libraries (e.g., Swift, C#) should work out of the box.
 
@@ -390,5 +392,5 @@ The sample applications are distributed under the terms of the MIT License.
 See COPYING for more details.
 
 Copyright (c) 2017-2020 Struktur AG</br>
-Copyright (c) 2017-2024 Dirk Farin</br>
+Copyright (c) 2017-2025 Dirk Farin</br>
 Contact: Dirk Farin <dirk.farin@gmail.com>

@@ -124,12 +124,15 @@ public:
 
   int get_number_of_interleaved_components(heif_channel channel) const;
 
-  uint8_t* get_plane(enum heif_channel channel, uint32_t* out_stride) { return get_channel<uint8_t>(channel, out_stride); }
+  // Note: we are using size_t as stride type since the stride is usually involved in a multiplication with the line number.
+  //       For very large images (e.g. >2 GB), this can result in an integer overflow and corresponding illegal memory access.
+  //       (see https://github.com/strukturag/libheif/issues/1419)
+  uint8_t* get_plane(enum heif_channel channel, size_t* out_stride) { return get_channel<uint8_t>(channel, out_stride); }
 
-  const uint8_t* get_plane(enum heif_channel channel, uint32_t* out_stride) const { return get_channel<uint8_t>(channel, out_stride); }
+  const uint8_t* get_plane(enum heif_channel channel, size_t* out_stride) const { return get_channel<uint8_t>(channel, out_stride); }
 
   template <typename T>
-  T* get_channel(enum heif_channel channel, uint32_t* out_stride)
+  T* get_channel(enum heif_channel channel, size_t* out_stride)
   {
     auto iter = m_planes.find(channel);
     if (iter == m_planes.end()) {
@@ -149,7 +152,7 @@ public:
   }
 
   template <typename T>
-  const T* get_channel(enum heif_channel channel, uint32_t* out_stride) const
+  const T* get_channel(enum heif_channel channel, size_t* out_stride) const
   {
     return const_cast<HeifPixelImage*>(this)->get_channel<T>(channel, out_stride);
   }
@@ -193,12 +196,18 @@ public:
 
   const std::shared_ptr<const color_profile_raw>& get_color_profile_icc() const { return m_color_profile_icc; }
 
+  void forward_all_metadata_from(const std::shared_ptr<const HeifPixelImage>& src_image);
+
   void debug_dump() const;
 
   Error extend_padding_to_size(uint32_t width, uint32_t height, bool adjust_size,
                                const heif_security_limits* limits);
 
   Error extend_to_size_with_zero(uint32_t width, uint32_t height, const heif_security_limits* limits);
+
+  Result<std::shared_ptr<HeifPixelImage>> extract_image_area(uint32_t x0, uint32_t y0, uint32_t w, uint32_t h,
+                                                             const heif_security_limits* limits) const;
+
 
   // --- pixel aspect ratio
 

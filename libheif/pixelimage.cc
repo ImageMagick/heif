@@ -267,7 +267,7 @@ Error HeifPixelImage::ImagePlane::alloc(uint32_t width, uint32_t height, heif_ch
       (limits->max_memory_block_size < alignment - 1U ||
        (limits->max_memory_block_size - (alignment - 1U)) / stride < m_mem_height)) {
     std::stringstream sstr;
-    sstr << "Allocating " << static_cast<size_t>(m_mem_height) * stride + alignment - 1 << " exceeds the security limit of "
+    sstr << "Allocating " << static_cast<size_t>(m_mem_height) * stride + alignment - 1 << " bytes exceeds the security limit of "
          << limits->max_memory_block_size << " bytes";
 
     return {heif_error_Memory_allocation_error,
@@ -422,17 +422,22 @@ Error HeifPixelImage::extend_to_size_with_zero(uint32_t width, uint32_t height, 
 
     // extend plane size
 
+    uint8_t fill = 0;
+    if (bytes_per_pixel == 1 && (planeIter.first == heif_channel_Cb || planeIter.first == heif_channel_Cr)) {
+      fill = 128;
+    }
+
     if (old_width != subsampled_width) {
       for (uint32_t y = 0; y < old_height; y++) {
         memset(static_cast<uint8_t*>(plane->mem) + y * plane->stride + old_width * bytes_per_pixel,
-               0,
+               fill,
                bytes_per_pixel * (subsampled_width - old_width));
       }
     }
 
     for (uint32_t y = old_height; y < subsampled_height; y++) {
       memset(static_cast<uint8_t*>(plane->mem) + y * plane->stride,
-             0,
+             fill,
              subsampled_width * bytes_per_pixel);
     }
 
@@ -581,10 +586,10 @@ Error HeifPixelImage::copy_new_plane_from(const std::shared_ptr<const HeifPixelI
   }
 
   uint8_t* dst;
-  uint32_t dst_stride = 0;
+  size_t dst_stride = 0;
 
   const uint8_t* src;
-  uint32_t src_stride = 0;
+  size_t src_stride = 0;
 
   src = src_image->get_plane(src_channel, &src_stride);
   dst = get_plane(dst_channel, &dst_stride);
@@ -610,10 +615,10 @@ Error HeifPixelImage::extract_alpha_from_RGBA(const std::shared_ptr<const HeifPi
   }
 
   uint8_t* dst;
-  uint32_t dst_stride = 0;
+  size_t dst_stride = 0;
 
   const uint8_t* src;
-  uint32_t src_stride = 0;
+  size_t src_stride = 0;
 
   src = src_image->get_plane(heif_channel_interleaved, &src_stride);
   dst = get_plane(heif_channel_Y, &dst_stride);
@@ -653,7 +658,7 @@ void HeifPixelImage::fill_plane(heif_channel dst_channel, uint16_t value)
 
   if (bpp <= 8) {
     uint8_t* dst;
-    uint32_t dst_stride = 0;
+    size_t dst_stride = 0;
     dst = get_plane(dst_channel, &dst_stride);
     uint32_t width_bytes = width * num_interleaved;
 
@@ -663,7 +668,7 @@ void HeifPixelImage::fill_plane(heif_channel dst_channel, uint16_t value)
   }
   else {
     uint16_t* dst;
-    uint32_t dst_stride = 0;
+    size_t dst_stride = 0;
     dst = (uint16_t*) get_plane(dst_channel, &dst_stride);
 
     dst_stride /= 2;
@@ -725,10 +730,10 @@ Error HeifPixelImage::copy_image_to(const std::shared_ptr<const HeifPixelImage>&
 
   for (heif_channel channel : channels) {
 
-    uint32_t tile_stride;
+    size_t tile_stride;
     const uint8_t* tile_data = source->get_plane(channel, &tile_stride);
 
-    uint32_t out_stride;
+    size_t out_stride;
     uint8_t* out_data = get_plane(channel, &out_stride);
 
     if (w <= x0 || h <= y0) {
@@ -1014,7 +1019,7 @@ int HeifPixelImage::ImagePlane::get_bytes_per_pixel() const
 Result<std::shared_ptr<HeifPixelImage>> HeifPixelImage::crop(uint32_t left, uint32_t right, uint32_t top, uint32_t bottom,
                                                              const heif_security_limits* limits) const
 {
-  // --- for some subsampled chroma colorspaces, we have to transform to 4:4:4 before rotation
+  // --- for some subsampled chroma colorspaces, we have to transform to 4:4:4 before cropping
 
   bool need_conversion = false;
 
@@ -1050,13 +1055,10 @@ Result<std::shared_ptr<HeifPixelImage>> HeifPixelImage::crop(uint32_t left, uint
     heif_channel channel = plane_pair.first;
     const ImagePlane& plane = plane_pair.second;
 
-    uint32_t w = plane.m_width;
-    uint32_t h = plane.m_height;
-
-    uint32_t plane_left = left * w / m_width;
-    uint32_t plane_right = right * w / m_width;
-    uint32_t plane_top = top * h / m_height;
-    uint32_t plane_bottom = bottom * h / m_height;
+    uint32_t plane_left = get_subsampled_size_h(left, channel, m_chroma, scaling_mode::is_divisible);
+    uint32_t plane_right = get_subsampled_size_h(right, channel, m_chroma, scaling_mode::round_up); // keep more chroma
+    uint32_t plane_top = get_subsampled_size_v(top, channel, m_chroma, scaling_mode::is_divisible); // is always divisible
+    uint32_t plane_bottom = get_subsampled_size_v(bottom, channel, m_chroma, scaling_mode::round_up); // keep more chroma
 
     auto err = out_img->add_channel(channel,
                                     plane_right - plane_left + 1,
@@ -1197,7 +1199,7 @@ Error HeifPixelImage::overlay(std::shared_ptr<HeifPixelImage>& overlay, int32_t 
   bool has_alpha = overlay->has_channel(heif_channel_Alpha);
   //bool has_alpha_me = has_channel(heif_channel_Alpha);
 
-  uint32_t alpha_stride = 0;
+  size_t alpha_stride = 0;
   uint8_t* alpha_p;
   alpha_p = overlay->get_plane(heif_channel_Alpha, &alpha_stride);
 
@@ -1206,10 +1208,10 @@ Error HeifPixelImage::overlay(std::shared_ptr<HeifPixelImage>& overlay, int32_t 
       continue;
     }
 
-    uint32_t in_stride = 0;
+    size_t in_stride = 0;
     const uint8_t* in_p;
 
-    uint32_t out_stride = 0;
+    size_t out_stride = 0;
     uint8_t* out_p;
 
     in_p = overlay->get_plane(channel, &in_stride);
@@ -1406,10 +1408,10 @@ Error HeifPixelImage::scale_nearest_neighbor(std::shared_ptr<HeifPixelImage>& ou
     uint32_t out_w = out_img->get_width(channel);
     uint32_t out_h = out_img->get_height(channel);
 
-    uint32_t in_stride = plane.stride;
+    size_t in_stride = plane.stride;
     const auto* in_data = static_cast<const uint8_t*>(plane.mem);
 
-    uint32_t out_stride = 0;
+    size_t out_stride = 0;
     auto* out_data = static_cast<uint8_t*>(out_img->get_plane(channel, &out_stride));
 
 
@@ -1439,11 +1441,38 @@ Error HeifPixelImage::scale_nearest_neighbor(std::shared_ptr<HeifPixelImage>& ou
 }
 
 
+void HeifPixelImage::forward_all_metadata_from(const std::shared_ptr<const HeifPixelImage>& src_image)
+{
+  set_color_profile_nclx(src_image->get_color_profile_nclx());
+  set_color_profile_icc(src_image->get_color_profile_icc());
+
+  if (src_image->has_nonsquare_pixel_ratio()) {
+    uint32_t h,v;
+    src_image->get_pixel_ratio(&h,&v);
+    set_pixel_ratio(h,v);
+  }
+
+  if (src_image->has_clli()) {
+    set_clli(src_image->get_clli());
+  }
+
+  if (src_image->has_mdcv()) {
+    set_mdcv(src_image->get_mdcv());
+  }
+
+  set_premultiplied_alpha(src_image->is_premultiplied_alpha());
+
+  // TODO: TAI timestamp and contentID (once we merge that branch)
+
+  // TODO: should we also forward the warnings? It might be better to do that in ImageItem_Grid.
+}
+
+
 void HeifPixelImage::debug_dump() const
 {
   auto channels = get_channel_set();
   for (auto c : channels) {
-    uint32_t stride = 0;
+    size_t stride = 0;
     const uint8_t* p = get_plane(c, &stride);
 
     for (int y = 0; y < 8; y++) {
@@ -1503,4 +1532,60 @@ Error HeifPixelImage::create_clone_image_at_new_size(const std::shared_ptr<const
   }
 
   return Error::Ok;
+}
+
+
+Result<std::shared_ptr<HeifPixelImage>>
+HeifPixelImage::extract_image_area(uint32_t x0, uint32_t y0, uint32_t w, uint32_t h,
+                                   const heif_security_limits* limits) const
+{
+  uint32_t minW = std::min(w, get_width() - x0);
+  uint32_t minH = std::min(h, get_height() - y0);
+
+  auto areaImg = std::make_shared<HeifPixelImage>();
+  Error err = areaImg->create_clone_image_at_new_size(shared_from_this(), minW, minH, limits);
+  if (err) {
+    return err;
+  }
+
+  std::set<enum heif_channel> channels = get_channel_set();
+  heif_chroma chroma = get_chroma_format();
+
+  for (heif_channel channel : channels) {
+
+    size_t src_stride;
+    const uint8_t* src_data = get_plane(channel, &src_stride);
+
+    size_t out_stride;
+    uint8_t* out_data = areaImg->get_plane(channel, &out_stride);
+
+    if (areaImg->get_bits_per_pixel(channel) != get_bits_per_pixel(channel)) {
+      return Error{
+        heif_error_Invalid_input,
+        heif_suberror_Wrong_tile_image_pixel_depth
+      };
+    }
+
+    uint32_t copy_width = channel_width(minW, chroma, channel);
+    uint32_t copy_height = channel_height(minH, chroma, channel);
+
+    copy_width *= get_storage_bits_per_pixel(channel) / 8;
+
+    uint32_t xs = channel_width(x0, chroma, channel);
+    uint32_t ys = channel_height(y0, chroma, channel);
+    xs *= get_storage_bits_per_pixel(channel) / 8;
+
+    for (uint32_t py = 0; py < copy_height; py++) {
+      memcpy(out_data + py * out_stride,
+             src_data + xs + (ys + py) * src_stride,
+             copy_width);
+    }
+  }
+
+  err = areaImg->extend_to_size_with_zero(w,h,limits);
+  if (err) {
+    return err;
+  }
+
+  return areaImg;
 }

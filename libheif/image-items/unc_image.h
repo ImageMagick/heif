@@ -48,6 +48,8 @@ public:
   // Instead of storing alpha in a separate unci, this is put into the main image item
   const char* get_auxC_alpha_channel_type() const override { return nullptr; }
 
+  bool has_coded_alpha_channel() const override;
+
   const heif_color_profile_nclx* get_forced_output_nclx() const override { return nullptr; }
 
   bool is_ispe_essential() const override { return true; }
@@ -80,7 +82,7 @@ public:
   Error add_image_tile(uint32_t tile_x, uint32_t tile_y, const std::shared_ptr<const HeifPixelImage>& image);
 
 protected:
-  std::shared_ptr<Decoder> get_decoder() const override;
+  Result<std::shared_ptr<Decoder>> get_decoder() const override;
 
 private:
   std::shared_ptr<class Decoder_uncompressed> m_decoder;

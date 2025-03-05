@@ -139,7 +139,7 @@ Result<std::vector<uint8_t>> encode_image_tile(const std::shared_ptr<const HeifP
     uint64_t offset = 0;
     for (heif_channel channel : {heif_channel_Y, heif_channel_Cb, heif_channel_Cr})
     {
-      uint32_t src_stride;
+      size_t src_stride;
       uint32_t src_width = src_image->get_width(channel);
       uint32_t src_height = src_image->get_height(channel);
       const uint8_t* src_data = src_image->get_plane(channel, &src_stride);
@@ -165,7 +165,7 @@ Result<std::vector<uint8_t>> encode_image_tile(const std::shared_ptr<const HeifP
       }
       for (heif_channel channel : channels)
       {
-        uint32_t src_stride;
+        size_t src_stride;
         const uint8_t* src_data = src_image->get_plane(channel, &src_stride);
         uint64_t out_size = static_cast<uint64_t>(src_image->get_height()) * src_image->get_width();
 
@@ -206,7 +206,7 @@ Result<std::vector<uint8_t>> encode_image_tile(const std::shared_ptr<const HeifP
           assert(false);
       }
 
-      uint32_t src_stride;
+      size_t src_stride;
       const uint8_t* src_data = src_image->get_plane(heif_channel_interleaved, &src_stride);
       uint64_t out_size = static_cast<uint64_t>(src_image->get_height()) * src_image->get_width() * bytes_per_pixel;
       data.resize(out_size);
@@ -237,7 +237,7 @@ Result<std::vector<uint8_t>> encode_image_tile(const std::shared_ptr<const HeifP
     }
     for (heif_channel channel : channels)
     {
-      uint32_t src_stride;
+      size_t src_stride;
       const uint8_t* src_data = src_image->get_plane(channel, &src_stride);
       uint64_t out_size = static_cast<uint64_t>(src_image->get_height()) * src_stride;
       data.resize(data.size() + out_size);
@@ -505,9 +505,9 @@ heif_image_tiling ImageItem_uncompressed::get_heif_image_tiling() const
   return tiling;
 }
 
-std::shared_ptr<Decoder> ImageItem_uncompressed::get_decoder() const
+Result<std::shared_ptr<Decoder>> ImageItem_uncompressed::get_decoder() const
 {
-  return m_decoder;
+  return {m_decoder};
 }
 
 Error ImageItem_uncompressed::on_load_file()
@@ -529,4 +529,10 @@ Error ImageItem_uncompressed::on_load_file()
   m_decoder->set_data_extent(std::move(extent));
 
   return Error::Ok;
+}
+
+
+bool ImageItem_uncompressed::has_coded_alpha_channel() const
+{
+  return m_decoder->has_alpha_component();
 }

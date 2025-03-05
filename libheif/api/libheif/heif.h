@@ -1897,6 +1897,7 @@ int heif_image_has_channel(const struct heif_image*, enum heif_channel channel);
 // The 'out_stride' is returned as "bytes per line".
 // When out_stride is NULL, no value will be written.
 // Returns NULL if a non-existing channel was given.
+// TODO: it would be better if the 'stride' parameter would be size_t to prevent integer overflows when this value is multiplicated with large y coordinates.
 LIBHEIF_API
 const uint8_t* heif_image_get_plane_readonly(const struct heif_image*,
                                              enum heif_channel channel,
@@ -2383,6 +2384,11 @@ struct heif_encoding_options
 
   // Set this to true to use compressed form of uncC where possible.
   uint8_t prefer_uncC_short_form;
+
+  // TODO: we should add a flag to force MIAF compatible outputs. E.g. this will put restrictions on grid tile sizes and
+  //       might add a clap box when the grid output size does not match the color subsampling factors.
+  //       Since some of these constraints have to be known before actually encoding the image, "forcing MIAF compatibility"
+  //       could also be a flag in the heif_context.
 };
 
 LIBHEIF_API

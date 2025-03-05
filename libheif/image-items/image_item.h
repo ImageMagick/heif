@@ -192,6 +192,8 @@ public:
 
   bool is_premultiplied_alpha() const { return m_premultiplied_alpha; }
 
+  // Whether the image has an alpha channel coded in the main image (not as an auxiliary image)
+  virtual bool has_coded_alpha_channel() const { return false; }
 
   // --- depth channel
 
@@ -275,6 +277,7 @@ public:
 
   // --- miaf
 
+  // TODO: we should have a function that challs all MIAF constraints and sets the compatibility flag.
   void mark_not_miaf_compatible() { m_miaf_compatible = false; }
 
   bool is_miaf_compatible() const { return m_miaf_compatible; }
@@ -379,7 +382,14 @@ public:
 
   Error transform_requested_tile_position_to_original_tile_position(uint32_t& tile_x, uint32_t& tile_y) const;
 
-  virtual std::shared_ptr<class Decoder> get_decoder() const { return nullptr; }
+  virtual Result<std::shared_ptr<class Decoder>> get_decoder() const
+  {
+    return Error{
+      heif_error_Unsupported_feature,
+      heif_suberror_No_matching_decoder_installed,
+      "No decoder for this image format"
+    };
+  }
 
 private:
   HeifContext* m_heif_context;
