@@ -95,7 +95,15 @@ struct heif_error heif_encoder::alloc()
 
 HeifContext::HeifContext()
 {
-  m_limits = global_security_limits;
+  const char* security_limits_variable = getenv("LIBHEIF_SECURITY_LIMITS");
+
+  if (security_limits_variable && (strcmp(security_limits_variable, "off") == 0 ||
+                                   strcmp(security_limits_variable, "OFF") == 0)) {
+    m_limits = disabled_security_limits;
+  }
+  else {
+    m_limits = global_security_limits;
+  }
 
   reset_to_empty_heif();
 }
@@ -1108,11 +1116,15 @@ Result<std::shared_ptr<HeifPixelImage>> HeifContext::decode_image(heif_item_id I
   bool different_chroma = (target_chroma != img->get_chroma_format());
   bool different_colorspace = (target_colorspace != img->get_colorspace());
 
-  int bpp = options.convert_hdr_to_8bit ? 8 : 0;
-  // TODO: check BPP changed
-  if (different_chroma || different_colorspace) {
+  uint8_t img_bpp = img->get_visual_image_bits_per_pixel();
+  uint8_t converted_output_bpp = (options.convert_hdr_to_8bit && img_bpp > 8) ? 8 : 0 /* keep input depth */;
 
-    auto img_result = convert_colorspace(img, target_colorspace, target_chroma, nullptr, bpp, options.color_conversion_options, get_security_limits());
+  if (different_chroma ||
+      different_colorspace ||
+      converted_output_bpp) {
+
+    auto img_result = convert_colorspace(img, target_colorspace, target_chroma, nullptr,
+                                         converted_output_bpp, options.color_conversion_options, get_security_limits());
     if (img_result.error) {
       return img_result.error;
     }

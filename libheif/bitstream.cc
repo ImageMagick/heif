@@ -24,6 +24,12 @@
 #include <cstring>
 #include <cassert>
 
+#if ((defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER) && !defined(__PGI)) && __GNUC__ < 9) || (defined(__clang__) && __clang_major__ < 10)
+#include <type_traits>
+#else
+#include <bit>
+#endif
+
 #define MAX_UVLC_LEADING_ZEROS 20
 
 
