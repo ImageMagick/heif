@@ -1,4 +1,4 @@
-[DLL]
+[DYNAMIC_LIBRARY]
 
 [LICENSE]
 COPYING
@@ -15,66 +15,63 @@ HAVE_ZLIB
 LIBDE265_STATIC_BUILD
 WITH_UNCOMPRESSED_CODEC
 
-[DEFINES_LIB]
-LIBHEIF_STATIC_BUILD
-
-[DEFINES_DLL]
+[DYNAMIC_DEFINES]
 BROTLI_SHARED_COMPILATION
 LIBHEIF_EXPORTS
 
-[DIRECTORIES]
-heifio
-libheif
-libheif\api\libheif
-libheif\codecs
-libheif\codecs\uncompressed
-libheif\color-conversion
-libheif\image-items
-libheif\plugins
-libheif\sequences
+[STATIC_DEFINES]
+LIBHEIF_STATIC_BUILD
 
 [INCLUDES]
-aom->.
-brotli->c\include
-de265->.
-heif->.
+.
 libheif
 libheif\api
-openh264->codec\api
-zlib->.
+
+[INCLUDE_ARTIFACTS]
+libheif\heif_version.h -> libheif
+libheif\api\libheif -> libheif
 
 [EXCLUDES]
-decoder_dav1d.cc
-decoder_ffmpeg.cc
-decoder_jpeg.cc
-decoder_openjpeg.cc
-decoder_png.cc
-decoder_tiff.cc
-decoder_vvdec.cc
-decoder_y4m.cc
-encoder_rav1e.cc
-encoder_jpeg.cc
-encoder_openjpeg.cc
-encoder_openjph.cc
-encoder_png.cc
-encoder_kvazaar.cc
-encoder_svt.cc
-encoder_tiff.cc
-encoder_uvg266.cc
-encoder_vvenc.cc
-encoder_x265.cc
-encoder_y4m.cc
-plugins_*
-stubs.cc
+examples\
+extra\
+fuzzing\
+gdk-pixbuf\
+go\
+heifio\stubs.cc
+heifio\decoder_jpeg.cc
+heifio\decoder_png.cc
+heifio\decoder_tiff.cc
+heifio\decoder_y4m.cc
+heifio\encoder_jpeg.cc
+heifio\encoder_png.cc
+heifio\encoder_tiff.cc
+heifio\encoder_y4m.cc
+libheif\plugins_
+libheif\plugins\decoder_dav1d.cc
+libheif\plugins\decoder_jpeg.cc
+libheif\plugins\decoder_ffmpeg.cc
+libheif\plugins\decoder_openjpeg.cc
+libheif\plugins\decoder_vvdec.cc
+libheif\plugins\encoder_openjpeg.cc
+libheif\plugins\encoder_openjph.cc
+libheif\plugins\encoder_jpeg.cc
+libheif\plugins\encoder_kvazaar.cc
+libheif\plugins\encoder_rav1e.cc
+libheif\plugins\encoder_svt.cc
+libheif\plugins\encoder_uvg266.cc
+libheif\plugins\encoder_vvenc.cc
+libheif\plugins\encoder_x265.cc
+tests\
+third-party\
 
-[DEPENDENCIES]
+[REFERENCES]
 aom
 brotli
 de265
 openh264
 zlib
 
-[CONFIG_DEFINE]
+[MAGICK_BASECONFIG_DEFINE]
 /*
   Define to use the libheif library
 */
