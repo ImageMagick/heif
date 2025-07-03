@@ -143,20 +143,23 @@ std::string ImageGrid::dump() const
 }
 
 
-extern void set_default_encoding_options(heif_encoding_options& options);
-
-
 ImageItem_Grid::ImageItem_Grid(HeifContext* ctx)
     : ImageItem(ctx)
 {
-  set_default_encoding_options(m_encoding_options);
+  m_encoding_options = heif_encoding_options_alloc();
 }
 
 
 ImageItem_Grid::ImageItem_Grid(HeifContext* ctx, heif_item_id id)
     : ImageItem(ctx, id)
 {
-  set_default_encoding_options(m_encoding_options);
+  m_encoding_options = heif_encoding_options_alloc();
+}
+
+
+ImageItem_Grid::~ImageItem_Grid()
+{
+  heif_encoding_options_free(m_encoding_options);
 }
 
 
@@ -781,8 +784,19 @@ Result<std::shared_ptr<ImageItem_Grid>> ImageItem_Grid::add_and_encode_full_grid
 
   // Set Brands
 
-  file->set_brand(encoder->plugin->compression_format,
-                  griditem->is_miaf_compatible());
+  //file->set_brand(encoder->plugin->compression_format,
+  //                griditem->is_miaf_compatible());
 
   return griditem;
+}
+
+heif_brand2 ImageItem_Grid::get_compatible_brand() const
+{
+  if (m_grid_tile_ids.empty()) { return 0; }
+
+  heif_item_id child_id = m_grid_tile_ids[0];
+  auto child = get_context()->get_image(child_id, false);
+  if (!child) { return 0; }
+
+  return child->get_compatible_brand();
 }

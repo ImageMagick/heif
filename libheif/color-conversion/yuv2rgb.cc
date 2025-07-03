@@ -29,7 +29,8 @@ template<class Pixel>
 std::vector<ColorStateWithCost>
 Op_YCbCr_to_RGB<Pixel>::state_after_conversion(const ColorState& input_state,
                                                const ColorState& target_state,
-                                               const heif_color_conversion_options& options) const
+                                               const heif_color_conversion_options& options,
+                                               const heif_color_conversion_options_ext& options_ext) const
 {
   // this Op only implements the nearest-neighbor algorithm
 
@@ -87,6 +88,7 @@ Op_YCbCr_to_RGB<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
                                            const ColorState& input_state,
                                            const ColorState& target_state,
                                            const heif_color_conversion_options& options,
+                                           const heif_color_conversion_options_ext& options_ext,
                                            const heif_security_limits* limits) const
 {
   bool hdr = !std::is_same<Pixel, uint8_t>::value;
@@ -269,7 +271,8 @@ template class Op_YCbCr_to_RGB<uint16_t>;
 std::vector<ColorStateWithCost>
 Op_YCbCr420_to_RGB24::state_after_conversion(const ColorState& input_state,
                                              const ColorState& target_state,
-                                             const heif_color_conversion_options& options) const
+                                             const heif_color_conversion_options& options,
+                                             const heif_color_conversion_options_ext& options_ext) const
 {
   // this Op only implements the nearest-neighbor algorithm
 
@@ -317,6 +320,7 @@ Op_YCbCr420_to_RGB24::convert_colorspace(const std::shared_ptr<const HeifPixelIm
                                          const ColorState& input_state,
                                          const ColorState& target_state,
                                          const heif_color_conversion_options& options,
+                                         const heif_color_conversion_options_ext& options_ext,
                                          const heif_security_limits* limits) const
 {
   if (input->get_bits_per_pixel(heif_channel_Y) != 8 ||
@@ -361,14 +365,33 @@ Op_YCbCr420_to_RGB24::convert_colorspace(const std::shared_ptr<const HeifPixelIm
 
   uint32_t x, y;
   for (y = 0; y < height; y++) {
-    for (x = 0; x < width; x++) {
-      int yv = (in_y[y * in_y_stride + x]);
-      int cb = (in_cb[y / 2 * in_cb_stride + x / 2] - 128);
-      int cr = (in_cr[y / 2 * in_cr_stride + x / 2] - 128);
+    // Row pointers for input and output
+    const uint8_t* y_row = &in_y[y * in_y_stride];
+    const uint8_t* cb_row = &in_cb[(y / 2) * in_cb_stride];
+    const uint8_t* cr_row = &in_cr[(y / 2) * in_cr_stride];
+    uint8_t* out_row = &out_p[y * out_p_stride];
 
-      out_p[y * out_p_stride + 3 * x + 0] = clip_int_u8(yv + ((r_cr * cr + 128) >> 8));
-      out_p[y * out_p_stride + 3 * x + 1] = clip_int_u8(yv + ((g_cb * cb + g_cr * cr + 128) >> 8));
-      out_p[y * out_p_stride + 3 * x + 2] = clip_int_u8(yv + ((b_cb * cb + 128) >> 8));
+    int cb = 0;
+    int cr = 0;
+    int r_offset = 0;
+    int g_offset = 0;
+    int b_offset = 0;
+
+    for (x = 0; x < width; x++) {
+      // Update color offsets every other pixel
+      if ((x & 1) == 0) {
+        cb = cb_row[x / 2] - 128;
+        cr = cr_row[x / 2] - 128;
+        r_offset = ((r_cr * cr + 128) >> 8);
+        g_offset = ((g_cb * cb + g_cr * cr + 128) >> 8);
+        b_offset = ((b_cb * cb + 128) >> 8);
+      }
+
+      int yv = y_row[x];
+      uint8_t* rgb = &out_row[3 * x];
+      rgb[0] = clip_int_u8(yv + r_offset);
+      rgb[1] = clip_int_u8(yv + g_offset);
+      rgb[2] = clip_int_u8(yv + b_offset);
     }
   }
 
@@ -379,7 +402,8 @@ Op_YCbCr420_to_RGB24::convert_colorspace(const std::shared_ptr<const HeifPixelIm
 std::vector<ColorStateWithCost>
 Op_YCbCr420_to_RGB32::state_after_conversion(const ColorState& input_state,
                                              const ColorState& target_state,
-                                             const heif_color_conversion_options& options) const
+                                             const heif_color_conversion_options& options,
+                                             const heif_color_conversion_options_ext& options_ext) const
 {
   // this Op only implements the nearest-neighbor algorithm
 
@@ -428,6 +452,7 @@ Op_YCbCr420_to_RGB32::convert_colorspace(const std::shared_ptr<const HeifPixelIm
                                          const ColorState& input_state,
                                          const ColorState& target_state,
                                          const heif_color_conversion_options& options,
+                                         const heif_color_conversion_options_ext& options_ext,
                                          const heif_security_limits* limits) const
 {
   if (input->get_bits_per_pixel(heif_channel_Y) != 8 ||
@@ -509,7 +534,8 @@ Op_YCbCr420_to_RGB32::convert_colorspace(const std::shared_ptr<const HeifPixelIm
 std::vector<ColorStateWithCost>
 Op_YCbCr420_to_RRGGBBaa::state_after_conversion(const ColorState& input_state,
                                                 const ColorState& target_state,
-                                                const heif_color_conversion_options& options) const
+                                                const heif_color_conversion_options& options,
+                                                const heif_color_conversion_options_ext& options_ext) const
 {
   // this Op only implements the nearest-neighbor algorithm
 
@@ -563,6 +589,7 @@ Op_YCbCr420_to_RRGGBBaa::convert_colorspace(const std::shared_ptr<const HeifPixe
                                             const ColorState& input_state,
                                             const ColorState& target_state,
                                             const heif_color_conversion_options& options,
+                                            const heif_color_conversion_options_ext& options_ext,
                                             const heif_security_limits* limits) const
 {
   uint32_t width = input->get_width();

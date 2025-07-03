@@ -54,6 +54,10 @@
 #include "common.h"
 #include "libheif/api_structs.h"
 #include "libheif/heif_experimental.h"
+#include "libheif/heif_sequences.h"
+#include "libheif/heif_uncompressed.h"
+
+// --- command line parameters
 
 int master_alpha = 1;
 int thumb_alpha = 1;
@@ -76,6 +80,27 @@ uint16_t nclx_colour_primaries = 1;
 uint16_t nclx_transfer_characteristic = 13;
 uint16_t nclx_matrix_coefficients = 6;
 int nclx_full_range = true;
+
+// default to 30 fps
+uint32_t sequence_timebase = 30;
+uint32_t sequence_durations = 1;
+std::string vmt_metadata_file;
+
+int quality = 50;
+bool lossless = false;
+std::string output_filename;
+int logging_level = 0;
+bool option_show_parameters = false;
+int thumbnail_bbox_size = 0;
+int output_bit_depth = 10;
+bool force_enc_av1f = false;
+bool force_enc_vvc = false;
+bool force_enc_uncompressed = false;
+bool force_enc_jpeg = false;
+bool force_enc_jpeg2000 = false;
+bool force_enc_htj2k = false;
+bool use_tiling = false;
+bool encode_sequence = false;
 
 std::string property_pitm_description;
 
@@ -107,6 +132,10 @@ const int OPTION_TILED_IMAGE_HEIGHT = 1012;
 const int OPTION_TILING_METHOD = 1013;
 const int OPTION_UNCI_COMPRESSION = 1014;
 const int OPTION_CUT_TILES = 1015;
+const int OPTION_SEQUENCES_TIMEBASE = 1016;
+const int OPTION_SEQUENCES_DURATIONS = 1017;
+const int OPTION_SEQUENCES_FPS = 1018;
+const int OPTION_VMT_METADATA_FILE = 1019;
 
 
 static struct option long_options[] = {
@@ -144,16 +173,21 @@ static struct option long_options[] = {
     {(char* const) "enable-metadata-compression", no_argument,       &metadata_compression, 1},
     {(char* const) "pitm-description",            required_argument, 0,                     OPTION_PITM_DESCRIPTION},
     {(char* const) "chroma-downsampling",         required_argument, 0, 'C'},
-#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
     {(char* const) "cut-tiles",                   required_argument, nullptr, OPTION_CUT_TILES},
-#endif
     {(char* const) "tiled-input",                 no_argument, 0, 'T'},
     {(char* const) "tiled-image-width",           required_argument, nullptr, OPTION_TILED_IMAGE_WIDTH},
     {(char* const) "tiled-image-height",          required_argument, nullptr, OPTION_TILED_IMAGE_HEIGHT},
     {(char* const) "tiled-input-x-y",             no_argument,       &tiled_input_x_y, 1},
     {(char* const) "tiling-method",               required_argument, nullptr, OPTION_TILING_METHOD},
     {(char* const) "add-pyramid-group",           no_argument,       &add_pyramid_group, 1},
-    {0, 0,                                                           0,  0},
+    {(char* const) "sequence",                    no_argument, 0, 'S'},
+    {(char* const) "timebase",                    required_argument,       nullptr, OPTION_SEQUENCES_TIMEBASE},
+    {(char* const) "duration",                    required_argument,       nullptr, OPTION_SEQUENCES_DURATIONS},
+    {(char* const) "fps",                         required_argument,       nullptr, OPTION_SEQUENCES_FPS},
+#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
+    {(char* const) "vmt-metadata",                required_argument,       nullptr, OPTION_VMT_METADATA_FILE},
+#endif
+    {0, 0,                                                           0,  0}
 };
 
 
@@ -216,9 +250,9 @@ void show_help(const char* argv0)
             << "                                  (sharp-yuv makes edges look sharper when using YUV420 with bilinear chroma upsampling)\n"
             << "  --benchmark               measure encoding time, PSNR, and output file size\n"
             << "  --pitm-description TEXT   (experimental) set user description for primary image\n"
-#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
-            << "  --cut-tiles #             cuts the input image into tiles of the given width\n"
-#endif
+            << "\n"
+            << "tiling:\n"
+            << "  --cut-tiles #             cuts the input image into square tiles of the given width\n"
             << "  -T,--tiled-input          input is a set of tile images (only provide one filename with two tile position numbers).\n"
             << "                            For example, 'tile-01-05.jpg' would be a valid input filename.\n"
             << "                            You only have to provide the filename of one tile as input, heif-enc will scan the directory\n"
@@ -227,9 +261,27 @@ void show_help(const char* argv0)
             << "  --tiled-image-height #    override image height of tiled image\n"
             << "  --tiled-input-x-y         usually, the first number in the input tile filename should be the y position.\n"
             << "                            With this option, this can be swapped so that the first number is x, the second number y.\n"
+#if HEIF_ENABLE_EXPERIMENTAL_FEATURES || WITH_UNCOMPRESSED_CODEC
+            << "  --tiling-method METHOD    choose one of these methods: grid"
 #if HEIF_ENABLE_EXPERIMENTAL_FEATURES
-            << "  --tiling-method METHOD    choose one of these methods: grid, tili, unci. The default is 'grid'.\n"
+               ", tili"
+#endif
+#if WITH_UNCOMPRESSED_CODEC
+               ", unci"
+#endif
+               ". The default is 'grid'.\n"
+#endif
+#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
             << "  --add-pyramid-group       when several images are given, put them into a multi-resolution pyramid group.\n"
+#endif
+            << "\n"
+            << "sequences:\n"
+            << "  -S, --sequence            encode input images as sequence (input filenames with a number will pull in all files with this pattern).\n"
+            << "      --timebase #          set clock ticks/second for sequence\n"
+            << "      --duration #          set frame duration (default: 1)\n"
+            << "      --fps #               set timebase and duration based on fps\n"
+#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
+            << "      --vmt-metadata FILE   encode metadata track from VMT file\n"
 #endif
             ;
 }
@@ -766,7 +818,7 @@ std::shared_ptr<input_tiles_generator> determine_input_images_tiling(const std::
   return generator;
 }
 
-#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
+
 class input_tiles_generator_cut_image : public input_tiles_generator
 {
 public:
@@ -808,7 +860,6 @@ private:
   uint32_t mWidth, mHeight;
   int mTileSize;
 };
-#endif
 
 
 // TODO: we have to attach the input image Exif and XMP to the tiled image
@@ -850,6 +901,8 @@ heif_image_handle* encode_tiled(heif_context* ctx, heif_encoder* encoder, heif_e
       return nullptr;
     }
   }
+#endif
+#if WITH_UNCOMPRESSED_CODEC
   else if (tiling_method == "unci") {
     heif_unci_image_parameters params{};
     params.version = 1;
@@ -861,7 +914,7 @@ heif_image_handle* encode_tiled(heif_context* ctx, heif_encoder* encoder, heif_e
 
     InputImage prototype_image = tile_generator->get_image(0,0, output_bit_depth);
 
-    heif_error error = heif_context_add_unci_image(ctx, &params, options, prototype_image.image.get(), &tiled_image);
+    heif_error error = heif_context_add_empty_unci_image(ctx, &params, options, prototype_image.image.get(), &tiled_image);
     if (error.code != 0) {
       std::cerr << "Could not generate unci image: " << error.message << "\n";
       return nullptr;
@@ -929,32 +982,21 @@ public:
 };
 
 
+int do_encode_images(heif_context*, heif_encoder*, heif_encoding_options* options, const std::vector<std::string>& args);
+int do_encode_sequence(heif_context*, heif_encoder*, heif_encoding_options* options, std::vector<std::string> args);
+
+
 int main(int argc, char** argv)
 {
   // This takes care of initializing libheif and also deinitializing it at the end to free all resources.
   LibHeifInitializer initializer;
-
-  int quality = 50;
-  bool lossless = false;
-  std::string output_filename;
-  int logging_level = 0;
-  bool option_show_parameters = false;
-  int thumbnail_bbox_size = 0;
-  int output_bit_depth = 10;
-  bool force_enc_av1f = false;
-  bool force_enc_vvc = false;
-  bool force_enc_uncompressed = false;
-  bool force_enc_jpeg = false;
-  bool force_enc_jpeg2000 = false;
-  bool force_enc_htj2k = false;
-  bool use_tiling = false;
 
   std::vector<std::string> raw_params;
 
 
   while (true) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:b:Ae:C:T"
+    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:b:Ae:C:TS"
 #if WITH_UNCOMPRESSED_CODEC
         "U"
 #endif
@@ -967,7 +1009,7 @@ int main(int argc, char** argv)
         show_help(argv[0]);
         return 0;
       case 'v':
-        show_version();
+        heif_examples::show_version();
         return 0;
       case 'q':
         quality = atoi(optarg);
@@ -1054,8 +1096,11 @@ int main(int argc, char** argv)
       case OPTION_TILING_METHOD:
         tiling_method = optarg;
         if (tiling_method != "grid"
+#if WITH_UNCOMPRESSED_CODEC
+            && tiling_method != "unci"
+#endif
 #if HEIF_ENABLE_EXPERIMENTAL_FEATURES
-            && tiling_method != "tili" && tiling_method != "unci"
+            && tiling_method != "tili"
 #endif
           ) {
           std::cerr << "Invalid tiling method '" << tiling_method << "'\n";
@@ -1107,6 +1152,29 @@ int main(int argc, char** argv)
       case 'T':
         use_tiling = true;
         break;
+      case 'S':
+        encode_sequence = true;
+        break;
+      case OPTION_SEQUENCES_TIMEBASE:
+        sequence_timebase = atoi(optarg);
+        break;
+      case OPTION_SEQUENCES_DURATIONS:
+        sequence_durations = atoi(optarg);
+        break;
+      case OPTION_SEQUENCES_FPS:
+        if (strcmp(optarg,"29.97")==0) {
+          sequence_durations = 1001;
+          sequence_timebase = 30000;
+        }
+        else {
+          double fps = std::atof(optarg);
+          sequence_timebase = 90000;
+          sequence_durations = (uint32_t)(90000 / fps + 0.5);
+        }
+        break;
+      case OPTION_VMT_METADATA_FILE:
+        vmt_metadata_file = optarg;
+        break;
     }
   }
 
@@ -1118,6 +1186,22 @@ int main(int argc, char** argv)
   if ((force_enc_av1f ? 1 : 0) + (force_enc_vvc ? 1 : 0) + (force_enc_uncompressed ? 1 : 0) + (force_enc_jpeg ? 1 : 0) +
       (force_enc_jpeg2000 ? 1 : 0) > 1) {
     std::cerr << "Choose at most one output compression format.\n";
+    return 5;
+  }
+
+  if (encode_sequence && (use_tiling || cut_tiles)) {
+    std::cerr << "Image sequences cannot be used together with tiling.\n";
+    return 5;
+  }
+
+  if (sequence_timebase <= 0) {
+    std::cerr << "Sequence clock tick rate cannot be zero.\n";
+    return 5;
+  }
+
+  if (sequence_durations <= 0) {
+    std::cerr << "Sequence frame durations cannot be zero.\n";
+    return 5;
   }
 
   if (logging_level > 0) {
@@ -1243,33 +1327,95 @@ int main(int argc, char** argv)
     }
   }
 
-  struct heif_error error;
+  std::vector<std::string> args;
+  for (; optind < argc; optind++) {
+    args.emplace_back(argv[optind]);
+  }
 
+
+  if (!lossless) {
+    heif_encoder_set_lossy_quality(encoder, quality);
+  }
+
+  heif_encoder_set_logging_level(encoder, logging_level);
+
+  set_params(encoder, raw_params);
+  struct heif_encoding_options* options = heif_encoding_options_alloc();
+  options->save_two_colr_boxes_when_ICC_and_nclx_available = (uint8_t) two_colr_boxes;
+
+  if (chroma_downsampling == "average") {
+    options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_average;
+    options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
+  }
+  else if (chroma_downsampling == "sharp-yuv") {
+    options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_sharp_yuv;
+    options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
+  }
+  else if (chroma_downsampling == "nearest-neighbor") {
+    options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_nearest_neighbor;
+    options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
+  }
+
+
+  // --- if no output filename was given, synthesize one from the first input image filename
+
+  if (output_filename.empty()) {
+    const std::string& first_input_filename = args[0];
+
+    std::string filename_without_suffix;
+    std::string::size_type dot_position = first_input_filename.find_last_of('.');
+    if (dot_position != std::string::npos) {
+      filename_without_suffix = first_input_filename.substr(0, dot_position);
+    }
+    else {
+      filename_without_suffix = first_input_filename;
+    }
+
+    std::string suffix = suffix_for_compression_format(compressionFormat);
+    output_filename = filename_without_suffix + '.' + suffix;
+  }
+
+
+  int ret;
+
+  if (!encode_sequence) {
+    ret = do_encode_images(context.get(), encoder, options, args);
+  }
+  else {
+    ret = do_encode_sequence(context.get(), encoder, options, args);
+  }
+
+  if (ret != 0) {
+    heif_encoding_options_free(options);
+    heif_encoder_release(encoder);
+    return ret;
+  }
+
+
+  // --- write HEIF file
+
+  heif_error error = heif_context_write_to_file(context.get(), output_filename.c_str());
+  if (error.code) {
+    std::cerr << error.message << "\n";
+    return 5;
+  }
+
+  heif_encoding_options_free(options);
+  heif_encoder_release(encoder);
+
+  return 0;
+}
+
+
+int do_encode_images(heif_context* context, heif_encoder* encoder, heif_encoding_options* options, const std::vector<std::string>& args)
+{
   std::shared_ptr<heif_image> primary_image;
 
   bool is_primary_image = true;
 
   std::vector<heif_item_id> encoded_image_ids;
 
-  for (; optind < argc; optind++) {
-    std::string input_filename = argv[optind];
-
-    if (output_filename.empty()) {
-      std::string filename_without_suffix;
-      std::string::size_type dot_position = input_filename.find_last_of('.');
-      if (dot_position != std::string::npos) {
-        filename_without_suffix = input_filename.substr(0, dot_position);
-      }
-      else {
-        filename_without_suffix = input_filename;
-      }
-
-      std::string suffix = suffix_for_compression_format(compressionFormat);
-      output_filename = filename_without_suffix + '.' + suffix;
-    }
-
-
-    // ==============================================================================
+  for (std::string input_filename : args) {
 
     InputImage input_image = load_image(input_filename, output_bit_depth);
 
@@ -1299,7 +1445,6 @@ int main(int argc, char** argv)
         return 5;
       }
     }
-#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
     else if (cut_tiles != 0) {
       auto cutting_tile_generator = std::make_shared<input_tiles_generator_cut_image>(input_filename.c_str(),
                                                                          cut_tiles, output_bit_depth);
@@ -1313,7 +1458,6 @@ int main(int argc, char** argv)
       tiling.image_height = cutting_tile_generator->get_image_height();
       tiling.number_of_extra_dimensions = 0;
     }
-#endif
 
     if (!primary_image) {
       primary_image = image;
@@ -1332,31 +1476,9 @@ int main(int argc, char** argv)
       return 5;
     }
 
-    if (!lossless) {
-      heif_encoder_set_lossy_quality(encoder, quality);
-    }
-
-    heif_encoder_set_logging_level(encoder, logging_level);
-
-    set_params(encoder, raw_params);
-    struct heif_encoding_options* options = heif_encoding_options_alloc();
     options->save_alpha_channel = (uint8_t) master_alpha;
-    options->save_two_colr_boxes_when_ICC_and_nclx_available = (uint8_t) two_colr_boxes;
     options->output_nclx_profile = nclx;
     options->image_orientation = input_image.orientation;
-
-    if (chroma_downsampling == "average") {
-      options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_average;
-      options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
-    }
-    else if (chroma_downsampling == "sharp-yuv") {
-      options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_sharp_yuv;
-      options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
-    }
-    else if (chroma_downsampling == "nearest-neighbor") {
-      options->color_conversion_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_nearest_neighbor;
-      options->color_conversion_options.only_use_preferred_chroma_algorithm = true;
-    }
 
     if (premultiplied_alpha) {
       heif_image_set_premultiplied_alpha(image.get(), premultiplied_alpha);
@@ -1365,18 +1487,16 @@ int main(int argc, char** argv)
     struct heif_image_handle* handle;
 
     if (use_tiling || cut_tiles > 0) {
-      handle = encode_tiled(context.get(), encoder, options, output_bit_depth, tile_generator, tiling);
+      handle = encode_tiled(context, encoder, options, output_bit_depth, tile_generator, tiling);
     }
     else {
-      error = heif_context_encode_image(context.get(),
+      error = heif_context_encode_image(context,
                                         image.get(),
                                         encoder,
                                         options,
                                         &handle);
       if (error.code != 0) {
-        heif_encoding_options_free(options);
         heif_nclx_color_profile_free(nclx);
-        heif_encoder_release(encoder);
         std::cerr << "Could not encode HEIF/AVIF file: " << error.message << "\n";
         return 1;
       }
@@ -1388,7 +1508,7 @@ int main(int argc, char** argv)
     }
 
     if (is_primary_image) {
-      heif_context_set_primary_image(context.get(), handle);
+      heif_context_set_primary_image(context, handle);
     }
 
     encoded_image_ids.push_back(heif_image_handle_get_item_id(handle));
@@ -1398,12 +1518,10 @@ int main(int argc, char** argv)
       // Note: we do not modify the EXIF Orientation here because we want it to match the HEIF transforms.
       // TODO: is this a good choice? Or should we set it to 1 (normal) so that other, faulty software will not transform it once more?
 
-      error = heif_context_add_exif_metadata(context.get(), handle,
+      error = heif_context_add_exif_metadata(context, handle,
                                              input_image.exif.data(), (int) input_image.exif.size());
       if (error.code != 0) {
-        heif_encoding_options_free(options);
         heif_nclx_color_profile_free(nclx);
-        heif_encoder_release(encoder);
         std::cerr << "Could not write EXIF metadata: " << error.message << "\n";
         return 1;
       }
@@ -1411,13 +1529,11 @@ int main(int argc, char** argv)
 
     // write XMP to HEIC
     if (!input_image.xmp.empty()) {
-      error = heif_context_add_XMP_metadata2(context.get(), handle,
+      error = heif_context_add_XMP_metadata2(context, handle,
                                              input_image.xmp.data(), (int) input_image.xmp.size(),
                                              metadata_compression ? heif_metadata_compression_deflate : heif_metadata_compression_off);
       if (error.code != 0) {
-        heif_encoding_options_free(options);
         heif_nclx_color_profile_free(nclx);
-        heif_encoder_release(encoder);
         std::cerr << "Could not write XMP metadata: " << error.message << "\n";
         return 1;
       }
@@ -1430,7 +1546,7 @@ int main(int argc, char** argv)
 
       options->save_alpha_channel = master_alpha && thumb_alpha;
 
-      error = heif_context_encode_thumbnail(context.get(),
+      error = heif_context_encode_thumbnail(context,
                                             image.get(),
                                             handle,
                                             encoder,
@@ -1438,9 +1554,7 @@ int main(int argc, char** argv)
                                             thumbnail_bbox_size,
                                             &thumbnail_handle);
       if (error.code) {
-        heif_encoding_options_free(options);
         heif_nclx_color_profile_free(nclx);
-        heif_encoder_release(encoder);
         std::cerr << "Could not generate thumbnail: " << error.message << "\n";
         return 5;
       }
@@ -1457,17 +1571,14 @@ int main(int argc, char** argv)
 #endif
 
     heif_image_handle_release(handle);
-    heif_encoding_options_free(options);
     heif_nclx_color_profile_free(nclx);
 
     is_primary_image = false;
   }
 
-  heif_encoder_release(encoder);
-
   if (!property_pitm_description.empty()) {
     heif_image_handle* primary_image_handle;
-    struct heif_error err = heif_context_get_primary_image_handle(context.get(), &primary_image_handle);
+    struct heif_error err = heif_context_get_primary_image_handle(context, &primary_image_handle);
     if (err.code) {
       std::cerr << "No primary image set, cannot set user description\n";
       return 5;
@@ -1480,7 +1591,7 @@ int main(int argc, char** argv)
     udes.name = nullptr;
     udes.tags = nullptr;
     udes.description = property_pitm_description.c_str();
-    err = heif_item_add_property_user_description(context.get(), pitm_id, &udes, nullptr);
+    err = heif_item_add_property_user_description(context, pitm_id, &udes, nullptr);
     if (err.code) {
       std::cerr << "Cannot set user description\n";
       return 5;
@@ -1491,19 +1602,13 @@ int main(int argc, char** argv)
 
 #if HEIF_ENABLE_EXPERIMENTAL_FEATURES
   if (add_pyramid_group && encoded_image_ids.size() > 1) {
-    error = heif_context_add_pyramid_entity_group(context.get(), encoded_image_ids.data(), encoded_image_ids.size(), nullptr);
+    heif_error error = heif_context_add_pyramid_entity_group(context, encoded_image_ids.data(), encoded_image_ids.size(), nullptr);
     if (error.code) {
       std::cerr << "Cannot set multi-resolution pyramid: " << error.message << "\n";
       return 5;
     }
   }
 #endif
-
-  error = heif_context_write_to_file(context.get(), output_filename.c_str());
-  if (error.code) {
-    std::cerr << error.message << "\n";
-    return 5;
-  }
 
   if (run_benchmark) {
     double psnr = compute_psnr(primary_image.get(), output_filename);
@@ -1519,6 +1624,241 @@ int main(int argc, char** argv)
     std::streamoff size = istr.tellg();
     std::cout << "size: " << size << "\n";
   }
+
+  return 0;
+}
+
+
+
+
+std::vector<std::string> deflate_input_filenames(const std::string& filename_example)
+{
+  std::regex pattern(R"((.*\D)?(\d+)(\..+)$)");
+  std::smatch match;
+
+  if (!std::regex_match(filename_example, match, pattern)) {
+    return {filename_example};
+  }
+
+  std::string prefix = match[1];
+
+  auto p = std::filesystem::absolute(std::filesystem::path(prefix));
+  std::filesystem::path directory = p.parent_path();
+  std::string filename_prefix = p.filename().string(); // TODO: we could also use u8string(), but it is not well supported in C++20
+  std::string number = match[2];
+  std::string suffix = match[3];
+
+
+  std::string patternString = filename_prefix + "(\\d+)" + suffix + "$";
+  pattern = patternString;
+
+  uint32_t digits = std::numeric_limits<uint32_t>::max();
+  uint32_t start = std::numeric_limits<uint32_t>::max();
+  uint32_t end = 0;
+
+  for (const auto& dirEntry : std::filesystem::directory_iterator(directory))
+  {
+    if (dirEntry.is_regular_file()) {
+      std::string s{dirEntry.path().filename().string()};
+
+      if (std::regex_match(s, match, pattern)) {
+        digits = std::min(digits, (uint32_t)match[1].length());
+
+        uint32_t number = std::stoi(match[1]);
+        start = std::min(start, number);
+        end = std::max(end, number);
+      }
+    }
+  }
+
+
+  std::vector<std::string> files;
+
+  for (uint32_t i=start;i<=end;i++)
+  {
+    std::stringstream sstr;
+
+    sstr << prefix << std::setw(digits) << std::setfill('0') << i << suffix;
+
+    std::filesystem::path p = directory / sstr.str();
+    files.emplace_back(p.string());
+  }
+
+  return files;
+}
+
+
+int encode_vmt_metadata_track(heif_context* context, heif_track* visual_track)
+{
+  // --- add metadata track
+
+  heif_track* track = nullptr;
+
+  heif_track_options* track_options = heif_track_options_alloc();
+  heif_track_options_set_timescale(track_options, 1000);
+
+  heif_context_add_uri_metadata_sequence_track(context, "vmt:metadata", track_options, &track);
+  heif_raw_sequence_sample* sample = heif_raw_sequence_sample_alloc();
+
+
+  std::ifstream istr(vmt_metadata_file.c_str());
+
+  std::regex pattern(R"((\d\d):(\d\d):(\d\d).(\d\d\d) -->$)");
+
+  static std::string prev_metadata;
+  static uint32_t prev_ts = 0;
+
+  std::string line;
+  while (std::getline(istr, line))
+  {
+    std::smatch match;
+
+    if (!std::regex_match(line, match, pattern)) {
+      continue;
+    }
+
+    std::string hh = match[1];
+    std::string mm = match[2];
+    std::string ss = match[3];
+    std::string mil = match[4];
+
+    uint32_t ts = (std::stoi(hh) * 3600 * 1000 +
+                   std::stoi(mm) * 60 * 1000 +
+                   std::stoi(ss) * 1000 +
+                   std::stoi(mil));
+
+    std::string concat;
+
+    while (std::getline(istr, line)) {
+      if (line.empty()) {
+        break;
+      }
+
+      concat += line + '\n';
+    }
+
+    if (prev_ts > 0) {
+      heif_raw_sequence_sample_set_data(sample, (const uint8_t*)prev_metadata.c_str(), prev_metadata.length()+1);
+      heif_raw_sequence_sample_set_duration(sample, ts - prev_ts);
+      heif_track_add_raw_sequence_sample(track, sample);
+    }
+
+    prev_ts = ts;
+    prev_metadata = concat;
+  }
+
+  // --- flush last metadata packet
+
+  heif_raw_sequence_sample_set_data(sample, (const uint8_t*)prev_metadata.c_str(), prev_metadata.length()+1);
+  heif_raw_sequence_sample_set_duration(sample, 1);
+  heif_track_add_raw_sequence_sample(track, sample);
+
+  // --- add track reference
+
+  heif_track_add_reference_to_track(track, heif_track_reference_type_description, visual_track);
+
+  // --- release all objects
+
+  heif_raw_sequence_sample_release(sample);
+  heif_track_options_release(track_options);
+  heif_track_release(track);
+
+  return 0;
+}
+
+
+int do_encode_sequence(heif_context* context, heif_encoder* encoder, heif_encoding_options* options, std::vector<std::string> args)
+{
+  if (args.size() == 1) {
+    args = deflate_input_filenames(args[0]);
+  }
+
+  size_t nImages = args.size();
+  size_t currImage = 0;
+
+  uint16_t image_width=0, image_height=0;
+
+  bool first_image = true;
+
+  heif_track* track = nullptr;
+
+  for (std::string input_filename : args) {
+    currImage++;
+    std::cout << "\rencoding sequence image " << currImage << "/" << nImages;
+    std::cout.flush();
+
+    InputImage input_image = load_image(input_filename, output_bit_depth);
+
+    std::shared_ptr<heif_image> image = input_image.image;
+
+    int w = heif_image_get_primary_width(image.get());
+    int h = heif_image_get_primary_height(image.get());
+
+    if (w > 0xFFFF || h > 0xFFFF) {
+      std::cerr << "maximum image size of 65535x65535 exceeded\n";
+      return 5;
+    }
+
+    if (first_image) {
+      heif_track_options* track_options = heif_track_options_alloc();
+
+      heif_track_options_set_timescale(track_options, sequence_timebase);
+
+      heif_context_set_sequence_timescale(context, sequence_timebase);
+
+      image_width = static_cast<uint16_t>(w);
+      image_height = static_cast<uint16_t>(h);
+
+      heif_context_add_visual_sequence_track(context,
+                                             image_width, image_height,
+                                             heif_track_type_video,
+                                             track_options,
+                                             nullptr,
+                                             &track);
+
+      heif_track_options_release(track_options);
+
+      first_image = false;
+    }
+
+    if (image_width != static_cast<uint16_t>(w) ||
+        image_height != static_cast<uint16_t>(h)) {
+      std::cerr << "image '" << input_filename << "' has size " << w << "x" << h
+                << " which is different from the first image size " << image_width << "x" << image_height << "\n";
+      return 5;
+    }
+
+    heif_color_profile_nclx* nclx;
+    heif_error error = create_output_nclx_profile_and_configure_encoder(encoder, &nclx, image, lossless);
+    if (error.code) {
+      std::cerr << error.message << "\n";
+      return 5;
+    }
+
+    options->save_alpha_channel = false; // TODO: sequences with alpha ?
+    options->image_orientation = heif_orientation_normal; // input_image.orientation;  TODO: sequence rotation
+
+    heif_image_set_duration(image.get(), sequence_durations);
+
+    error = heif_track_encode_sequence_image(track, image.get(), encoder, nullptr);
+    if (error.code) {
+      std::cerr << "Cannot encode sequence image: " << error.message << "\n";
+      return 5;
+    }
+
+    heif_nclx_color_profile_free(nclx);
+  }
+
+  std::cout << "\n";
+
+  if (!vmt_metadata_file.empty()) {
+    int ret = encode_vmt_metadata_track(context, track);
+    if (ret) {
+      return ret;
+    }
+  }
+
+  heif_track_release(track);
 
   return 0;
 }

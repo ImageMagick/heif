@@ -21,6 +21,7 @@
 #include "error.h"
 
 #include <cassert>
+#include <cstring>
 
 // static
 const char Error::kSuccess[] = "Success";
@@ -44,6 +45,34 @@ Error::Error(heif_error_code c,
       sub_error_code(sc),
       message(msg)
 {
+}
+
+
+Error Error::from_heif_error(const heif_error& c_error)
+{
+  // unpack the concatenated error message and extract the last part only
+
+  const char* err_string = get_error_string(c_error.code);
+  const char* sub_err_string = get_error_string(c_error.subcode);
+
+  std::string msg = c_error.message;
+  if (msg.starts_with(err_string)) {
+    msg = msg.substr(strlen(err_string));
+
+    if (msg.starts_with(": ")) {
+      msg = msg.substr(2);
+    }
+
+    if (msg.starts_with(sub_err_string)) {
+      msg = msg.substr(strlen(sub_err_string));
+
+      if (msg.starts_with(": ")) {
+        msg = msg.substr(2);
+      }
+    }
+  }
+
+  return {c_error.code, c_error.subcode, msg};
 }
 
 
@@ -76,6 +105,8 @@ const char* Error::get_error_string(heif_error_code err)
       return "Error while loading plugin";
     case heif_error_Canceled:
       return "Canceled by user";
+    case heif_error_End_of_sequence:
+      return "End of sequence";
   }
 
   assert(false);
@@ -178,6 +209,8 @@ const char* Error::get_error_string(heif_suberror_code err)
       return "Invalid JPEG 2000 codestream";
     case heif_suberror_Decompression_invalid_data:
       return "Invalid data in generic compression inflation";
+    case heif_suberror_No_moov_box:
+      return "No 'moov' box";
     case heif_suberror_No_icbr_box:
       return "No 'icbr' box";
     case heif_suberror_Invalid_mini_box:

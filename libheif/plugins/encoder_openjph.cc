@@ -777,6 +777,10 @@ struct heif_error ojph_encode_image(void *encoder_raw, const struct heif_image *
                       "OpenJPH encoder plugin received image with invalid colorspace."};
   }
 
+  // reset output position to start
+  encoder->outfile.seek(0, ojph::outfile_base::seek::OJPH_SEEK_SET);
+  encoder->data_read = false;
+
   std::vector<heif_channel> sourceChannels = build_SIZ(encoder, image);
   build_COD(encoder);
 #if OPENJPH_MAJOR_VERSION > 1 || OPENJPH_MINOR_VERSION > 10
@@ -793,8 +797,8 @@ struct heif_error ojph_encode_image(void *encoder_raw, const struct heif_image *
   ojph::line_buf* cur_line = encoder->codestream.exchange(NULL, next_comp);
 
   for (const auto& sourceChannel : sourceChannels) {
-    int stride;
-    const uint8_t *data = heif_image_get_plane_readonly(image, sourceChannel, &stride);
+    size_t stride;
+    const uint8_t *data = heif_image_get_plane_readonly2(image, sourceChannel, &stride);
     uint32_t component_height = heif_image_get_height(image, sourceChannel);
     for (uint32_t y = 0; y < component_height; y++) {
       const uint8_t *sourceLine = data + y * stride;

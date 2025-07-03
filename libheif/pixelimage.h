@@ -26,6 +26,7 @@
 #include "error.h"
 #include "nclx.h"
 #include <libheif/heif_experimental.h>
+#include "security_limits.h"
 
 #include <vector>
 #include <memory>
@@ -33,7 +34,7 @@
 #include <set>
 #include <utility>
 #include <cassert>
-
+#include <string>
 
 heif_chroma chroma_from_subsampling(int h, int v);
 
@@ -238,17 +239,42 @@ public:
 
   // --- mdcv
 
-  bool has_mdcv() const { return m_mdcv_set; }
+  bool has_mdcv() const { return m_mdcv.has_value(); }
 
-  heif_mastering_display_colour_volume get_mdcv() const { return m_mdcv; }
+  heif_mastering_display_colour_volume get_mdcv() const { return *m_mdcv; }
 
   void set_mdcv(const heif_mastering_display_colour_volume& mdcv)
   {
     m_mdcv = mdcv;
-    m_mdcv_set = true;
   }
 
-  void unset_mdcv() { m_mdcv_set = false; }
+  void unset_mdcv() { m_mdcv.reset(); }
+
+  Error set_tai_timestamp(const heif_tai_timestamp_packet* tai) {
+    delete m_tai_timestamp;
+
+    m_tai_timestamp = heif_tai_timestamp_packet_alloc();
+    heif_tai_timestamp_packet_copy(m_tai_timestamp, tai);
+    return Error::Ok;
+  }
+
+  const heif_tai_timestamp_packet* get_tai_timestamp() const {
+    return m_tai_timestamp;
+  }
+
+
+  void set_gimi_sample_content_id(std::string id) { m_gimi_sample_content_id = id; }
+
+  bool has_gimi_sample_content_id() const { return m_gimi_sample_content_id.has_value(); }
+
+  std::string get_gimi_sample_content_id() const { assert(has_gimi_sample_content_id()); return *m_gimi_sample_content_id; }
+
+
+  // --- sequences
+
+  void set_sample_duration(uint32_t d) { m_sample_duration = d; }
+
+  uint32_t get_sample_duration() const { return m_sample_duration; }
 
   // --- warnings
 
@@ -262,8 +288,10 @@ private:
   struct ImagePlane
   {
     // limits=nullptr disables the limits
-    Error alloc(uint32_t width, uint32_t height, heif_channel_datatype datatype, int bit_depth, int num_interleaved_components,
-                const heif_security_limits* limits);
+    Error alloc(uint32_t width, uint32_t height, heif_channel_datatype datatype, int bit_depth,
+                int num_interleaved_components,
+                const heif_security_limits* limits,
+                MemoryHandle& memory_handle);
 
     heif_channel_datatype m_datatype = heif_channel_datatype_unsigned_integer;
     uint8_t m_bit_depth = 0;
@@ -279,6 +307,7 @@ private:
 
     void* mem = nullptr; // aligned memory start
     uint8_t* allocated_mem = nullptr; // unaligned memory we allocated
+    size_t   allocation_size = 0;
     uint32_t stride = 0; // bytes per line
 
     int get_bytes_per_pixel() const;
@@ -300,12 +329,18 @@ private:
   std::shared_ptr<const color_profile_raw> m_color_profile_icc;
 
   std::map<heif_channel, ImagePlane> m_planes;
+  MemoryHandle m_memory_handle;
 
   uint32_t m_PixelAspectRatio_h = 1;
   uint32_t m_PixelAspectRatio_v = 1;
   heif_content_light_level m_clli{};
-  heif_mastering_display_colour_volume m_mdcv{};
-  bool m_mdcv_set = false; // replace with std::optional<> when we are on C*+17
+  std::optional<heif_mastering_display_colour_volume> m_mdcv;
+
+  uint32_t m_sample_duration = 0; // duration of a sequence frame
+
+  heif_tai_timestamp_packet* m_tai_timestamp = nullptr;
+
+  std::optional<std::string> m_gimi_sample_content_id;
 
   std::vector<Error> m_warnings;
 };

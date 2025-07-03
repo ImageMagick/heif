@@ -27,6 +27,7 @@
 #include <csetjmp>
 #include <vector>
 #include <cstdio>
+#include <string>
 
 extern "C" {
 #include <jpeglib.h>
@@ -36,6 +37,7 @@ extern "C" {
 struct jpeg_decoder
 {
   std::vector<uint8_t> data;
+  std::string error_message;
 };
 
 static const char kSuccess[] = "Success";
@@ -145,7 +147,8 @@ void on_jpeg_error(j_common_ptr cinfo)
 }
 
 
-struct heif_error jpeg_decode_image(void* decoder_raw, struct heif_image** out_img)
+struct heif_error jpeg_decode_next_image(void* decoder_raw, struct heif_image** out_img,
+                                         const heif_security_limits* limits)
 {
   struct jpeg_decoder* decoder = (struct jpeg_decoder*) decoder_raw;
 
@@ -222,10 +225,18 @@ struct heif_error jpeg_decode_image(void* decoder_raw, struct heif_image** out_i
       return err;
     }
 
-    heif_image_add_plane(heif_img, heif_channel_Y, cinfo.output_width, cinfo.output_height, 8);
+    err = heif_image_add_plane_safe(heif_img, heif_channel_Y, cinfo.output_width, cinfo.output_height, 8, limits);
+    if (err.code) {
+      // copy error message to decoder object because heif_image will be released
+      decoder->error_message = err.message;
+      err.message = decoder->error_message.c_str();
 
-    int y_stride;
-    uint8_t* py = heif_image_get_plane(heif_img, heif_channel_Y, &y_stride);
+      heif_image_release(heif_img);
+      return err;
+    }
+
+    size_t y_stride;
+    uint8_t* py = heif_image_get_plane2(heif_img, heif_channel_Y, &y_stride);
 
 
     // read the image
@@ -260,16 +271,37 @@ struct heif_error jpeg_decode_image(void* decoder_raw, struct heif_image** out_i
       return err;
     }
 
-    heif_image_add_plane(heif_img, heif_channel_Y, cinfo.output_width, cinfo.output_height, 8);
-    heif_image_add_plane(heif_img, heif_channel_Cb, (cinfo.output_width + 1) / 2, (cinfo.output_height + 1) / 2, 8);
-    heif_image_add_plane(heif_img, heif_channel_Cr, (cinfo.output_width + 1) / 2, (cinfo.output_height + 1) / 2, 8);
+    err = heif_image_add_plane_safe(heif_img, heif_channel_Y, cinfo.output_width, cinfo.output_height, 8, limits);
+    if (err.code) {
+      // copy error message to decoder object because heif_image will be released
+      decoder->error_message = err.message;
+      err.message = decoder->error_message.c_str();
 
-    int y_stride;
-    int cb_stride;
-    int cr_stride;
-    uint8_t* py = heif_image_get_plane(heif_img, heif_channel_Y, &y_stride);
-    uint8_t* pcb = heif_image_get_plane(heif_img, heif_channel_Cb, &cb_stride);
-    uint8_t* pcr = heif_image_get_plane(heif_img, heif_channel_Cr, &cr_stride);
+      return err;
+    }
+    err = heif_image_add_plane_safe(heif_img, heif_channel_Cb, (cinfo.output_width + 1) / 2, (cinfo.output_height + 1) / 2, 8, limits);
+    if (err.code) {
+      // copy error message to decoder object because heif_image will be released
+      decoder->error_message = err.message;
+      err.message = decoder->error_message.c_str();
+
+      return err;
+    }
+    err = heif_image_add_plane_safe(heif_img, heif_channel_Cr, (cinfo.output_width + 1) / 2, (cinfo.output_height + 1) / 2, 8, limits);
+    if (err.code) {
+      // copy error message to decoder object because heif_image will be released
+      decoder->error_message = err.message;
+      err.message = decoder->error_message.c_str();
+
+      return err;
+    }
+
+    size_t y_stride;
+    size_t cb_stride;
+    size_t cr_stride;
+    uint8_t* py = heif_image_get_plane2(heif_img, heif_channel_Y, &y_stride);
+    uint8_t* pcb = heif_image_get_plane2(heif_img, heif_channel_Cb, &cb_stride);
+    uint8_t* pcr = heif_image_get_plane2(heif_img, heif_channel_Cr, &cr_stride);
 
     // read the image
 
@@ -328,10 +360,16 @@ struct heif_error jpeg_decode_image(void* decoder_raw, struct heif_image** out_i
   return heif_error_ok;
 }
 
+struct heif_error jpeg_decode_image(void* decoder_raw, struct heif_image** out_img)
+{
+  auto* limits = heif_get_global_security_limits();
+  return jpeg_decode_next_image(decoder_raw, out_img, limits);
+}
+
 
 static const struct heif_decoder_plugin decoder_jpeg
     {
-        3,
+        4,
         jpeg_plugin_name,
         jpeg_init_plugin,
         jpeg_deinit_plugin,
@@ -341,7 +379,8 @@ static const struct heif_decoder_plugin decoder_jpeg
         jpeg_push_data,
         jpeg_decode_image,
         jpeg_set_strict_decoding,
-        "jpeg"
+        "jpeg",
+        jpeg_decode_next_image
     };
 
 
