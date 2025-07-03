@@ -23,13 +23,6 @@
 #include <iostream>
 #include <cassert>
 #include <utility>
-
-#if ((defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER) && !defined(__PGI)) && __GNUC__ < 9) || (defined(__clang__) && __clang_major__ < 10)
-#include <type_traits>
-#else
-#include <bit>
-#endif
-
 #include "common_utils.h"
 #include "context.h"
 #include "compression.h"
@@ -64,6 +57,11 @@ void AbstractDecoder::buildChannelList(std::shared_ptr<HeifPixelImage>& img)
   }
 }
 
+bool is_big_endian() {
+    uint16_t number = 0x1;
+    return *(reinterpret_cast<uint8_t*>(&number)) == 0;
+}
+
 void AbstractDecoder::memcpy_to_native_endian(uint8_t* dst, uint32_t value, uint32_t bytes_per_sample)
 {
   // TODO: this assumes that the file endianness is always big-endian. The endianness flags in the uncC header are not taken into account yet.
@@ -72,7 +70,7 @@ void AbstractDecoder::memcpy_to_native_endian(uint8_t* dst, uint32_t value, uint
     *dst = static_cast<uint8_t>(value);
     return;
   }
-  else if (std::endian::native == std::endian::big) {
+  else if (is_big_endian()) {
     for (uint32_t i = 0; i < bytes_per_sample; i++) {
       dst[bytes_per_sample - 1 - i] = static_cast<uint8_t>((value >> (i * 8)) & 0xFF);
     }

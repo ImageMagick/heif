@@ -56,17 +56,19 @@ Error Error::from_heif_error(const heif_error& c_error)
   const char* sub_err_string = get_error_string(c_error.subcode);
 
   std::string msg = c_error.message;
-  if (msg.starts_with(err_string)) {
-    msg = msg.substr(strlen(err_string));
+  size_t err_string_len = strlen(err_string);
+  if (msg.length() >= err_string_len && msg.compare(0, err_string_len, err_string) == 0) {
+    msg = msg.substr(err_string_len);
 
-    if (msg.starts_with(": ")) {
+    if (msg.length() >= 2 && msg.compare(0, 2, ": ") == 0) {
       msg = msg.substr(2);
     }
 
-    if (msg.starts_with(sub_err_string)) {
-      msg = msg.substr(strlen(sub_err_string));
+    size_t sub_err_string_len = strlen(sub_err_string);
+    if (msg.length() >= sub_err_string_len && msg.compare(0, sub_err_string_len, sub_err_string) == 0) {
+      msg = msg.substr(sub_err_string_len);
 
-      if (msg.starts_with(": ")) {
+      if (msg.length() >= 2 && msg.compare(0, 2, ": ") == 0) {
         msg = msg.substr(2);
       }
     }
