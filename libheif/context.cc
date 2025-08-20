@@ -45,7 +45,7 @@
 #include "context.h"
 #include "file.h"
 #include "pixelimage.h"
-#include "libheif/api_structs.h"
+#include "api_structs.h"
 #include "security_limits.h"
 #include "compression.h"
 #include "color-conversion/colorconversion.h"
@@ -559,9 +559,10 @@ Error HeifContext::interpret_heif_file_images()
         uint32_t width = ispe->get_width();
         uint32_t height = ispe->get_height();
 
-        Error sizeError = check_for_valid_image_size(get_security_limits(), width, height);
-        if (sizeError) {
-          return sizeError;
+        if (width == 0 || height == 0) {
+          return {heif_error_Invalid_input,
+                  heif_suberror_Invalid_image_size,
+                  "Zero image width or height"};
         }
 
         image->set_resolution(width, height);
@@ -1726,6 +1727,11 @@ Error HeifContext::interpret_heif_file_sequences()
   auto tracks = moov->get_child_boxes<Box_trak>();
   for (const auto& track_box : tracks) {
     auto track = Track::alloc_track(this, track_box);
+    if (!track) {
+      return {heif_error_Invalid_input,
+              heif_suberror_Unspecified,
+              "Unknown track handler or track error"};
+    }
     m_tracks.insert({track->get_id(), track});
 
     if (track->is_visual_track()) {

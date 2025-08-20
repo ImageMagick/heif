@@ -48,6 +48,15 @@ Error::Error(heif_error_code c,
 }
 
 
+// Replacement for C++20 std::string::starts_with()
+static bool starts_with(const std::string& str, const std::string& prefix) {
+    if (str.length() < prefix.length()) {
+        return false;
+    }
+    return str.rfind(prefix, 0) == 0;
+}
+
+
 Error Error::from_heif_error(const heif_error& c_error)
 {
   // unpack the concatenated error message and extract the last part only
@@ -56,19 +65,17 @@ Error Error::from_heif_error(const heif_error& c_error)
   const char* sub_err_string = get_error_string(c_error.subcode);
 
   std::string msg = c_error.message;
-  size_t err_string_len = strlen(err_string);
-  if (msg.length() >= err_string_len && msg.compare(0, err_string_len, err_string) == 0) {
-    msg = msg.substr(err_string_len);
+  if (starts_with(msg, err_string)) {
+    msg = msg.substr(strlen(err_string));
 
-    if (msg.length() >= 2 && msg.compare(0, 2, ": ") == 0) {
+    if (starts_with(msg, ": ")) {
       msg = msg.substr(2);
     }
 
-    size_t sub_err_string_len = strlen(sub_err_string);
-    if (msg.length() >= sub_err_string_len && msg.compare(0, sub_err_string_len, sub_err_string) == 0) {
-      msg = msg.substr(sub_err_string_len);
+    if (starts_with(msg, sub_err_string)) {
+      msg = msg.substr(strlen(sub_err_string));
 
-      if (msg.length() >= 2 && msg.compare(0, 2, ": ") == 0) {
+      if (starts_with(msg, ": ")) {
         msg = msg.substr(2);
       }
     }

@@ -135,7 +135,7 @@ Error Box_mvhd::write(StreamWriter& writer) const
   if (get_version() == 1) {
     writer.write64(m_creation_time);
     writer.write64(m_modification_time);
-    writer.write64(m_timescale);
+    writer.write32(m_timescale);
     writer.write64(m_duration);
   }
   else {
@@ -219,6 +219,10 @@ std::string Box_tkhd::dump(Indent& indent) const
 {
   std::ostringstream sstr;
   sstr << FullBox::dump(indent);
+  sstr << indent << "track enabled: " << ((get_flags() & Track_enabled) ? "yes" : "no") << "\n"
+       << indent << "track in movie: " << ((get_flags() & Track_in_movie) ? "yes" : "no") << "\n"
+       << indent << "track in preview: " << ((get_flags() & Track_in_preview) ? "yes" : "no") << "\n"
+       << indent << "track size is aspect ratio: " << ((get_flags() & Track_size_is_aspect_ratio) ? "yes" : "no") << "\n";
   sstr << indent << "creation time:     " << m_creation_time << "\n"
       << indent << "modification time: " << m_modification_time << "\n"
       << indent << "track ID: " << m_track_id << "\n"

@@ -24,7 +24,7 @@
 #include "chunk.h"
 #include "pixelimage.h"
 #include "context.h"
-#include "libheif/api_structs.h"
+#include "api_structs.h"
 #include "codecs/hevc_boxes.h"
 
 
@@ -111,7 +111,6 @@ Result<std::shared_ptr<HeifPixelImage>> Track_Visual::decode_next_image_sample(c
 
   // --- read sample auxiliary data
 
-#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
   if (m_aux_reader_content_ids) {
     auto readResult = m_aux_reader_content_ids->get_sample_info(get_file().get(), m_next_sample_to_be_processed);
     if (readResult.error) {
@@ -125,7 +124,6 @@ Result<std::shared_ptr<HeifPixelImage>> Track_Visual::decode_next_image_sample(c
 
     image->set_gimi_sample_content_id(convResult.value);
   }
-#endif
 
   if (m_aux_reader_tai_timestamps) {
     auto readResult = m_aux_reader_tai_timestamps->get_sample_info(get_file().get(), m_next_sample_to_be_processed);
@@ -222,11 +220,7 @@ Error Track_Visual::encode_image(std::shared_ptr<HeifPixelImage> image,
                                 colorConvertedImage->get_sample_duration(),
                                 data.is_sync_frame,
                                 image->get_tai_timestamp(),
-#if HEIF_ENABLE_EXPERIMENTAL_FEATURES
                                 image->has_gimi_sample_content_id() ? image->get_gimi_sample_content_id() : std::string{});
-#else
-  std::string{});
-#endif
 
   if (err) {
     return err;

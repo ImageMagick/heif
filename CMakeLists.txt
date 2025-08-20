@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.16.3) # Oldest Ubuntu LTS (20.04 currently)
 
-project(libheif LANGUAGES C CXX VERSION 1.20.1)
+project(libheif LANGUAGES C CXX VERSION 1.20.2)
 
 # compatibility_version is never allowed to be decreased for any specific SONAME.
 # Libtool in the libheif-1.15.1 release had set it to 17.0.0, so we have to use this for the v1.x.y versions.
@@ -495,6 +495,7 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libheif.pc
 # ---
 
 option(WITH_EXAMPLES "Build examples" ON)
+option(WITH_EXAMPLE_HEIF_VIEW "Build heif-view tool" ON)
 option(WITH_GDK_PIXBUF "Build gdk-pixbuf plugin" ON)
 
 option(WITH_REDUCED_VISIBILITY "Reduced symbol visibility in library" ON)
