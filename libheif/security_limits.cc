@@ -25,36 +25,36 @@
 
 
 struct heif_security_limits global_security_limits{
-    .version = 2,
+    2,
 
     // --- version 1
 
     // Artificial limit to avoid allocating too much memory.
     // 32768^2 = 1.5 GB as YUV-4:2:0 or 4 GB as RGB32
-    .max_image_size_pixels = 32768 * 32768,
-    .max_number_of_tiles = 4096 * 4096,
-    .max_bayer_pattern_pixels = 16 * 16,
-    .max_items = 1000,
+    32768 * 32768,
+    4096 * 4096,
+    16 * 16,
+    1000,
 
-    .max_color_profile_size = 100 * 1024 * 1024, // 100 MB
-    .max_memory_block_size = UINT64_C(4) * 1024 * 1024 * 1024,  // 4 GB
+    100 * 1024 * 1024, // 100 MB
+    UINT64_C(4) * 1024 * 1024 * 1024,  // 4 GB
 
-    .max_components = 256,
-    .max_iloc_extents_per_item = 32,
-    .max_size_entity_group = 64,
+    256,
+    32,
+    64,
 
-    .max_children_per_box = 100,
+    100,
 
     // --- version 2
 
-    .max_total_memory = UINT64_C(4) * 1024 * 1024 * 1024,  // 4 GB
-    .max_sample_description_box_entries = 1024,
-    .max_sample_group_description_box_entries = 1024
+    UINT64_C(4) * 1024 * 1024 * 1024,  // 4 GB
+    1024,
+    1024
 };
 
 
 struct heif_security_limits disabled_security_limits{
-    .version = 2
+    2
 };
 
 
