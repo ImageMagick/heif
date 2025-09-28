@@ -1,5 +1,23 @@
 [DYNAMIC_LIBRARY]
 
+[VERSION]
+1.20.2
+
+[RELEASE_DATE]
+2025-08-05
+
+[PRODUCT_NAME]
+libheif
+
+[COMPANY_NAME]
+Struktur AG.
+
+[URL]
+https://github.com/strukturag/libheif
+
+[COPYRIGHT]
+Copyright (c) 2017 Struktur AG
+
 [LICENSE_FILE]
 COPYING
 
