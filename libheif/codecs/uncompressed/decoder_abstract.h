@@ -61,13 +61,24 @@ public:
     m_tileStartOffset = get_current_byte_index();
   }
 
-  inline void handlePixelAlignment(uint32_t pixel_size)
+  inline Error handlePixelAlignment(uint32_t pixel_size)
   {
     if (pixel_size != 0) {
       uint32_t bytes_in_pixel = get_current_byte_index() - m_pixelStartOffset;
-      uint32_t padding = pixel_size - bytes_in_pixel;
-      skip_bytes(padding);
+      if (pixel_size > bytes_in_pixel) {
+        uint32_t padding = pixel_size - bytes_in_pixel;
+        skip_bytes(padding);
+      }
+      else {
+        return {
+          heif_error_Invalid_input,
+          heif_suberror_Unspecified,
+          "Uncompressed image: invalid 'pixel_size'"
+        };
+      }
     }
+
+    return {};
   }
 
   void handleRowAlignment(uint32_t alignment)
@@ -198,9 +209,8 @@ protected:
                                                      uint32_t tile_idx,
                                                      const Box_iloc::Item* item) const;
 
-  const Error do_decompress_data(std::shared_ptr<const Box_cmpC>& cmpC_box,
-                                 std::vector<uint8_t> compressed_data,
-                                 std::vector<uint8_t>* data) const;
+  Result<std::vector<uint8_t>> do_decompress_data(std::shared_ptr<const Box_cmpC>& cmpC_box,
+                                                  std::vector<uint8_t> compressed_data) const;
 
 protected:
   void memcpy_to_native_endian(uint8_t* dst, uint32_t value, uint32_t bytes_per_sample);

@@ -48,14 +48,16 @@ public:
 
   heif_brand2 get_compatible_brand() const override { return heif_brand2_avif; }
 
-  Error on_load_file() override;
+  Error initialize_decoder() override;
+
+  void set_decoder_input_data() override;
 
 protected:
   Result<std::vector<uint8_t>> read_bitstream_configuration_data() const override;
 
-  Result<std::shared_ptr<class Decoder>> get_decoder() const override;
+  Result<std::shared_ptr<Decoder>> get_decoder() const override;
 
-  std::shared_ptr<class Encoder> get_encoder() const override;
+  std::shared_ptr<Encoder> get_encoder() const override;
 
 private:
   std::shared_ptr<class Decoder_AVIF> m_decoder;

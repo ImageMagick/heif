@@ -139,7 +139,6 @@ std::vector<heif_brand2> compute_compatible_brands(const HeifContext* ctx, heif_
     }
   }
 
-
   // --- --- sequences
 
   if (ctx->has_sequence()) {
@@ -147,18 +146,17 @@ std::vector<heif_brand2> compute_compatible_brands(const HeifContext* ctx, heif_
     compatible_brands.push_back(heif_brand2_iso8);
 
     auto track_result = ctx->get_track(0);
-    assert(!track_result.error);
+    assert(track_result);
 
-    std::shared_ptr<const Track> track = track_result.value;
+    std::shared_ptr<const Track> track = *track_result;
     std::shared_ptr<const Track_Visual> visual_track = std::dynamic_pointer_cast<const Track_Visual>(track);
 
     heif_brand2 track_brand = visual_track->get_compatible_brand();
     if (track_brand != 0) {
       compatible_brands.push_back(track_brand);
 
-      if (*out_main_brand == 0) {
-        *out_main_brand = track_brand;
-      }
+      // overwrite any image brand
+      *out_main_brand = track_brand;
     }
 
     // if we don't have a track brand, use at least the sequence structural brand

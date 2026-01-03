@@ -51,12 +51,12 @@ Error Decoder_JPEG::parse_SOF()
 
   // image data, usually from 'mdat'
 
-  auto dataResult = get_compressed_data();
-  if (dataResult.error) {
-    return dataResult.error;
+  auto dataResult = get_compressed_data(true);
+  if (!dataResult) {
+    return dataResult.error();
   }
 
-  const std::vector<uint8_t>& data = dataResult.value;
+  const std::vector<uint8_t>& data = *dataResult;
 
   const Error error_invalidSOF{heif_error_Invalid_input,
                                heif_suberror_Unspecified,

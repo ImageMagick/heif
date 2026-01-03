@@ -25,6 +25,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <set>
 
 
 class ImageItem_iden : public ImageItem
@@ -50,16 +51,17 @@ public:
   int get_chroma_bits_per_pixel() const override;
 
   Result<Encoder::CodedImageData> encode(const std::shared_ptr<HeifPixelImage>& image,
-                                         struct heif_encoder* encoder,
-                                         const struct heif_encoding_options& options,
-                                         enum heif_image_input_class input_class) override
+                                         heif_encoder* encoder,
+                                         const heif_encoding_options& options,
+                                         heif_image_input_class input_class) override
   {
     return Error{heif_error_Unsupported_feature,
                  heif_suberror_Unspecified, "Cannot encode image to 'iden'"};
   }
 
-  Result<std::shared_ptr<HeifPixelImage>> decode_compressed_image(const struct heif_decoding_options& options,
-                                                                  bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0) const override;
+  Result<std::shared_ptr<HeifPixelImage>> decode_compressed_image(const heif_decoding_options& options,
+                                                                  bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
+                                                                  std::set<heif_item_id> processed_ids) const override;
 
   heif_brand2 get_compatible_brand() const override;
 

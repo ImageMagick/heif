@@ -537,11 +537,11 @@ Error UncompressedImageCodec::decode_uncompressed_image_tile(const HeifContext* 
   uint32_t tile_height = ispe->get_height() / uncC->get_number_of_tile_rows();
 
   Result<std::shared_ptr<HeifPixelImage>> createImgResult = create_image(cmpd, uncC, tile_width, tile_height, context->get_security_limits());
-  if (createImgResult.error) {
-    return createImgResult.error;
+  if (!createImgResult) {
+    return createImgResult.error();
   }
 
-  img = createImgResult.value;
+  img = *createImgResult;
 
 
   AbstractDecoder* decoder = makeDecoder(ispe->get_width(), ispe->get_height(), cmpd, uncC);
@@ -586,7 +586,7 @@ Error UncompressedImageCodec::check_header_validity(std::optional<const std::sha
 
   if (cmpd) {
     for (const auto& comp : uncC->get_components()) {
-      if (comp.component_index > cmpd->get_components().size()) {
+      if (comp.component_index >= cmpd->get_components().size()) {
         return {heif_error_Invalid_input,
                 heif_suberror_Unspecified,
                 "Invalid component index in uncC box"};
@@ -667,9 +667,27 @@ Error UncompressedImageCodec::decode_uncompressed_image(const HeifContext* conte
     return error;
   }
 
+  if (uncC->get_pixel_size() > 0 &&
+      UINT32_MAX / uncC->get_pixel_size() / width < height) {
+    return {
+      heif_error_Invalid_input,
+      heif_suberror_Unspecified,
+      "Aligned total image size exceeds maximum integer range"
+    };
+  }
+
+  if (uncC->get_row_align_size() > 0 &&
+      UINT32_MAX / uncC->get_row_align_size() < 8) {
+    return {
+      heif_error_Invalid_input,
+      heif_suberror_Unspecified,
+      "Aligned row size larger than supported maximum"
+    };
+  }
+
   Result<std::shared_ptr<HeifPixelImage>> createImgResult = create_image(cmpd, uncC, width, height, context->get_security_limits());
-  if (createImgResult.error) {
-    return createImgResult.error;
+  if (!createImgResult) {
+    return createImgResult.error();
   }
   else {
     img = *createImgResult;
@@ -750,9 +768,18 @@ UncompressedImageCodec::decode_uncompressed_image(const UncompressedImageCodec::
     return error;
   }
 
+  if (uncC->get_pixel_size() > 0 &&
+      UINT32_MAX / uncC->get_pixel_size() / width < height) {
+    return Error{
+      heif_error_Invalid_input,
+      heif_suberror_Unspecified,
+      "Aligned total image size exceeds maximum integer range"
+    };
+  }
+
   Result<std::shared_ptr<HeifPixelImage>> createImgResult = create_image(cmpd, uncC, width, height, securityLimits);
-  if (createImgResult.error) {
-    return createImgResult.error;
+  if (!createImgResult) {
+    return createImgResult.error();
   }
   else {
     img = *createImgResult;
@@ -792,7 +819,8 @@ UncompressedImageCodec::decode_uncompressed_image(const UncompressedImageCodec::
 Error fill_cmpd_and_uncC(std::shared_ptr<Box_cmpd>& cmpd,
                          std::shared_ptr<Box_uncC>& uncC,
                          const std::shared_ptr<const HeifPixelImage>& image,
-                         const heif_unci_image_parameters* parameters)
+                         const heif_unci_image_parameters* parameters,
+                         bool save_alpha_channel)
 {
   uint32_t nTileColumns = parameters->image_width / parameters->tile_width;
   uint32_t nTileRows = parameters->image_height / parameters->tile_height;
@@ -858,25 +886,29 @@ Error fill_cmpd_and_uncC(std::shared_ptr<Box_cmpd>& cmpd,
                    heif_suberror_Unsupported_data_version,
                    "Unsupported colourspace / chroma combination - RGB");
     }
+
     Box_cmpd::Component rComponent = {component_type_red};
     cmpd->add_component(rComponent);
     Box_cmpd::Component gComponent = {component_type_green};
     cmpd->add_component(gComponent);
     Box_cmpd::Component bComponent = {component_type_blue};
     cmpd->add_component(bComponent);
-    if ((image->get_chroma_format() == heif_chroma_interleaved_RGBA) ||
-        (image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_BE) ||
-        (image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_LE) ||
-        (image->has_channel(heif_channel_Alpha))) {
+
+    if (save_alpha_channel &&
+        (image->get_chroma_format() == heif_chroma_interleaved_RGBA ||
+         image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_BE ||
+         image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_LE ||
+         image->has_channel(heif_channel_Alpha))) {
       Box_cmpd::Component alphaComponent = {component_type_alpha};
       cmpd->add_component(alphaComponent);
     }
-    if ((image->get_chroma_format() == heif_chroma_interleaved_RGB) ||
-        (image->get_chroma_format() == heif_chroma_interleaved_RGBA) ||
-        (image->get_chroma_format() == heif_chroma_interleaved_RRGGBB_BE) ||
-        (image->get_chroma_format() == heif_chroma_interleaved_RRGGBB_LE) ||
-        (image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_BE) ||
-        (image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_LE)) {
+
+    if (image->get_chroma_format() == heif_chroma_interleaved_RGB ||
+        image->get_chroma_format() == heif_chroma_interleaved_RGBA ||
+        image->get_chroma_format() == heif_chroma_interleaved_RRGGBB_BE ||
+        image->get_chroma_format() == heif_chroma_interleaved_RRGGBB_LE ||
+        image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_BE ||
+        image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_LE) {
       uncC->set_interleave_type(interleave_mode_pixel);
       int bpp = image->get_bits_per_pixel(heif_channel_interleaved);
       uint8_t component_align = 1;
@@ -886,15 +918,18 @@ Error fill_cmpd_and_uncC(std::shared_ptr<Box_cmpd>& cmpd,
       else if (bpp > 8) {
         component_align = 2;
       }
+
       Box_uncC::Component component0 = {0, (uint8_t) (bpp), component_format_unsigned, component_align};
       uncC->add_component(component0);
       Box_uncC::Component component1 = {1, (uint8_t) (bpp), component_format_unsigned, component_align};
       uncC->add_component(component1);
       Box_uncC::Component component2 = {2, (uint8_t) (bpp), component_format_unsigned, component_align};
       uncC->add_component(component2);
-      if ((image->get_chroma_format() == heif_chroma_interleaved_RGBA) ||
-          (image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_BE) ||
-          (image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_LE)) {
+
+      if (save_alpha_channel &&
+          (image->get_chroma_format() == heif_chroma_interleaved_RGBA ||
+           image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_BE ||
+           image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_LE)) {
         Box_uncC::Component component3 = {
             3, (uint8_t) (bpp), component_format_unsigned, component_align};
         uncC->add_component(component3);
@@ -902,23 +937,29 @@ Error fill_cmpd_and_uncC(std::shared_ptr<Box_cmpd>& cmpd,
     }
     else {
       uncC->set_interleave_type(interleave_mode_component);
+
       int bpp_red = image->get_bits_per_pixel(heif_channel_R);
       Box_uncC::Component component0 = {0, (uint8_t) (bpp_red), component_format_unsigned, 0};
       uncC->add_component(component0);
+
       int bpp_green = image->get_bits_per_pixel(heif_channel_G);
       Box_uncC::Component component1 = {1, (uint8_t) (bpp_green), component_format_unsigned, 0};
       uncC->add_component(component1);
+
       int bpp_blue = image->get_bits_per_pixel(heif_channel_B);
       Box_uncC::Component component2 = {2, (uint8_t) (bpp_blue), component_format_unsigned, 0};
       uncC->add_component(component2);
-      if (image->has_channel(heif_channel_Alpha)) {
+
+      if (save_alpha_channel && image->has_channel(heif_channel_Alpha)) {
         int bpp_alpha = image->get_bits_per_pixel(heif_channel_Alpha);
         Box_uncC::Component component3 = {3, (uint8_t) (bpp_alpha), component_format_unsigned, 0};
         uncC->add_component(component3);
       }
     }
+
     uncC->set_sampling_type(sampling_mode_no_subsampling);
     uncC->set_block_size(0);
+
     if ((image->get_chroma_format() == heif_chroma_interleaved_RRGGBB_LE) ||
         (image->get_chroma_format() == heif_chroma_interleaved_RRGGBBAA_LE)) {
       uncC->set_components_little_endian(true);
@@ -926,6 +967,7 @@ Error fill_cmpd_and_uncC(std::shared_ptr<Box_cmpd>& cmpd,
     else {
       uncC->set_components_little_endian(false);
     }
+
     uncC->set_block_pad_lsb(false);
     uncC->set_block_little_endian(false);
     uncC->set_block_reversed(false);
@@ -939,18 +981,22 @@ Error fill_cmpd_and_uncC(std::shared_ptr<Box_cmpd>& cmpd,
   else if (colourspace == heif_colorspace_monochrome) {
     Box_cmpd::Component monoComponent = {component_type_monochrome};
     cmpd->add_component(monoComponent);
-    if (image->has_channel(heif_channel_Alpha)) {
+
+    if (save_alpha_channel && image->has_channel(heif_channel_Alpha)) {
       Box_cmpd::Component alphaComponent = {component_type_alpha};
       cmpd->add_component(alphaComponent);
     }
+
     int bpp = image->get_bits_per_pixel(heif_channel_Y);
     Box_uncC::Component component0 = {0, (uint8_t) (bpp), component_format_unsigned, 0};
     uncC->add_component(component0);
-    if (image->has_channel(heif_channel_Alpha)) {
+
+    if (save_alpha_channel && image->has_channel(heif_channel_Alpha)) {
       bpp = image->get_bits_per_pixel(heif_channel_Alpha);
       Box_uncC::Component component1 = {1, (uint8_t) (bpp), component_format_unsigned, 0};
       uncC->add_component(component1);
     }
+
     uncC->set_sampling_type(sampling_mode_no_subsampling);
     uncC->set_interleave_type(interleave_mode_component);
     uncC->set_block_size(0);

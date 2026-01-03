@@ -25,6 +25,7 @@ set(libheif_headers
         api/libheif/heif_context.h
         api/libheif/heif_tiling.h
         api/libheif/heif_uncompressed.h
+        api/libheif/heif_text.h
         api/libheif/heif_cxx.h
         ${CMAKE_CURRENT_BINARY_DIR}/heif_version.h)
 
@@ -62,6 +63,8 @@ set(libheif_sources
         region.h
         brands.cc
         brands.h
+        text.cc
+        text.h
         api_structs.h
         api/libheif/heif.cc
         api/libheif/heif_library.cc
@@ -84,6 +87,7 @@ set(libheif_sources
         api/libheif/heif_context.cc
         api/libheif/heif_tiling.cc
         api/libheif/heif_uncompressed.cc
+        api/libheif/heif_text.cc
         codecs/decoder.h
         codecs/decoder.cc
         codecs/encoder.h
@@ -134,6 +138,8 @@ set(libheif_sources
         codecs/avc_boxes.cc
         codecs/avc_dec.h
         codecs/avc_dec.cc
+        codecs/avc_enc.h
+        codecs/avc_enc.cc
         image-items/mask_image.h
         image-items/mask_image.cc
         image-items/image_item.h

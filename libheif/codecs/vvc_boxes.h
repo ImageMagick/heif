@@ -59,7 +59,7 @@ public:
     uint8_t LengthSizeMinusOne = 3;  // 0,1,3   default: 4 bytes for NAL unit lengths
     bool ptl_present_flag = true;
 
-    // only of PTL present
+    // only if PTL present
     uint16_t ols_idx; // 9 bits
     uint8_t num_sublayers; // 3 bits
     uint8_t constant_frame_rate; // 2 bits
@@ -79,6 +79,8 @@ public:
   void set_configuration(const configuration& config) { m_configuration = config; }
 
   const configuration& get_configuration() const { return m_configuration; }
+
+  configuration& get_configuration() { return m_configuration; }
 
   void append_nal_data(const std::vector<uint8_t>& nal);
   void append_nal_data(const uint8_t* data, size_t size);

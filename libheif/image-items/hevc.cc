@@ -49,7 +49,7 @@ ImageItem_HEVC::ImageItem_HEVC(HeifContext* ctx)
 }
 
 
-Error ImageItem_HEVC::on_load_file()
+Error ImageItem_HEVC::initialize_decoder()
 {
   auto hvcC_box = get_property<Box_hvcC>();
   if (!hvcC_box) {
@@ -59,12 +59,16 @@ Error ImageItem_HEVC::on_load_file()
 
   m_decoder = std::make_shared<Decoder_HEVC>(hvcC_box);
 
+  return Error::Ok;
+}
+
+
+void ImageItem_HEVC::set_decoder_input_data()
+{
   DataExtent extent;
   extent.set_from_image_item(get_context()->get_heif_file(), get_id());
 
   m_decoder->set_data_extent(std::move(extent));
-
-  return Error::Ok;
 }
 
 
@@ -102,13 +106,13 @@ Result<std::vector<uint8_t>> ImageItem_HEVC::read_bitstream_configuration_data()
 }
 
 
-Result<std::shared_ptr<class Decoder>> ImageItem_HEVC::get_decoder() const
+Result<std::shared_ptr<Decoder>> ImageItem_HEVC::get_decoder() const
 {
   return {m_decoder};
 }
 
 
-std::shared_ptr<class Encoder> ImageItem_HEVC::get_encoder() const
+std::shared_ptr<Encoder> ImageItem_HEVC::get_encoder() const
 {
   return m_encoder;
 }

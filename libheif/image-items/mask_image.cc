@@ -127,8 +127,9 @@ Error MaskImageCodec::decode_mask_image(const HeifContext* context,
 }
 
 
-Result<std::shared_ptr<HeifPixelImage>> ImageItem_mask::decode_compressed_image(const struct heif_decoding_options& options,
-                                                                                bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0) const
+Result<std::shared_ptr<HeifPixelImage>> ImageItem_mask::decode_compressed_image(const heif_decoding_options& options,
+                                                                                bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
+                                                                                std::set<heif_item_id> processed_ids) const
 {
   std::shared_ptr<HeifPixelImage> img;
 
@@ -155,9 +156,9 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_mask::decode_compressed_image(
 
 
 Result<Encoder::CodedImageData> ImageItem_mask::encode(const std::shared_ptr<HeifPixelImage>& image,
-                                                       struct heif_encoder* encoder,
-                                                       const struct heif_encoding_options& options,
-                                                       enum heif_image_input_class input_class)
+                                                       heif_encoder* encoder,
+                                                       const heif_encoding_options& options,
+                                                       heif_image_input_class input_class)
 {
   Encoder::CodedImageData codedImageData;
 

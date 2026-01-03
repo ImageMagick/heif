@@ -24,6 +24,13 @@
 #include <cstring>
 #include <cassert>
 
+#include "common_utils.h"
+
+#if !defined(HAVE_BIT)
+#include <type_traits>
+#else
+#include <bit>
+#endif
 
 #define MAX_UVLC_LEADING_ZEROS 20
 
@@ -263,10 +270,7 @@ uint32_t BitstreamRange::read32()
     return 0;
   }
 
-  return (uint32_t) ((buf[0] << 24) |
-                     (buf[1] << 16) |
-                     (buf[2] << 8) |
-                     (buf[3]));
+  return four_bytes_to_uint32(buf[0], buf[1], buf[2], buf[3]);
 }
 
 
@@ -405,7 +409,7 @@ std::string BitstreamRange::read_string()
       return std::string();
     }
 
-    if (c == 0) {
+    if (c == 0 || m_remaining==0) {
       break;
     }
     else {
@@ -446,6 +450,21 @@ std::string BitstreamRange::read_fixed_string(int len)
   }
 
   istr->seek_cur(len-n-1);
+
+  return str;
+}
+
+
+std::string BitstreamRange::read_string_until_eof()
+{
+  size_t n = get_remaining_bytes();
+
+  [[maybe_unused]] bool success = prepare_read(n);
+  assert(success); // we are reading exactly the rest of the box
+
+  std::string str;
+  str.resize(n);
+  get_istream()->read(str.data(), n);
 
   return str;
 }
@@ -517,10 +536,23 @@ void BitstreamRange::skip_without_advancing_file_pos(size_t n)
 
 
 BitReader::BitReader(const uint8_t* buffer, int len)
+  : data_start(buffer),
+    data_length(len)
 {
   data = buffer;
-  data_length = len;
   bytes_remaining = len;
+
+  nextbits = 0;
+  nextbits_cnt = 0;
+
+  refill();
+}
+
+
+void BitReader::reset()
+{
+  data = data_start;
+  bytes_remaining = data_length;
 
   nextbits = 0;
   nextbits_cnt = 0;
@@ -860,9 +892,9 @@ void StreamWriter::write(int size, uint64_t value)
 }
 
 
-void StreamWriter::write(const std::string& str)
+void StreamWriter::write(const std::string& str, bool end_with_null)
 {
-  size_t required_size = m_position + str.size() + 1;
+  size_t required_size = m_position + str.size() + (end_with_null ? 1 : 0);
 
   if (required_size > m_data.size()) {
     m_data.resize(required_size);
@@ -872,7 +904,9 @@ void StreamWriter::write(const std::string& str)
     m_data[m_position++] = str[i];
   }
 
-  m_data[m_position++] = 0;
+  if (end_with_null) {
+    m_data[m_position++] = 0;
+  }
 }
 
 

@@ -49,13 +49,13 @@ public:
 
   void add_nonpresent_sample();
 
-  void write_interleaved(const std::shared_ptr<class HeifFile>& file);
+  void write_interleaved(const std::shared_ptr<HeifFile>& file);
 
-  void write_all(const std::shared_ptr<class Box>& parent, const std::shared_ptr<class HeifFile>& file);
+  void write_all(const std::shared_ptr<Box>& parent, const std::shared_ptr<HeifFile>& file);
 
 private:
-  std::shared_ptr<class Box_saiz> m_saiz;
-  std::shared_ptr<class Box_saio> m_saio;
+  std::shared_ptr<Box_saiz> m_saiz;
+  std::shared_ptr<Box_saio> m_saio;
 
   std::vector<uint8_t> m_data;
 
@@ -74,8 +74,8 @@ public:
   Result<std::vector<uint8_t>> get_sample_info(const HeifFile* file, uint32_t idx);
 
 private:
-  std::shared_ptr<class Box_saiz> m_saiz;
-  std::shared_ptr<class Box_saio> m_saio;
+  std::shared_ptr<Box_saiz> m_saiz;
+  std::shared_ptr<Box_saio> m_saio;
 
   bool m_contiguous;
   std::vector<uint64_t> m_contiguous_offsets;
@@ -104,12 +104,12 @@ struct TrackOptions
 
 
   // --- TAI timestamps for samples
-  enum heif_sample_aux_info_presence with_sample_tai_timestamps = heif_sample_aux_info_presence_none;
-  struct heif_tai_clock_info* tai_clock_info = nullptr;
+  heif_sample_aux_info_presence with_sample_tai_timestamps = heif_sample_aux_info_presence_none;
+  heif_tai_clock_info* tai_clock_info = nullptr;
 
   // --- GIMI content IDs for samples
 
-  enum heif_sample_aux_info_presence with_sample_content_ids = heif_sample_aux_info_presence_none;
+  heif_sample_aux_info_presence with_sample_content_ids = heif_sample_aux_info_presence_none;
 
   // --- GIMI content ID for the track
 
@@ -119,26 +119,47 @@ struct TrackOptions
 };
 
 
+const char* get_track_auxiliary_info_type(heif_compression_format format);
+
+
 class Track : public ErrorBuffer {
 public:
   //Track(HeifContext* ctx);
 
   Track(HeifContext* ctx, uint32_t track_id, const TrackOptions* info, uint32_t handler_type);
 
-  Track(HeifContext* ctx, const std::shared_ptr<Box_trak>&); // when reading the file
+  Track(HeifContext* ctx);
 
   virtual ~Track() = default;
 
-  // Allocate a Track of the correct sub-class (visual or metadata)
-  static std::shared_ptr<Track> alloc_track(HeifContext*, const std::shared_ptr<Box_trak>&);
+  // Allocate a Track of the correct sub-class (visual or metadata).
+  // For tracks with an unsupported handler type, heif_error_Unsupported_feature/heif_suberror_Unsupported_track_type is returned.
+  static Result<std::shared_ptr<Track>> alloc_track(HeifContext*, const std::shared_ptr<Box_trak>&);
+
+  // load track from file
+  virtual Error load(const std::shared_ptr<Box_trak>&);
+
+  // This is called after creating all Track objects when reading a HEIF file.
+  // We can now do initializations that require access to all tracks.
+  [[nodiscard]] virtual Error initialize_after_parsing(HeifContext*, const std::vector<std::shared_ptr<Track>>& all_tracks) { return {}; }
 
   heif_item_id get_id() const { return m_id; }
 
-  std::shared_ptr<class HeifFile> get_file() const;
+  std::shared_ptr<HeifFile> get_file() const;
 
   uint32_t get_handler() const { return m_handler_type; }
 
+  heif_auxiliary_track_info_type get_auxiliary_info_type() const;
+
+  std::string get_auxiliary_info_type_urn() const { return m_auxiliary_info_type; }
+
+  void set_auxiliary_info_type(heif_auxiliary_track_info_type);
+
+  void set_auxiliary_info_type_urn(std::string t) { m_auxiliary_info_type = t; }
+
   bool is_visual_track() const;
+
+  virtual bool has_alpha_channel() const { return false; }
 
   uint32_t get_first_cluster_sample_entry_type() const;
 
@@ -149,22 +170,24 @@ public:
   uint32_t get_timescale() const;
 
   // The context will compute the duration in global movie units and set this.
-  void set_track_duration_in_movie_units(uint64_t total_duration);
+  void set_track_duration_in_movie_units(uint64_t total_duration, uint64_t segment_duration);
 
-  std::shared_ptr<class Box_taic> get_first_cluster_taic() { return m_first_taic; }
+  void enable_edit_list_repeat_mode(bool enable);
+
+  std::shared_ptr<Box_taic> get_first_cluster_taic() { return m_first_taic; }
 
   bool end_of_sequence_reached() const;
 
   // Compute some parameters after all frames have been encoded (for example: track duration).
-  void finalize_track();
+  virtual Error finalize_track();
 
   const TrackOptions& get_track_info() const { return m_track_info; }
 
   void add_reference_to_track(uint32_t referenceType, uint32_t to_track_id);
 
-  std::shared_ptr<const class Box_tref> get_tref_box() const { return m_tref; }
+  std::shared_ptr<const Box_tref> get_tref_box() const { return m_tref; }
 
-  Result<heif_raw_sequence_sample*> get_next_sample_raw_data();
+  Result<heif_raw_sequence_sample*> get_next_sample_raw_data(const heif_decoding_options* options);
 
   std::vector<heif_sample_aux_info_type> get_sample_aux_info_types() const;
 
@@ -176,26 +199,52 @@ protected:
   TrackOptions m_track_info;
 
   uint32_t m_num_samples = 0;
-  uint32_t m_current_chunk = 0;
-  uint32_t m_next_sample_to_be_processed = 0;
+
+  struct SampleTiming {
+    uint32_t sampleIdx = 0;
+    uint32_t chunkIdx = 0;
+    uint64_t presentation_time = 0; // TODO
+    uint64_t media_composition_time = 0; // TODO
+    uint64_t media_decoding_time = 0;
+    uint32_t sample_duration_media_time = 0;
+    uint32_t sample_duration_presentation_time = 0; // TODO
+  };
+  std::vector<SampleTiming> m_presentation_timeline;
+  uint64_t m_num_output_samples = 0; // Can be larger than the vector. It then repeats the playback.
+
+  // Continuous counting through all repetitions. You have to take the modulo operation to get the
+  // index into m_presentation_timeline SampleTiming table.
+  // (At 30 fps, this 32 bit integer will overflow in >4 years. I think this is acceptable.)
+  uint32_t m_next_sample_to_be_decoded = 0;
+
+  // Total sequence output index.
+  uint32_t m_next_sample_to_be_output = 0;
+  bool     m_decoder_is_flushed = false;
+
+  Error init_sample_timing_table();
 
   std::vector<std::shared_ptr<Chunk>> m_chunks;
+  std::vector<uint8_t> m_chunk_data;
 
-  std::shared_ptr<class Box_moov> m_moov;
-  std::shared_ptr<class Box_trak> m_trak;
-  std::shared_ptr<class Box_tkhd> m_tkhd;
-  std::shared_ptr<class Box_minf> m_minf;
-  std::shared_ptr<class Box_mdhd> m_mdhd;
-  std::shared_ptr<class Box_hdlr> m_hdlr;
-  std::shared_ptr<class Box_stbl> m_stbl;
-  std::shared_ptr<class Box_stsd> m_stsd;
-  std::shared_ptr<class Box_stsc> m_stsc;
-  std::shared_ptr<class Box_stco> m_stco;
-  std::shared_ptr<class Box_stts> m_stts;
-  std::shared_ptr<class Box_stss> m_stss;
-  std::shared_ptr<class Box_stsz> m_stsz;
+  std::shared_ptr<Box_moov> m_moov;
+  std::shared_ptr<Box_trak> m_trak;
+  std::shared_ptr<Box_tkhd> m_tkhd;
+  std::shared_ptr<Box_minf> m_minf;
+  std::shared_ptr<Box_mdhd> m_mdhd;
+  std::shared_ptr<Box_hdlr> m_hdlr;
+  std::shared_ptr<Box_stbl> m_stbl;
+  std::shared_ptr<Box_stsd> m_stsd;
+  std::shared_ptr<Box_stsc> m_stsc;
+  std::shared_ptr<Box_stco> m_stco;
+  std::shared_ptr<Box_stts> m_stts;
+  std::shared_ptr<Box_ctts> m_ctts; // optional box, TODO: add only if needed
+  std::shared_ptr<Box_stss> m_stss;
+  std::shared_ptr<Box_stsz> m_stsz;
+  std::shared_ptr<Box_elst> m_elst;
 
   std::shared_ptr<class Box_tref> m_tref; // optional
+
+  std::string m_auxiliary_info_type; // only for auxiliary tracks
 
   // --- sample auxiliary information
 
@@ -221,8 +270,12 @@ protected:
 
   // Write the actual sample data. `tai` may be null and `gimi_contentID` may be empty.
   // In these cases, no timestamp or no contentID will be written, respectively.
-  Error write_sample_data(const std::vector<uint8_t>& raw_data, uint32_t sample_duration, bool is_sync_sample,
-                          const heif_tai_timestamp_packet* tai, const std::string& gimi_contentID);
+  Error write_sample_data(const std::vector<uint8_t>& raw_data,
+                          uint32_t sample_duration,
+                          int32_t composition_time_offset,
+                          bool is_sync_sample,
+                          const heif_tai_timestamp_packet* tai,
+                          const std::optional<std::string>& gimi_contentID);
 };
 
 

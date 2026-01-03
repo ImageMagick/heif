@@ -36,8 +36,10 @@
 #include "bitstream.h"
 
 #include "box.h" // only for color_profile, TODO: maybe move the color_profiles to its own header
-
+#include "file.h"
 #include "region.h"
+
+#include "text.h"
 
 class HeifFile;
 
@@ -48,6 +50,13 @@ class StreamWriter;
 class ImageItem;
 
 class Track;
+
+struct TrackOptions;
+
+
+Result<std::shared_ptr<HeifPixelImage>>
+create_alpha_image_from_image_alpha_channel(const std::shared_ptr<HeifPixelImage>& image,
+                                            const heif_security_limits* limits);
 
 
 // This is a higher-level view than HeifFile.
@@ -105,13 +114,14 @@ public:
   Result<std::shared_ptr<HeifPixelImage>> decode_image(heif_item_id ID,
                                                        heif_colorspace out_colorspace,
                                                        heif_chroma out_chroma,
-                                                       const struct heif_decoding_options& options,
-                                                       bool decode_only_tile, uint32_t tx, uint32_t ty) const;
+                                                       const heif_decoding_options& options,
+                                                       bool decode_only_tile, uint32_t tx, uint32_t ty,
+                                                       std::set<heif_item_id> processed_ids) const;
 
   Result<std::shared_ptr<HeifPixelImage>> convert_to_output_colorspace(std::shared_ptr<HeifPixelImage> img,
                                                                        heif_colorspace out_colorspace,
                                                                        heif_chroma out_chroma,
-                                                                       const struct heif_decoding_options& options) const;
+                                                                       const heif_decoding_options& options) const;
 
   Error get_id_of_non_virtual_child_image(heif_item_id in, heif_item_id& out) const;
 
@@ -128,9 +138,9 @@ public:
   void reset_to_empty_heif();
 
   Result<std::shared_ptr<ImageItem>> encode_image(const std::shared_ptr<HeifPixelImage>& image,
-                                                  struct heif_encoder* encoder,
-                                                  const struct heif_encoding_options& options,
-                                                  enum heif_image_input_class input_class);
+                                                  heif_encoder* encoder,
+                                                  const heif_encoding_options& options,
+                                                  heif_image_input_class input_class);
 
   void set_primary_image(const std::shared_ptr<ImageItem>& image);
 
@@ -140,8 +150,8 @@ public:
                          const std::shared_ptr<ImageItem>& thumbnail_image);
 
   Result<std::shared_ptr<ImageItem>> encode_thumbnail(const std::shared_ptr<HeifPixelImage>& image,
-                                                      struct heif_encoder* encoder,
-                                                      const struct heif_encoding_options& options,
+                                                      heif_encoder* encoder,
+                                                      const heif_encoding_options& options,
                                                       int bbox_size);
 
   Error add_exif_metadata(const std::shared_ptr<ImageItem>& master_image, const void* data, int size);
@@ -155,6 +165,9 @@ public:
   heif_property_id add_property(heif_item_id targetItem, std::shared_ptr<Box> property, bool essential);
 
   Result<heif_item_id> add_pyramid_group(const std::vector<heif_item_id>& layers);
+
+  Result<heif_property_id> add_text_property(heif_item_id, const std::string& language);
+
 
   // --- region items
 
@@ -197,10 +210,78 @@ public:
 
   void set_sequence_timescale(uint32_t timescale);
 
-  Result<std::shared_ptr<class Track_Visual>> add_visual_sequence_track(const struct TrackOptions*, uint32_t handler_type,
+  void set_number_of_sequence_repetitions(uint32_t repetitions);
+
+  Result<std::shared_ptr<class Track_Visual>> add_visual_sequence_track(const TrackOptions*, uint32_t handler_type,
                                                                         uint16_t width, uint16_t height);
 
-  Result<std::shared_ptr<class Track_Metadata>> add_uri_metadata_sequence_track(const struct TrackOptions*, std::string uri);
+  Result<std::shared_ptr<class Track_Metadata>> add_uri_metadata_sequence_track(const TrackOptions*, std::string uri);
+
+  void add_text_item(std::shared_ptr<TextItem> text_item)
+  {
+    m_text_items.push_back(std::move(text_item));
+  }
+
+  std::shared_ptr<TextItem> add_text_item(const char* content_type, const char* text);
+
+  std::shared_ptr<TextItem> get_text_item(heif_item_id id) const
+  {
+    for (auto& item : m_text_items) {
+      if (item->get_item_id() == id)
+        return item;
+    }
+
+    return nullptr;
+  }
+
+  template<typename T>
+  Result<std::shared_ptr<T>> find_property(heif_item_id itemId, heif_property_id propertyId)
+  {
+    auto file = this->get_heif_file();
+
+    // For propertyId == 0, return the first property with this type.
+    if (propertyId == 0) {
+      return find_property<T>(itemId);
+    }
+
+    std::vector<std::shared_ptr<Box>> properties;
+    Error err = file->get_properties(itemId, properties);
+    if (err) {
+      return err;
+    }
+
+    if (propertyId - 1 >= properties.size()) {
+      Error(heif_error_Usage_error, heif_suberror_Invalid_property, "property index out of range");
+    }
+
+    auto box = properties[propertyId - 1];
+    auto box_casted = std::dynamic_pointer_cast<T>(box);
+    if (!box_casted) {
+      return Error(heif_error_Usage_error, heif_suberror_Invalid_property, "wrong property type");
+    }
+
+    return box_casted;
+  }
+
+  template<typename T>
+  Result<std::shared_ptr<T>> find_property(heif_item_id itemId) {
+    auto file = this->get_heif_file();
+    auto result = file->get_property_for_item<T>(itemId);
+    if (!result) {
+      return Error(heif_error_Invalid_input,
+                   heif_suberror_No_properties_assigned_to_item,
+                   "property not found on item");
+    }
+    return result;
+  }
+
+  template<typename T>
+  bool has_property(heif_item_id itemId) const
+  {
+    auto file = this->get_heif_file();
+    auto result = file->get_property_for_item<T>(itemId);
+    return result != nullptr;
+  }
 
 private:
   std::map<heif_item_id, std::shared_ptr<ImageItem>> m_all_images;
@@ -219,11 +300,13 @@ private:
   TotalMemoryTracker m_memory_tracker;
 
   std::vector<std::shared_ptr<RegionItem>> m_region_items;
+  std::vector<std::shared_ptr<TextItem>> m_text_items;
 
   // --- sequences
 
   std::map<uint32_t, std::shared_ptr<Track>> m_tracks;
   uint32_t m_visual_track_id = 0;
+  uint32_t m_sequence_repetitions = 1;
 
   Error interpret_heif_file();
 

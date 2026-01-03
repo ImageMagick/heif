@@ -646,6 +646,11 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result, const heif_
       box = std::make_shared<Box_mjpg>();
       break;
 
+    case fourcc("elng"):
+      box = std::make_shared<Box_elng>();
+      break;
+
+
 #if WITH_UNCOMPRESSED_CODEC
     case fourcc("cmpd"):
       box = std::make_shared<Box_cmpd>();
@@ -749,6 +754,9 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result, const heif_
       else if (hdr.get_uuid_type() == std::vector<uint8_t>{0x43, 0x63, 0xe9, 0x14, 0x5b, 0x7d, 0x4a, 0xab, 0x97, 0xae, 0xbe, 0xa6, 0x98, 0x03, 0xb4, 0x34}) {
         box = std::make_shared<Box_cmex>();
       }
+      else if (hdr.get_uuid_type() == std::vector<uint8_t>{0x26, 0x1e, 0xf3, 0x74, 0x1d, 0x97, 0x5b, 0xba, 0xac, 0xbd, 0x9d, 0x2c, 0x8e, 0xa7, 0x35, 0x22}) {
+        box = std::make_shared<Box_gimi_content_id>();
+      }
       else {
         box = std::make_shared<Box_other>(hdr.get_short_type());
       }
@@ -800,6 +808,10 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result, const heif_
       box = std::make_shared<Box_stts>();
       break;
 
+    case fourcc("ctts"):
+      box = std::make_shared<Box_ctts>();
+      break;
+
     case fourcc("stsc"):
       box = std::make_shared<Box_stsc>();
       break;
@@ -818,6 +830,18 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result, const heif_
 
     case fourcc("ccst"):
       box = std::make_shared<Box_ccst>();
+      break;
+
+    case fourcc("auxi"):
+      box = std::make_shared<Box_auxi>();
+      break;
+
+    case fourcc("edts"):
+      box = std::make_shared<Box_edts>();
+      break;
+
+    case fourcc("elst"):
+      box = std::make_shared<Box_elst>();
       break;
 
     case fourcc("sbgp"):
@@ -1241,6 +1265,14 @@ Error Box_ftyp::parse(BitstreamRange& range, const heif_security_limits* limits)
   }
 
   uint64_t n_minor_brands = (get_box_size() - get_header_size() - 8) / 4;
+
+  if (n_minor_brands > limits->max_number_of_file_brands) {
+    return {
+      heif_error_Memory_allocation_error,
+      heif_suberror_Security_limit_exceeded,
+      "Number of minor brands in file exceeds security limit"
+    };
+  }
 
   for (uint64_t i = 0; i < n_minor_brands && !range.error(); i++) {
     m_compatible_brands.push_back(range.read32());
@@ -3669,7 +3701,7 @@ Error Box_iref::parse(BitstreamRange& range, const heif_security_limits* limits)
 
 
 #if 0
-  // Note: This input sanity check does not work as expected.
+  // Note: This input sanity check first did not work as expected.
   // Its idea was to prevent infinite recursions while decoding when the input file
   // contains cyclic references. However, apparently there are cases where cyclic
   // references are actually allowed, like with images that have premultiplied alpha channels:
@@ -3678,17 +3710,35 @@ Error Box_iref::parse(BitstreamRange& range, const heif_security_limits* limits)
   // | reference with type 'auxl' from ID: 2 to IDs: 1
   // | reference with type 'prem' from ID: 1 to IDs: 2
   //
-  // TODO: implement the infinite recursion detection in a different way. E.g. by passing down
-  //       the already processed item-ids while decoding an image and checking whether the current
-  //       item has already been decoded before.
+  // We now test for cyclic references during the image decoding.
+  // We pass down the item IDs that have already been seen during the decoding process.
+  // If we try to decode an image IDs that has already been seen previously, we throw an error.
+  // The advantage is that the error only occurs when we are trying to decode the faulty image.
 
   // --- check for cyclic references
 
   for (const auto& ref : m_references) {
+    if (ref.header.get_short_type() != fourcc("dimg") &&
+        ref.header.get_short_type() != fourcc("auxl")) {
+      continue;
+    }
+
     std::set<heif_item_id> reached_ids; // IDs that we have already reached in the DAG
     std::set<heif_item_id> todo;    // IDs that still need to be followed
 
-    todo.insert(ref.from_item_ID);  // start at base item
+    bool reverse = (ref.header.get_short_type() != fourcc("auxl"));
+
+    if (!reverse) {
+      todo.insert(ref.from_item_ID);  // start at base item
+    }
+    else {
+      if (ref.to_item_ID.empty()) {
+        continue;
+      }
+
+      // TODO: what if aux image is assigned to multiple images?
+      todo.insert(ref.to_item_ID[0]);  // start at base item
+    }
 
     while (!todo.empty()) {
       // transfer ID into set of reached IDs
@@ -3699,12 +3749,33 @@ Error Box_iref::parse(BitstreamRange& range, const heif_security_limits* limits)
       // if this ID refers to another 'iref', follow it
 
       for (const auto& succ_ref : m_references) {
-        if (succ_ref.from_item_ID == id) {
+        if (succ_ref.header.get_short_type() != fourcc("dimg") &&
+            succ_ref.header.get_short_type() != fourcc("auxl")) {
+          continue;
+        }
+
+        heif_item_id from;
+        std::vector<heif_item_id> to;
+
+        if (succ_ref.header.get_short_type() == fourcc("auxl")) {
+          if (succ_ref.to_item_ID.empty()) {
+            continue;
+          }
+
+          from = succ_ref.to_item_ID[0];
+          to = {succ_ref.from_item_ID};
+        }
+        else {
+          from = succ_ref.from_item_ID;
+          to = succ_ref.to_item_ID;
+        }
+
+        if (from == id) {
 
           // Check whether any successor IDs has been visited yet, which would be an error.
           // Otherwise, put that ID into the 'todo' set.
 
-          for (const auto& succ_ref_id : succ_ref.to_item_ID) {
+          for (const auto& succ_ref_id : to) {
             if (reached_ids.find(succ_ref_id) != reached_ids.end()) {
               return Error(heif_error_Invalid_input,
                            heif_suberror_Unspecified,
@@ -4236,6 +4307,26 @@ Error Box_dref::parse(BitstreamRange& range, const heif_security_limits* limits)
 }
 
 
+Error Box_dref::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  if (m_children.size() > 0xFFFF) {
+    return {
+      heif_error_Usage_error,
+      heif_suberror_Unspecified,
+      "Too many dref children boxes."
+    };
+  }
+
+  writer.write32(static_cast<uint32_t>(m_children.size()));
+  write_children(writer);
+
+  prepend_header(writer, box_start);
+  return Error::Ok;
+}
+
+
 std::string Box_dref::dump(Indent& indent) const
 {
   std::ostringstream sstr;
@@ -4263,6 +4354,23 @@ Error Box_url::parse(BitstreamRange& range, const heif_security_limits* limits)
   }
 
   return range.get_error();
+}
+
+
+Error Box_url::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  if (m_location.empty()) {
+    assert(get_flags() == 1);
+  }
+  else {
+    assert(get_flags() == 0);
+    writer.write(m_location);
+  }
+
+  prepend_header(writer, box_start);
+  return Error::Ok;
 }
 
 
@@ -4794,7 +4902,13 @@ Error Box_cmex::write(StreamWriter& writer) const
 std::string Box_taic::dump(const heif_tai_clock_info& info, Indent& indent)
 {
   std::ostringstream sstr;
-  sstr << indent << "time_uncertainty: " << info.time_uncertainty << "\n";
+  sstr << indent << "time_uncertainty: ";
+  if (info.time_uncertainty == heif_tai_clock_info_time_uncertainty_unknown) {
+    sstr << "unknown\n";
+  }
+  else {
+    sstr << info.time_uncertainty << "\n";
+  }
   sstr << indent << "clock_resolution: " << info.clock_resolution << "\n";
   sstr << indent << "clock_drift_rate: ";
   if (info.clock_drift_rate == heif_tai_clock_info_clock_drift_rate_unknown) {
@@ -4976,5 +5090,64 @@ Error Box_itai::parse(BitstreamRange& range, const heif_security_limits*) {
   m_timestamp.timestamp_is_modified = !!(status_bits & 0x20);
 
   return range.get_error();
+}
+
+Error Box_elng::parse(BitstreamRange& range, const heif_security_limits* limits)
+{
+  parse_full_box_header(range);
+
+  if (get_version() > 0) {
+    return unsupported_version_error("elng");
+  }
+
+  m_lang = range.read_string();
+  return range.get_error();
+}
+
+std::string Box_elng::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+  sstr << indent << "extended_language: " << m_lang << "\n";
+  return sstr.str();
+}
+
+Error Box_elng::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+  writer.write(m_lang);
+  prepend_header(writer, box_start);
+  return Error::Ok;
+}
+
+
+Error Box_gimi_content_id::parse(BitstreamRange& range, const heif_security_limits* limits)
+{
+  m_content_id = range.read_string_until_eof();
+
+  return range.get_error();
+}
+
+
+Error Box_gimi_content_id::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  writer.write(m_content_id, false);
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
+std::string Box_gimi_content_id::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  sstr << indent << "content ID: " << m_content_id << "\n";
+
+  return sstr.str();
 }
 

@@ -255,7 +255,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
   auto out_image_result = convert_colorspace(in_image,
                                              static_cast<heif_colorspace>(out_colorspace),
                                              static_cast<heif_chroma>(out_chroma),
-                                             nullptr,
+                                             nclx_profile::undefined(),
                                              output_bpp,
                                              options->color_conversion_options,
                                              options_ext,
@@ -264,7 +264,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
   heif_encoding_options_free(options);
   heif_color_conversion_options_ext_free(options_ext);
 
-  if (out_image_result.error) {
+  if (!out_image_result) {
     // Conversion is not supported.
     return 0;
   }

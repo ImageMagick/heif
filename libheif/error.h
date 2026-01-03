@@ -34,6 +34,11 @@
 
 #include "libheif/heif.h"
 #include <cassert>
+#include <variant>
+#include <utility>
+
+
+extern const heif_error heif_error_null_pointer_argument;
 
 
 class ErrorBuffer
@@ -67,8 +72,8 @@ private:
 class Error
 {
 public:
-  enum heif_error_code error_code = heif_error_Ok;
-  enum heif_suberror_code sub_error_code = heif_suberror_Unspecified;
+  heif_error_code error_code = heif_error_Ok;
+  heif_suberror_code sub_error_code = heif_suberror_Unspecified;
   std::string message;
 
   Error();
@@ -120,20 +125,53 @@ template <typename T> class Result
 public:
   Result() = default;
 
-  Result(const T& v) : value(v), error(Error::Ok) {}
+  Result(T v) : m_data(std::move(v)) {}
 
-  Result(const Error& e) : error(e) {}
+  Result(const Error& e) : m_data(e) {}
 
-  operator bool() const { return error.error_code == heif_error_Ok; }
+  operator bool() const { return std::holds_alternative<T>(m_data); }
 
-  T& operator*()
+  //void set(const T& v) { m_data = v; }
+
+  // Pointer-like access for `r->member`
+  T* operator->()
   {
-    assert(error.error_code == heif_error_Ok);
-    return value;
+    assert(*this); // Uses the operator bool() above
+    return &std::get<T>(m_data);
   }
 
-  T value{};
-  Error error;
+  // Dereference access for `*r`
+  T& operator*()
+  {
+    assert(*this);
+    return std::get<T>(m_data);
+  }
+
+  [[nodiscard]] bool is_error() const {
+    return std::holds_alternative<Error>(m_data);
+  }
+
+  // Accessor for the error, if it exists
+  [[nodiscard]] const Error& error() const
+  {
+    if (*this) {
+      return Error::Ok;
+    }
+
+    return std::get<Error>(m_data);
+  }
+
+  // Directly get the C error struct.
+  heif_error error_struct(ErrorBuffer* error_buffer) const
+  {
+    if (*this) {
+      return heif_error_success;
+    }
+
+    return std::get<Error>(m_data).error_struct(error_buffer);
+  }
+
+  std::variant<T, Error> m_data;
 };
 
 #endif

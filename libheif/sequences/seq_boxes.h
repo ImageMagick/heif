@@ -121,7 +121,7 @@ public:
     set_flags(Track_enabled | Track_in_movie | Track_in_preview);
   }
 
-  enum Flags {
+  enum Flags : uint32_t {
     Track_enabled = 0x01,
     Track_in_movie = 0x02,
     Track_in_preview = 0x04,
@@ -351,11 +351,53 @@ public:
 
   uint64_t get_total_duration(bool include_last_frame_duration);
 
+  uint32_t get_number_of_samples() const;
+
 protected:
   Error parse(BitstreamRange& range, const heif_security_limits*) override;
 
 private:
   std::vector<TimeToSample> m_entries;
+  MemoryHandle m_memory_handle;
+};
+
+
+// Composition Time to Sample Box
+class Box_ctts : public FullBox {
+public:
+  Box_ctts()
+  {
+    set_short_type(fourcc("ctts"));
+  }
+
+  std::string dump(Indent&) const override;
+
+  const char* debug_box_name() const override { return "Composition Time to Sample"; }
+
+  Error write(StreamWriter& writer) const override;
+
+  struct OffsetToSample {
+    uint32_t sample_count;
+    int32_t sample_offset;   // either uint32_t or int32_t, we assume that all uint32_t values will also fit into int32_t
+  };
+
+  int32_t get_sample_offset(uint32_t sample_idx);
+
+  void append_sample_offset(int32_t offset);
+
+  bool is_constant_offset() const;
+
+  void derive_box_version() override;
+
+  int32_t compute_min_offset() const;
+
+  uint32_t get_number_of_samples() const;
+
+protected:
+  Error parse(BitstreamRange& range, const heif_security_limits*) override;
+
+private:
+  std::vector<OffsetToSample> m_entries;
   MemoryHandle m_memory_handle;
 };
 
@@ -394,6 +436,8 @@ public:
 
     return m_entries.back().samples_per_chunk == 0;
   }
+
+  size_t get_number_of_samples() const;
 
 protected:
   Error parse(BitstreamRange& range, const heif_security_limits*) override;
@@ -453,6 +497,8 @@ public:
 
   uint32_t get_fixed_sample_size() const { return m_fixed_sample_size; }
 
+  uint32_t num_samples() const { return m_sample_count; }
+
   const std::vector<uint32_t>& get_sample_sizes() const { return m_sample_sizes; }
 
   void append_sample_size(uint32_t size);
@@ -484,12 +530,19 @@ public:
 
   void add_sync_sample(uint32_t sample_idx) { m_sync_samples.push_back(sample_idx); }
 
+  // when this is set, the Box will compute whether it can be skipped
+  void set_total_number_of_samples(uint32_t num_samples);
+
+  // bool skip_box() const override { return m_all_samples_are_sync_samples; }
+
 protected:
   Error parse(BitstreamRange& range, const heif_security_limits*) override;
 
 private:
   std::vector<uint32_t> m_sync_samples;
   MemoryHandle m_memory_handle;
+
+  bool m_all_samples_are_sync_samples = false;
 };
 
 
@@ -526,10 +579,35 @@ private:
 };
 
 
+class Box_auxi : public FullBox {
+public:
+  Box_auxi()
+  {
+    set_short_type(fourcc("auxi"));
+  }
+
+  std::string dump(Indent&) const override;
+
+  const char* debug_box_name() const override { return "Auxiliary Info Type"; }
+
+  Error write(StreamWriter& writer) const override;
+
+  void set_aux_track_type_urn(const std::string& t) { m_aux_track_type = t; }
+
+  std::string get_aux_track_type_urn() const { return m_aux_track_type; }
+
+protected:
+  Error parse(BitstreamRange& range, const heif_security_limits*) override;
+
+private:
+  std::string m_aux_track_type;
+};
+
+
 struct VisualSampleEntry {
   // from SampleEntry
   //const unsigned int(8)[6] reserved = 0;
-  uint16_t data_reference_index;
+  uint16_t data_reference_index = 1;
 
   // VisualSampleEntry
 
@@ -868,5 +946,59 @@ private:
   std::vector<Reference> m_references;
 };
 
+
+// Edit List container
+class Box_edts : public Box_container {
+public:
+  Box_edts() : Box_container("edts") {}
+
+  const char* debug_box_name() const override { return "Edit List Container"; }
+};
+
+
+class Box_elst : public FullBox
+{
+public:
+  Box_elst()
+  {
+    set_short_type(fourcc("elst"));
+  }
+
+  enum Flags {
+    Repeat_EditList = 0x01
+  };
+
+  std::string dump(Indent&) const override;
+
+  const char* debug_box_name() const override { return "Edit List"; }
+
+  void enable_repeat_mode(bool enable);
+
+  bool is_repeat_mode() const { return get_flags() & Flags::Repeat_EditList; }
+
+  struct Entry {
+    uint64_t segment_duration = 0;
+    int64_t media_time = 0;
+    int16_t media_rate_integer = 1;
+    int16_t media_rate_fraction = 0;
+  };
+
+  void add_entry(const Entry&);
+
+  size_t num_entries() const { return m_entries.size(); }
+
+  Entry get_entry(uint32_t entry) const { return m_entries[entry]; }
+
+protected:
+  Error parse(BitstreamRange& range, const heif_security_limits*) override;
+
+  Error write(StreamWriter& writer) const override;
+
+public:
+  void derive_box_version() override;
+
+private:
+  std::vector<Entry> m_entries;
+};
 
 #endif //SEQ_BOXES_H

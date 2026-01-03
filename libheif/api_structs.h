@@ -75,11 +75,11 @@ struct heif_context
 
 struct heif_encoder
 {
-  heif_encoder(const struct heif_encoder_plugin* plugin);
+  explicit heif_encoder(const heif_encoder_plugin* plugin);
 
   ~heif_encoder();
 
-  struct heif_error alloc();
+  heif_error alloc();
 
   void release();
 
@@ -103,5 +103,12 @@ struct heif_region
   std::shared_ptr<RegionItem> region_item;
   std::shared_ptr<RegionGeometry> region;
 };
+
+struct heif_text_item
+{
+  std::shared_ptr<HeifContext> context;
+  std::shared_ptr<TextItem> text_item;
+};
+
 
 #endif

@@ -41,9 +41,11 @@ public:
 
   heif_compression_format get_compression_format() const override { return heif_compression_VVC; }
 
-  Error on_load_file() override;
+  Error initialize_decoder() override;
 
-  std::shared_ptr<class Encoder> get_encoder() const override;
+  void set_decoder_input_data() override;
+
+  std::shared_ptr<Encoder> get_encoder() const override;
 
   heif_brand2 get_compatible_brand() const override;
 
