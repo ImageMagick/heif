@@ -75,12 +75,14 @@ libheif\plugins\decoder_openjpeg.cc
 libheif\plugins\decoder_vvdec.cc
 libheif\plugins\encoder_openjpeg.cc
 libheif\plugins\encoder_openjph.cc
+libheif\plugins\decoder_webcodecs.cc
 libheif\plugins\encoder_jpeg.cc
 libheif\plugins\encoder_kvazaar.cc
 libheif\plugins\encoder_rav1e.cc
 libheif\plugins\encoder_svt.cc
 libheif\plugins\encoder_uvg266.cc
 libheif\plugins\encoder_vvenc.cc
+libheif\plugins\encoder_x264.cc
 libheif\plugins\encoder_x265.cc
 tests\
 third-party\
