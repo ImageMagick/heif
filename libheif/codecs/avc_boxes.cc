@@ -370,7 +370,7 @@ Error parse_sps_for_avcC_configuration(const uint8_t* sps, size_t size,
     "Invalid variable length code in AVC SPS header"
   };
 
-  if (std::set<int>{100, 110, 122, 244, 44, 83, 86}.contains(config->AVCProfileIndication)) {
+  if (std::set<int>{100, 110, 122, 244, 44, 83, 86}.count(config->AVCProfileIndication)) {
     if (!reader.get_uvlc(&value)) {
       return invalidUVLC;
     }
