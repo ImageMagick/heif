@@ -354,7 +354,7 @@ Result<Encoder::CodedImageData> ImageItem::encode_to_bitstream_and_boxes(const s
   // copy over ImageExtraData into image item
   *static_cast<ImageExtraData*>(this) = static_cast<ImageExtraData>(*image);
 
-  auto extra_data_properties = image->generate_property_boxes();
+  auto extra_data_properties = image->generate_property_boxes(false);
   codedImage.properties.insert(codedImage.properties.end(),
                                extra_data_properties.begin(),
                                extra_data_properties.end());
@@ -931,7 +931,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_compressed_image(const
                                                                            bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
                                                                            std::set<heif_item_id> processed_ids) const
 {
-  if (processed_ids.find(m_id) != processed_ids.end()) {
+  if (processed_ids.contains(m_id)) {
     return Error{heif_error_Invalid_input,
                  heif_suberror_Unspecified,
                  "'iref' has cyclic references"};

@@ -96,7 +96,7 @@ void SampleAuxInfoHelper::write_interleaved(const std::shared_ptr<HeifFile>& fil
   if (m_interleaved && !m_data.empty()) {
     // TODO: I think this does not work because the image data does not know that there is SAI in-between
     uint64_t pos = file->append_mdat_data(m_data);
-    m_saio->add_sample_offset(pos);
+    m_saio->add_chunk_offset(pos);
 
     m_data.clear();
   }
@@ -109,28 +109,42 @@ void SampleAuxInfoHelper::write_all(const std::shared_ptr<Box>& parent, const st
 
   if (!m_data.empty()) {
     uint64_t pos = file->append_mdat_data(m_data);
-    m_saio->add_sample_offset(pos);
+    m_saio->add_chunk_offset(pos);
   }
 }
 
 
 SampleAuxInfoReader::SampleAuxInfoReader(std::shared_ptr<Box_saiz> saiz,
-                                         std::shared_ptr<Box_saio> saio)
+                                         std::shared_ptr<Box_saio> saio,
+                                         const std::vector<std::shared_ptr<Chunk>>& chunks)
 {
   m_saiz = saiz;
   m_saio = saio;
 
-  m_contiguous = (saio->get_num_samples() == 1);
-  if (m_contiguous) {
-    uint64_t offset = saio->get_sample_offset(0);
-    auto nSamples = saiz->get_num_samples();
+  bool oneChunk = (saio->get_num_chunks() == 1);
+
+  uint32_t current_chunk = 0;
+  uint64_t offset = saio->get_chunk_offset(0);
+  uint32_t nSamples = saiz->get_num_samples();
+
+  m_contiguous_and_constant_size = (oneChunk && m_saiz->have_samples_constant_size());
+
+  if (m_contiguous_and_constant_size) {
+    m_singleChunk_offset = offset;
+  }
+  else {
+    m_sample_offsets.resize(nSamples);
 
     for (uint32_t i = 0; i < nSamples; i++) {
-      m_contiguous_offsets.push_back(offset);
+      if (!oneChunk && i > chunks[current_chunk]->last_sample_number()) {
+        current_chunk++;
+        assert(current_chunk < chunks.size());
+        offset = saio->get_chunk_offset(current_chunk);
+      }
+
+      m_sample_offsets[i] = offset;
       offset += saiz->get_sample_size(i);
     }
-
-    // TODO: we could add a special case for contiguous data with constant size
   }
 }
 
@@ -144,22 +158,33 @@ heif_sample_aux_info_type SampleAuxInfoReader::get_type() const
 }
 
 
-Result<std::vector<uint8_t> > SampleAuxInfoReader::get_sample_info(const HeifFile* file, uint32_t idx)
+Result<std::vector<uint8_t> > SampleAuxInfoReader::get_sample_info(const HeifFile* file, uint32_t sample_idx)
 {
   uint64_t offset;
-  if (m_contiguous) {
-    offset = m_contiguous_offsets[idx];
+  uint8_t size;
+
+  if (m_contiguous_and_constant_size) {
+    size = m_saiz->get_sample_size(0);
+    offset = m_singleChunk_offset + sample_idx * size;
   }
   else {
-    offset = m_saio->get_sample_offset(idx);
+    size = m_saiz->get_sample_size(sample_idx);
+    if (size > 0) {
+      if (sample_idx >= m_sample_offsets.size()) {
+        return {};
+      }
+
+      offset = m_sample_offsets[sample_idx];
+    }
   }
 
-  uint8_t size = m_saiz->get_sample_size(idx);
-
   std::vector<uint8_t> data;
-  Error err = file->append_data_from_file_range(data, offset, size);
-  if (err) {
-    return err;
+
+  if (size > 0) {
+    Error err = file->append_data_from_file_range(data, offset, size);
+    if (err) {
+      return err;
+    }
   }
 
   return data;
@@ -312,14 +337,6 @@ Error Track::load(const std::shared_ptr<Box_trak>& trak_box)
     };
   }
 
-  if (m_stsc->get_number_of_samples() != m_stsz->num_samples()) {
-    return {
-      heif_error_Invalid_input,
-      heif_suberror_Unspecified,
-      "Number of samples in 'stsc' and 'stsz' is inconsistent."
-    };
-  }
-
   const std::vector<uint32_t>& chunk_offsets = m_stco->get_offsets();
   assert(chunk_offsets.size() <= (size_t) std::numeric_limits<uint32_t>::max()); // There cannot be more than uint32_t chunks.
 
@@ -356,6 +373,14 @@ Error Track::load(const std::shared_ptr<Box_trak>& trak_box)
       if (taic) {
         m_first_taic = taic;
       }
+    }
+
+    if (current_sample_idx + sampleToChunk.samples_per_chunk > m_stsz->num_samples()) {
+      return {
+        heif_error_Invalid_input,
+        heif_suberror_Unspecified,
+        "Number of samples in 'stsc' box exceeds sample sizes in 'stsz' box."
+      };
     }
 
     auto chunk = std::make_shared<Chunk>(m_heif_context, m_id,
@@ -409,20 +434,21 @@ Error Track::load(const std::shared_ptr<Box_trak>& trak_box)
     }
 
     if (saio) {
-      if (saio->get_num_samples() != saiz->get_num_samples()) {
+      if (saio->get_num_chunks() != 1 &&
+          saio->get_num_chunks() != m_stco->get_number_of_chunks()) {
         return Error{
           heif_error_Invalid_input,
           heif_suberror_Unspecified,
-          "Number of samples in 'saiz' box does not match 'saio' box."
+          "Invalid number of chunks in 'saio' box."
         };
       }
 
       if (aux_info_type == fourcc("suid")) {
-        m_aux_reader_content_ids = std::make_unique<SampleAuxInfoReader>(saiz, saio);
+        m_aux_reader_content_ids = std::make_unique<SampleAuxInfoReader>(saiz, saio, m_chunks);
       }
 
       if (aux_info_type == fourcc("stai")) {
-        m_aux_reader_tai_timestamps = std::make_unique<SampleAuxInfoReader>(saiz, saio);
+        m_aux_reader_tai_timestamps = std::make_unique<SampleAuxInfoReader>(saiz, saio, m_chunks);
       }
     }
     else {
@@ -976,17 +1002,21 @@ Error Track::init_sample_timing_table()
 
   uint64_t current_decoding_time = 0;
   uint32_t current_chunk = 0;
+  uint32_t current_sample_in_chunk_idx = 0;
 
   for (uint32_t i = 0; i < m_num_samples; i++) {
     SampleTiming timing;
     timing.sampleIdx = i;
+    timing.sampleInChunkIdx = current_sample_in_chunk_idx;
     timing.media_decoding_time = current_decoding_time;
     timing.sample_duration_media_time = m_stts->get_sample_duration(i);
     current_decoding_time += timing.sample_duration_media_time;
+    current_sample_in_chunk_idx++;
 
     while (current_chunk < m_chunks.size() &&
            i > m_chunks[current_chunk]->last_sample_number()) {
       current_chunk++;
+      current_sample_in_chunk_idx=0;
 
       if (current_chunk > m_chunks.size()) {
         timing.chunkIdx = 0; // TODO: error

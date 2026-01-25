@@ -283,7 +283,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_Overlay::decode_compressed_ima
 Result<std::shared_ptr<HeifPixelImage>> ImageItem_Overlay::decode_overlay_image(const heif_decoding_options& options,
                                                                                 std::set<heif_item_id> processed_ids) const
 {
-  if (processed_ids.find(get_id()) != processed_ids.end()) {
+  if (processed_ids.contains(get_id())) {
     return Error{heif_error_Invalid_input,
                  heif_suberror_Unspecified,
                  "'iref' has cyclic references"};

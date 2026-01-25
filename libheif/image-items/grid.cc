@@ -210,7 +210,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_Grid::decode_compressed_image(
                                                                                 bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
                                                                                 std::set<heif_item_id> processed_ids) const
 {
-  if (processed_ids.find(get_id()) != processed_ids.end()) {
+  if (processed_ids.contains(get_id())) {
     return Error{heif_error_Invalid_input,
                  heif_suberror_Unspecified,
                  "'iref' has cyclic references"};
@@ -773,7 +773,7 @@ Error ImageItem_Grid::add_image_tile(uint32_t tile_x, uint32_t tile_y,
   // copy over extra properties to grid item
 
   if (tile_x == 0 && tile_y == 0) {
-    auto property_boxes = encoded_image->generate_property_boxes();
+    auto property_boxes = encoded_image->generate_property_boxes(false);
     for (auto& property : property_boxes) {
       add_property(property, is_property_essential(property));
     }
@@ -867,7 +867,7 @@ Result<std::shared_ptr<ImageItem_Grid>> ImageItem_Grid::add_and_encode_full_grid
 
   // copy over extra properties to grid item
 
-  auto property_boxes = tiles[0]->generate_property_boxes();
+  auto property_boxes = tiles[0]->generate_property_boxes(true);
   for (auto& property : property_boxes) {
     griditem->add_property(property, griditem->is_property_essential(property));
   }

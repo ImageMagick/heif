@@ -295,7 +295,7 @@ void show_help(const char* argv0)
             << "      --no-alpha                 do not save alpha channel\n"
             << "      --no-thumb-alpha           do not save alpha channel in thumbnail image\n"
             << "      --verbose                  enable logging output (more will increase logging level)\n"
-            << "  -b, --bit-depth #              bit-depth of generated HEIF/AVIF file when using 16-bit PNG input (default: 10 bit)\n"
+            << "  -b, --bit-depth #              number of bits to use from an 16-bit PNG input, valid range: 9-16 (default: 10 bit)\n"
             << "      --premultiplied-alpha      input image has premultiplied alpha\n"
 #if WITH_HEADER_COMPRESSION
             << "      --enable-metadata-compression ALGO  enable metadata item compression (experimental)\n"
@@ -1275,6 +1275,10 @@ int main(int argc, char** argv)
         break;
       case 'b':
         output_bit_depth = atoi(optarg);
+        if (output_bit_depth < 9 || output_bit_depth > 16) {
+          std::cerr << "Bit depth for input HDR images must be 9-16 bits.\n";
+          return 5;
+        }
         break;
       case 'A':
         force_enc_av1f = true;
@@ -1730,6 +1734,15 @@ int main(int argc, char** argv)
   std::vector<std::string> args;
   for (; optind < argc; optind++) {
     args.emplace_back(argv[optind]);
+  }
+
+
+  // If we get a list of image filenames, but no '-o' option, assume that the last option
+  // denotes the output filename.
+
+  if (output_filename.empty() && args.size() > 1) {
+    output_filename = args.back();
+    args.pop_back();
   }
 
 

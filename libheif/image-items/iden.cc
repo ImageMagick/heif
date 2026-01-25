@@ -39,7 +39,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_iden::decode_compressed_image(
                                                                                 bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
                                                                                 std::set<heif_item_id> processed_ids) const
 {
-  if (processed_ids.find(get_id()) != processed_ids.end()) {
+  if (processed_ids.contains(get_id())) {
     return Error{heif_error_Invalid_input,
                  heif_suberror_Unspecified,
                  "'iref' has cyclic references"};

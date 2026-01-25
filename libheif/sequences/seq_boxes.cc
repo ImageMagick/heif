@@ -852,17 +852,6 @@ void Box_ctts::derive_box_version()
 }
 
 
-size_t Box_stsc::get_number_of_samples() const
-{
-  size_t total = 0;
-  for (const auto& entry : m_entries) {
-    total += entry.samples_per_chunk;
-  }
-
-  return total;
-}
-
-
 Error Box_stsc::parse(BitstreamRange& range, const heif_security_limits* limits)
 {
   parse_full_box_header(range);
@@ -891,6 +880,13 @@ Error Box_stsc::parse(BitstreamRange& range, const heif_security_limits* limits)
       heif_error_Invalid_input,
       heif_suberror_Unspecified,
       "'sample_description_index' in 'stsc' must not be 0."};
+    }
+
+    if (entry.samples_per_chunk > limits->max_sequence_frames) {
+      return {
+        heif_error_Invalid_input,
+        heif_suberror_Unspecified,
+        "Number of chunk samples in `stsc` box exceeds security limits of maximum number of frames."};
     }
 
     m_entries[i] = entry;
@@ -1898,14 +1894,23 @@ Error Box_saiz::write(StreamWriter& writer) const
   }
 
   writer.write8(m_default_sample_info_size);
-  writer.write32(m_num_samples);
 
   if (m_default_sample_info_size == 0) {
     assert(m_num_samples == m_sample_sizes.size());
 
-    for (uint8_t size : m_sample_sizes) {
-      writer.write8(size);
+    uint32_t num_nonnull_samples = static_cast<uint32_t>(m_sample_sizes.size());
+    while (num_nonnull_samples > 0 && m_sample_sizes[num_nonnull_samples-1] == 0) {
+      num_nonnull_samples--;
     }
+
+    writer.write32(num_nonnull_samples);
+
+    for (size_t i = 0; i < num_nonnull_samples; i++) {
+      writer.write8(m_sample_sizes[i]);
+    }
+  }
+  else {
+    writer.write32(m_num_samples);
   }
 
   prepend_header(writer, box_start);
@@ -1963,24 +1968,24 @@ void Box_saio::set_aux_info_type(uint32_t aux_info_type, uint32_t aux_info_type_
 }
 
 
-void Box_saio::add_sample_offset(uint64_t s)
+void Box_saio::add_chunk_offset(uint64_t s)
 {
   if (s > 0xFFFFFFFF) {
     m_need_64bit = true;
     set_version(1);
   }
 
-  m_sample_offset.push_back(s);
+  m_chunk_offset.push_back(s);
 }
 
 
-uint64_t Box_saio::get_sample_offset(uint32_t idx) const
+uint64_t Box_saio::get_chunk_offset(uint32_t idx) const
 {
-  if (idx >= m_sample_offset.size()) {
+  if (idx >= m_chunk_offset.size()) {
     return 0;
   }
   else {
-    return m_sample_offset[idx];
+    return m_chunk_offset[idx];
   }
 }
 
@@ -2006,8 +2011,8 @@ std::string Box_saio::dump(Indent& indent) const
     sstr << fourcc_to_string(m_aux_info_type_parameter) << "\n";
   }
 
-  for (size_t i = 0; i < m_sample_offset.size(); i++) {
-    sstr << indent << "[" << i << "] : 0x" << std::hex << m_sample_offset[i] << "\n";
+  for (size_t i = 0; i < m_chunk_offset.size(); i++) {
+    sstr << indent << "[" << i << "] : 0x" << std::hex << m_chunk_offset[i] << "\n";
   }
 
   return sstr.str();
@@ -2020,7 +2025,7 @@ void Box_saio::patch_file_pointers(StreamWriter& writer, size_t offset)
 
   writer.set_position(m_offset_start_pos);
 
-  for (uint64_t ptr : m_sample_offset) {
+  for (uint64_t ptr : m_chunk_offset) {
     if (get_version() == 0 && ptr + offset > std::numeric_limits<uint32_t>::max()) {
       writer.write32(0); // TODO: error
     } else if (get_version() == 0) {
@@ -2043,16 +2048,16 @@ Error Box_saio::write(StreamWriter& writer) const
     writer.write32(m_aux_info_type_parameter);
   }
 
-  if (m_sample_offset.size() > std::numeric_limits<uint32_t>::max()) {
+  if (m_chunk_offset.size() > std::numeric_limits<uint32_t>::max()) {
     return Error{heif_error_Unsupported_feature,
                  heif_suberror_Unspecified,
-                 "Maximum number of samples exceeded"};
+                 "Maximum number of chunks exceeded"};
   }
-  writer.write32(static_cast<uint32_t>(m_sample_offset.size()));
+  writer.write32(static_cast<uint32_t>(m_chunk_offset.size()));
 
   m_offset_start_pos = writer.get_position();
 
-  for (uint64_t size : m_sample_offset) {
+  for (uint64_t size : m_chunk_offset) {
     if (m_need_64bit) {
       writer.write64(size);
     } else {
@@ -2075,26 +2080,28 @@ Error Box_saio::parse(BitstreamRange& range, const heif_security_limits* limits)
     m_aux_info_type_parameter = range.read32();
   }
 
-  uint32_t num_samples = range.read32();
+  uint32_t num_chunks = range.read32();
 
-  if (limits && num_samples > limits->max_sequence_frames) {
+  // We have no explicit maximum on the number of chunks.
+  // Use the maximum number of frames as an upper limit.
+  if (limits && num_chunks > limits->max_sequence_frames) {
     return {
       heif_error_Memory_allocation_error,
       heif_suberror_Security_limit_exceeded,
-      "Number of 'saio' samples exceeds the maximum number of sequence frames."
+      "Number of 'saio' chunks exceeds the maximum number of sequence frames."
     };
   }
 
   // check required memory
-  uint64_t mem_size = num_samples * sizeof(uint64_t);
+  uint64_t mem_size = num_chunks * sizeof(uint64_t);
 
   if (auto err = m_memory_handle.alloc(mem_size, limits, "the 'saio' table")) {
     return err;
   }
 
-  m_sample_offset.resize(num_samples);
+  m_chunk_offset.resize(num_chunks);
 
-  for (uint32_t i = 0; i < num_samples; i++) {
+  for (uint32_t i = 0; i < num_chunks; i++) {
     uint64_t offset;
     if (get_version() == 1) {
       offset = range.read64();
@@ -2103,12 +2110,55 @@ Error Box_saio::parse(BitstreamRange& range, const heif_security_limits* limits)
       offset = range.read32();
     }
 
-    m_sample_offset[i] = offset;
+    m_chunk_offset[i] = offset;
 
     if (range.error()) {
       return range.get_error();
     }
   }
+
+  return Error::Ok;
+}
+
+
+std::string Box_sdtp::dump(Indent& indent) const
+{
+  std::stringstream sstr;
+  sstr << FullBox::dump(indent);
+
+  assert(m_sample_information.size() <= UINT32_MAX);
+
+  for (uint32_t i = 0; i < static_cast<uint32_t>(m_sample_information.size()); i++) {
+    const char* spaces = "            ";
+    int nSpaces = 6;
+    int k = i;
+    while (k >= 10 && nSpaces < 12) {
+      k /= 10;
+      nSpaces++;
+    }
+
+    spaces = spaces + 12 - nSpaces;
+
+    sstr << indent << "[" << i << "] : is_leading=" << (int) get_is_leading(i) << "\n"
+        << indent << spaces << "depends_on=" << (int) get_depends_on(i) << "\n"
+        << indent << spaces << "is_depended_on=" << (int) get_is_depended_on(i) << "\n"
+        << indent << spaces << "has_redundancy=" << (int) get_has_redundancy(i) << "\n";
+  }
+
+  return sstr.str();
+}
+
+
+Error Box_sdtp::parse(BitstreamRange& range, const heif_security_limits* limits)
+{
+  parse_full_box_header(range);
+
+  // We have no easy way to get the number of samples from 'saiz' or 'stz2' as specified
+  // in the standard. Instead, we read until the end of the box.
+  size_t nSamples = range.get_remaining_bytes();
+
+  m_sample_information.resize(nSamples);
+  range.read(m_sample_information.data(), nSamples);
 
   return Error::Ok;
 }

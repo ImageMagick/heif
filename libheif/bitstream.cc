@@ -26,6 +26,12 @@
 
 #include "common_utils.h"
 
+#if !defined(HAVE_BIT)
+#include <type_traits>
+#else
+#include <bit>
+#endif
+
 #define MAX_UVLC_LEADING_ZEROS 20
 
 

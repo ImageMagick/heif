@@ -99,7 +99,7 @@ ImageExtraData::~ImageExtraData()
 
 bool ImageExtraData::has_nclx_color_profile() const
 {
-  return m_color_profile_nclx != nclx_profile::defaults();
+  return m_color_profile_nclx != nclx_profile::undefined();
 }
 
 
@@ -178,7 +178,7 @@ std::shared_ptr<Box_colr> ImageExtraData::get_colr_box_icc() const
 }
 
 
-std::vector<std::shared_ptr<Box>> ImageExtraData::generate_property_boxes() const
+std::vector<std::shared_ptr<Box>> ImageExtraData::generate_property_boxes(bool generate_colr_boxes) const
 {
   std::vector<std::shared_ptr<Box>> properties;
 
@@ -218,16 +218,18 @@ std::vector<std::shared_ptr<Box>> ImageExtraData::generate_property_boxes() cons
     properties.push_back(itai);
   }
 
-  // --- colr (nclx)
+  if (generate_colr_boxes) {
+    // --- colr (nclx)
 
-  if (has_nclx_color_profile()) {
-    properties.push_back(get_colr_box_nclx());
-  }
+    if (has_nclx_color_profile()) {
+      properties.push_back(get_colr_box_nclx());
+    }
 
-  // --- colr (icc)
+    // --- colr (icc)
 
-  if (has_icc_color_profile()) {
-    properties.push_back(get_colr_box_icc());
+    if (has_icc_color_profile()) {
+      properties.push_back(get_colr_box_icc());
+    }
   }
 
   return properties;
@@ -574,6 +576,10 @@ Error HeifPixelImage::extend_to_size_with_zero(uint32_t width, uint32_t height, 
                static_cast<uint8_t*>(plane->mem) + y * plane->stride,
                plane->m_width * bytes_per_pixel);
       }
+
+      // --- replace existing image plane with reallocated plane
+
+      delete[] planeIter.second.allocated_mem;
 
       planeIter.second = newPlane;
       plane = &planeIter.second;
