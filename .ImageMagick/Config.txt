@@ -29,6 +29,7 @@ ENABLE_MULTITHREADING_SUPPORT
 ENABLE_PARALLEL_TILE_DECODING
 HAVE_AOM_DECODER
 HAVE_AOM_ENCODER
+HAVE_BIT
 HAVE_BROTLI
 HAVE_LIBDE265
 HAVE_OpenH264_DECODER
@@ -62,10 +63,13 @@ heifio\stubs.cc
 heifio\decoder_jpeg.cc
 heifio\decoder_png.cc
 heifio\decoder_tiff.cc
+heifio\decoder_raw.cc
+heifio\decoder_webp.cc
 heifio\decoder_y4m.cc
 heifio\encoder_jpeg.cc
 heifio\encoder_png.cc
 heifio\encoder_tiff.cc
+heifio\encoder_webp.cc
 heifio\encoder_y4m.cc
 libheif\plugins_
 libheif\plugins\decoder_dav1d.cc
