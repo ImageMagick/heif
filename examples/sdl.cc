@@ -251,7 +251,7 @@ void SDL_YUV_Display::display444as420(const unsigned char *Y,
     }
 
   uint8_t *startV = mPixels + (rect.h*mStride);
-  uint8_t *startU = startV + (rect.h*mStride/2);
+  uint8_t *startU = startV + (rect.h*mStride/4);
   for (int y=0;y<rect.h;y+=2)
     {
       uint8_t* u = startU + y/2*mStride/2;

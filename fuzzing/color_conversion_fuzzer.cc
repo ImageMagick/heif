@@ -24,7 +24,7 @@
 
 #include "bitstream.h"
 #include "color-conversion/colorconversion.h"
-#include "pixelimage.h"
+#include "image/pixelimage.h"
 
 static bool is_valid_chroma(uint8_t chroma)
 {
@@ -70,11 +70,11 @@ static bool read_plane(BitstreamRange* range,
   if (!range->prepare_read(static_cast<size_t>(width) * height)) {
     return false;
   }
-  if (auto err = image->add_plane(channel, width, height, bit_depth, heif_get_disabled_security_limits())) {
+  if (auto err = image->add_channel(channel, width, height, bit_depth, heif_get_disabled_security_limits())) {
     return false;
   }
   size_t stride;
-  uint8_t* plane = image->get_plane(channel, &stride);
+  uint8_t* plane = image->get_channel_memory(channel, &stride);
   assert(stride >= width);
   auto stream = range->get_istream();
   for (uint32_t y = 0; y < height; y++, plane += stride) {
@@ -96,11 +96,11 @@ static bool read_plane_interleaved(BitstreamRange* range,
   if (!range->prepare_read(static_cast<size_t>(width) * height * comps)) {
     return false;
   }
-  if (auto err = image->add_plane(channel, width, height, bit_depth, heif_get_disabled_security_limits())) {
+  if (auto err = image->add_channel(channel, width, height, bit_depth, heif_get_disabled_security_limits())) {
     return false;
   }
   size_t stride;
-  uint8_t* plane = image->get_plane(channel, &stride);
+  uint8_t* plane = image->get_channel_memory(channel, &stride);
   assert(stride >= width * comps);
   auto stream = range->get_istream();
   for (uint32_t y = 0; y < height; y++, plane += stride) {

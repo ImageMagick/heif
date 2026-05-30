@@ -3,6 +3,10 @@ include_directories(${libheif_BINARY_DIR} ${libheif_SOURCE_DIR}/libheif/api ${li
 
 add_library(heifio STATIC
         decoder.h
+        decoder_heif.cc
+        decoder_heif.h
+        decoder_raw.cc
+        decoder_raw.h
         decoder_y4m.cc
         decoder_y4m.h
         encoder.h
@@ -30,6 +34,18 @@ if (TIFF_FOUND)
     target_sources(heifio PRIVATE decoder_tiff.cc decoder_tiff.h encoder_tiff.h encoder_tiff.cc)
     target_link_libraries(heifio PRIVATE TIFF::TIFF)
     target_compile_definitions(heifio PUBLIC HAVE_LIBTIFF=1)
+
+    option(WITH_GEOTIFF "Print GeoTIFF metadata when encoding tiled TIFFs (requires libgeotiff)" OFF)
+    if (WITH_GEOTIFF)
+        find_library(GEOTIFF_LIBRARY geotiff)
+        find_path(GEOTIFF_INCLUDE_DIR geotiff/geotiff.h)
+        if (GEOTIFF_LIBRARY AND GEOTIFF_INCLUDE_DIR)
+            set(GEOTIFF_FOUND TRUE)
+            target_compile_definitions(heifio PUBLIC HAVE_GEOTIFF=1)
+            target_link_libraries(heifio PRIVATE ${GEOTIFF_LIBRARY})
+            target_include_directories(heifio PRIVATE ${GEOTIFF_INCLUDE_DIR})
+        endif()
+    endif()
 endif()
 
 find_package(JPEG)
@@ -65,8 +81,23 @@ int main() {
 endif ()
 
 
-find_package(PNG)
-set(PNG_FOUND ${PNG_FOUND} PARENT_SCOPE)
+option(WITH_LIBPNG_INTERNAL "Use the libpng build in the 'third-party' directory" OFF)
+
+if (WITH_LIBPNG_INTERNAL)
+    add_library(PNG::PNG STATIC IMPORTED)
+    set_target_properties(PNG::PNG PROPERTIES
+        IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/third-party/libpng/build/dist/lib/libpng.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${PROJECT_SOURCE_DIR}/third-party/libpng/build/dist/include"
+    )
+    find_package(ZLIB REQUIRED)
+    target_link_libraries(PNG::PNG INTERFACE ZLIB::ZLIB m)
+    set(PNG_FOUND ON)
+    set(PNG_FOUND ON PARENT_SCOPE)
+else()
+    find_package(PNG)
+    set(PNG_FOUND ${PNG_FOUND} PARENT_SCOPE)
+endif()
+
 if (TARGET PNG::PNG)
     target_compile_definitions(heifio PUBLIC -DHAVE_LIBPNG=1)
 
@@ -75,6 +106,26 @@ if (TARGET PNG::PNG)
     target_sources(heifio PRIVATE encoder_png.cc encoder_png.h)
     target_sources(heifio PRIVATE decoder_png.cc decoder_png.h)
 endif ()
+
+find_package(WEBP)
+if(WEBP_FOUND)
+    target_compile_definitions(heifio PUBLIC -DHAVE_LIBWEBP=1)
+
+    target_link_libraries(heifio PRIVATE WebP::webp)
+    target_link_libraries(heifio PRIVATE WebP::libwebpmux)
+
+    # libwebp uses pthreads internally, but depending on how it was built
+    # (e.g. autotools, where libtool may drop '-pthread') its shared object can
+    # lack a DT_NEEDED entry for libpthread. On systems where pthread is not
+    # part of libc (glibc < 2.34) linking against libwebp then fails with
+    # unresolved 'pthread_create'/'pthread_join'. Link Threads defensively so
+    # the symbols are always satisfied; this is a no-op where pthread is in libc.
+    find_package(Threads REQUIRED)
+    target_link_libraries(heifio PRIVATE Threads::Threads)
+
+    target_sources(heifio PRIVATE encoder_webp.cc encoder_webp.h)
+    target_sources(heifio PRIVATE decoder_webp.cc decoder_webp.h)
+endif()
 
 message("")
 message("=== Active input formats for heif-enc ===")
@@ -88,8 +139,20 @@ if (PNG_FOUND)
 else ()
     message("PNG:  ------ (libpng not found)")
 endif ()
+if (WEBP_FOUND)
+    message("WEBP:  active")
+else ()
+    message("WEBP:  ------ (libwebp not found)")
+endif ()
 if (TIFF_FOUND)
     message("TIFF: active")
+    if (NOT WITH_GEOTIFF)
+        message("GeoTIFF: ------ (WITH_GEOTIFF=OFF)")
+    elseif (GEOTIFF_FOUND)
+        message("GeoTIFF: active")
+    else ()
+        message("GeoTIFF: ------ (libgeotiff not found)")
+    endif ()
 else ()
     message("TIFF: ------ (libtiff not found)")
 endif ()

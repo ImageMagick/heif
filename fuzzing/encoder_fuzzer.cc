@@ -144,14 +144,21 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
   }
 
   int quality = (data[0] & 0x7F) % 101;
-  bool lossless = (data[1] & 0x80);
-  bool use_avif = (data[1] & 0x40);
+  bool lossless = (data[0] & 0x80);
+  uint8_t format_uint8 = ((data[1] & 0xf0) >> 4);
+  uint8_t encoder_idx = data[1] & 0x0f;
+
+  if (format_uint8==0 || format_uint8 > 10) {
+    return 0;
+  }
+  heif_compression_format format = (heif_compression_format)format_uint8;
+
   data += 2;
   size -= 2;
 
   static const size_t kMaxEncoders = 5;
   const heif_encoder_descriptor* encoder_descriptors[kMaxEncoders];
-  int count = heif_get_encoder_descriptors(use_avif ? heif_compression_AV1 : heif_compression_HEVC,
+  int count = heif_get_encoder_descriptors(format,
                                            nullptr,
                                            encoder_descriptors, kMaxEncoders);
   assert(count >= 0);
@@ -159,8 +166,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     return 0;
   }
 
+  if (encoder_idx >= count) {
+    return 0;
+  }
+
   heif_encoder* encoder;
-  err = heif_context_get_encoder(context.get(), encoder_descriptors[0], &encoder);
+  err = heif_context_get_encoder(context.get(), encoder_descriptors[encoder_idx], &encoder);
   if (err.code != heif_error_Ok) {
     return 0;
   }

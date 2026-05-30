@@ -187,9 +187,9 @@ Further options are:
    Note that header compression is not widely supported yet.
 * `WITH_LIBSHARPYUV`: enables high-quality YCbCr/RGB color space conversion algorithms (requires `libsharpyuv`,
    e.g. from the `third-party` directory).
-* `ENABLE_EXPERIMENTAL_FEATURES`: enables functions that are currently in development and for which the API is not stable yet.
-   When this is enabled, a header `heif_experimental.h` will be installed that contains this unstable API.
-   Distributions that rely on a stable API should not enable this.
+* `ENABLE_EXPERIMENTAL_FEATURES`: enables functions that are currently in development and for which the API is not stable yet
+   and may contain security risks. When this is enabled, a header `heif_experimental.h` will be installed that contains this
+   unstable API. Distributions should not enable this in release or production builds.
 * `ENABLE_MULTITHREADING_SUPPORT`: can be used to disable any multithreading support, e.g. for embedded platforms.
 * `ENABLE_PARALLEL_TILE_DECODING`: when enabled, libheif will decode tiled images in parallel to speed up compilation.
 * `PLUGIN_DIRECTORY`: the directory where libheif will search for dynamic plugins when the environment
@@ -294,6 +294,16 @@ You can also add plugin directories programmatically.
 * The "webcodecs" HEVC decoder can only be used in emscripten builds since it uses the web-browser's API. For the same reason, it is not available as a plugin.
 
 ## Usage
+
+libheif comes with a set of command line tools:
+* `heif-dec` for decoding HEIF images to JPEG or PNG. It can also decode image sequences or MP4 video.
+* `heif-enc` for encoding JPEG, PNG, TIFF, or Y4M images to HEIF images, image sequences or MP4 video.
+* `heif-info` for getting some overview information about the HEIF file or (using the `-d` option) to dump the full box structure of the file.
+* `heif-view` for displaying HEIF image sequences
+
+### `heif-enc` command line tool
+
+You can find more documentation for the `heif-enc` tool on the [wiki page](https://github.com/strukturag/libheif/wiki/heif%E2%80%90enc-Command-Line-Tool).
 
 ### Security limits
 

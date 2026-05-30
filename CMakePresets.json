@@ -62,8 +62,10 @@
         "WITH_REDUCED_VISIBILITY" : "OFF",
         "WITH_HEADER_COMPRESSION" : "ON",
         "WITH_LIBSHARPYUV" : "ON",
+        "WITH_GEOTIFF" : "ON",
         "WITH_EXAMPLES": "ON",
-        "WITH_FUZZERS": "OFF"
+        "WITH_FUZZERS": "OFF",
+        "BUILD_DEVELOPMENT_TOOLS": "ON"
       }
     },
     {
@@ -169,6 +171,7 @@
         "ENABLE_PLUGIN_LOADING" : "OFF",
         "BUILD_TESTING" : "ON",
         "ENABLE_EXPERIMENTAL_FEATURES" : "ON",
+        "ENABLE_EXPERIMENTAL_MINI_FORMAT" : "ON",
         "CMAKE_COMPILE_WARNING_AS_ERROR" : "ON",
         "WITH_REDUCED_VISIBILITY" : "OFF",
         "WITH_UNCOMPRESSED_CODEC" : "ON"

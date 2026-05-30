@@ -29,8 +29,69 @@
 
 #include "decoder.h"
 #include "libheif/heif.h"
+#include <memory>
+#include <cstdint>
+#include <vector>
+
+struct YCbCrInfo {
+  bool is_ycbcr = false;
+  uint16_t horiz_sub = 1;  // horizontal subsampling factor
+  uint16_t vert_sub = 1;   // vertical subsampling factor
+};
 
 LIBHEIF_API
-heif_error loadTIFF(const char *filename, InputImage *input_image);
+heif_error loadTIFF(const char *filename, int output_bit_depth, InputImage *input_image);
+
+class LIBHEIF_API TiledTiffReader {
+public:
+  ~TiledTiffReader();
+
+  struct OverviewInfo {
+    uint32_t dir_index;
+    uint32_t image_width;
+    uint32_t image_height;
+    uint32_t tile_width;
+    uint32_t tile_height;
+  };
+
+  // Returns a reader if the file is a tiled TIFF. If the TIFF is not tiled,
+  // returns nullptr with heif_error_Ok (caller should fall back to loadTIFF).
+  static std::unique_ptr<TiledTiffReader> open(const char* filename, heif_error* out_err);
+
+  uint32_t imageWidth() const { return m_image_width; }
+  uint32_t imageHeight() const { return m_image_height; }
+  uint32_t tileWidth() const { return m_tile_width; }
+  uint32_t tileHeight() const { return m_tile_height; }
+  uint32_t nColumns() const { return m_n_columns; }
+  uint32_t nRows() const { return m_n_rows; }
+
+  const std::vector<OverviewInfo>& overviews() const { return m_overviews; }
+  bool setDirectory(uint32_t dir_index);
+
+  uint16_t bitsPerSample() const { return m_bits_per_sample; }
+  uint16_t sampleFormat() const { return m_sample_format; }
+
+  heif_error readTile(uint32_t tx, uint32_t ty, int output_bit_depth, heif_image** out_image);
+  void readExif(InputImage* input_image);
+  //void printGeoInfo(const char* filename) const;
+
+private:
+  TiledTiffReader() = default;
+
+  struct TiffCloser { void operator()(void* tif) const; };
+  std::unique_ptr<void, TiffCloser> m_tif;
+
+  uint32_t m_image_width = 0, m_image_height = 0;
+  uint32_t m_tile_width = 0, m_tile_height = 0;
+  uint32_t m_n_columns = 0, m_n_rows = 0;
+  uint16_t m_samples_per_pixel = 0;
+  uint16_t m_bits_per_sample = 0;
+  uint16_t m_planar_config = 0;
+  uint16_t m_sample_format = 1; // SAMPLEFORMAT_UINT
+  bool m_has_alpha = false;
+  YCbCrInfo m_ycbcr;
+
+  std::vector<OverviewInfo> m_overviews;
+};
 
 #endif // LIBHEIF_DECODER_TIFF_H

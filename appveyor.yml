@@ -7,18 +7,34 @@ cache: c:\tools\vcpkg\installed\
 environment:
   matrix:
   - arch: x64
+    triplet: x64-windows
+  - arch: Win32
+    triplet: x86-windows
   - arch: arm64
+    triplet: arm64-windows
 
 install:
-  - vcpkg install aom:%arch%-windows
-  - vcpkg install dav1d:%arch%-windows
-  - vcpkg install ffmpeg[avcodec]:%arch%-windows
-  - vcpkg install libde265:%arch%-windows
-  - vcpkg install libjpeg-turbo:%arch%-windows
-  - vcpkg install libpng:%arch%-windows
-  - vcpkg install tiff:%arch%-windows
-  - ps: If (${env:arch} -eq "x64") { vcpkg install x265:${env:arch}-windows }
-  - vcpkg install zlib:%arch%-windows
+  # Build only Release vcpkg libraries (skip Debug) to halve install time
+  - ps: |
+      @('x64-windows', 'x86-windows', 'arm64-windows') | ForEach-Object {
+        $tripletDir = "C:\tools\vcpkg\triplets"
+        $content = (Get-Content "$tripletDir\$_.cmake" -Raw) + "`nset(VCPKG_BUILD_TYPE release)`n"
+        Set-Content "$tripletDir\$_.cmake" $content
+      }
+  # --- Phase 1: remove ffmpeg, upgrade everything else ---
+  #- vcpkg remove ffmpeg:%triplet% --recurse 2>NUL & ver>NUL
+  #- vcpkg upgrade --no-dry-run
+  # --- Phase 2: uncomment the two lines below to compile ffmpeg ---
+  - vcpkg upgrade --no-dry-run
+  - vcpkg install ffmpeg[avcodec]:%triplet%
+  - vcpkg install aom:%triplet%
+  - ps: If (${env:arch} -ne "Win32") { vcpkg install dav1d:${env:triplet} }
+  - vcpkg install libde265:%triplet%
+  - vcpkg install libjpeg-turbo:%triplet%
+  - vcpkg install libpng:%triplet%
+  - vcpkg install tiff:%triplet%
+  - vcpkg install x265:%triplet%
+  - vcpkg install zlib:%triplet%
   - cd c:\tools\vcpkg
   - vcpkg integrate install
   - cd %APPVEYOR_BUILD_FOLDER%

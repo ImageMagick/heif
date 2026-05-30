@@ -164,7 +164,7 @@ fi
 if [ -z "$EMSCRIPTEN_VERSION" ] && [ -z "$CHECK_LICENSES" ] && [ -z "$TARBALL" ] ; then
     echo "Building libheif ..."
     cmake . $CMAKE_OPTIONS
-    make -j $(nproc)
+    make VERBOSE=1 -j $(nproc)
     if [ "$CURRENT_OS" = "linux" ] && [ -z "$MINGW" ] && [ -z "$FUZZER" ] && [ ! -z "$TESTS" ] ; then
         echo "Running tests ..."
         make test
@@ -255,7 +255,7 @@ fi
 
 if [ ! -z "$EMSCRIPTEN_VERSION" ]; then
     echo "Building with emscripten $EMSCRIPTEN_VERSION ..."
-    source ./emscripten/emsdk/emsdk_env.sh && USE_WASM=0 ./build-emscripten.sh .
+    source ./emscripten/emsdk/emsdk_env.sh && USE_WASM=0 USE_TYPESCRIPT=0 ./build-emscripten.sh .
     source ./emscripten/emsdk/emsdk_env.sh && node scripts/test-javascript.js
 fi
 
@@ -275,13 +275,14 @@ if [ ! -z "$TARBALL" ]; then
     mkdir build
     pushd build
     cmake .. --preset=release
-    make -j $(nproc)
+    make VERBOSE=1 -j $(nproc)
     popd
 fi
 
 if [ ! -z "$FUZZER" ] && [ "$CURRENT_OS" = "linux" ]; then
     ./fuzzing/color_conversion_fuzzer ./fuzzing/data/corpus/*color-conversion-fuzzer*
     ./fuzzing/file_fuzzer ./fuzzing/data/corpus/*.heic
+    ./fuzzing/tile_fuzzer ./fuzzing/data/corpus/*.heic
 
     echo "Running color conversion fuzzer ..."
     ./fuzzing/color_conversion_fuzzer -max_total_time=120
@@ -289,7 +290,10 @@ if [ ! -z "$FUZZER" ] && [ "$CURRENT_OS" = "linux" ]; then
     # Do not run encoder_fuzzer because it will just find errors in x265...
     #echo "Running encoder fuzzer ..."
     #./fuzzing/encoder_fuzzer -max_total_time=120
-    
+
     echo "Running file fuzzer ..."
     ./fuzzing/file_fuzzer -dict=./fuzzing/data/dictionary.txt -max_total_time=120
+
+    echo "Running tile fuzzer ..."
+    ./fuzzing/tile_fuzzer -dict=./fuzzing/data/dictionary.txt -max_total_time=120
 fi

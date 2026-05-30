@@ -44,6 +44,8 @@
 #include <libheif/heif_experimental.h>
 #include "libheif/heif_sequences.h"
 #include <libheif/heif_text.h>
+#include <libheif/heif_image_handle.h>
+#include <libheif/heif_uncompressed.h>
 
 #include <fstream>
 #include <iostream>
@@ -116,6 +118,73 @@ public:
 
   ~LibHeifInitializer() { heif_deinit(); }
 };
+
+
+static const char* color_primaries_name(uint16_t v)
+{
+  switch (v) {
+    case heif_color_primaries_ITU_R_BT_709_5: return "BT.709";
+    case heif_color_primaries_unspecified: return "unspecified";
+    case heif_color_primaries_ITU_R_BT_470_6_System_M: return "BT.470 System M";
+    case heif_color_primaries_ITU_R_BT_470_6_System_B_G: return "BT.470 System B/G";
+    case heif_color_primaries_ITU_R_BT_601_6: return "BT.601";
+    case heif_color_primaries_SMPTE_240M: return "SMPTE 240M";
+    case heif_color_primaries_generic_film: return "generic film";
+    case heif_color_primaries_ITU_R_BT_2020_2_and_2100_0: return "BT.2020 / BT.2100";
+    case heif_color_primaries_SMPTE_ST_428_1: return "SMPTE ST 428-1";
+    case heif_color_primaries_SMPTE_RP_431_2: return "SMPTE RP 431-2 (DCI P3)";
+    case heif_color_primaries_SMPTE_EG_432_1: return "SMPTE EG 432-1 (Display P3)";
+    case heif_color_primaries_EBU_Tech_3213_E: return "EBU Tech 3213-E";
+    default: return "unknown";
+  }
+}
+
+
+static const char* transfer_characteristics_name(uint16_t v)
+{
+  switch (v) {
+    case heif_transfer_characteristic_ITU_R_BT_709_5: return "BT.709";
+    case heif_transfer_characteristic_unspecified: return "unspecified";
+    case heif_transfer_characteristic_ITU_R_BT_470_6_System_M: return "BT.470 System M";
+    case heif_transfer_characteristic_ITU_R_BT_470_6_System_B_G: return "BT.470 System B/G";
+    case heif_transfer_characteristic_ITU_R_BT_601_6: return "BT.601";
+    case heif_transfer_characteristic_SMPTE_240M: return "SMPTE 240M";
+    case heif_transfer_characteristic_linear: return "linear";
+    case heif_transfer_characteristic_logarithmic_100: return "log 100:1";
+    case heif_transfer_characteristic_logarithmic_100_sqrt10: return "log 100*sqrt(10):1";
+    case heif_transfer_characteristic_IEC_61966_2_4: return "IEC 61966-2-4";
+    case heif_transfer_characteristic_ITU_R_BT_1361: return "BT.1361";
+    case heif_transfer_characteristic_IEC_61966_2_1: return "IEC 61966-2-1 (sRGB)";
+    case heif_transfer_characteristic_ITU_R_BT_2020_2_10bit: return "BT.2020 10-bit";
+    case heif_transfer_characteristic_ITU_R_BT_2020_2_12bit: return "BT.2020 12-bit";
+    case heif_transfer_characteristic_ITU_R_BT_2100_0_PQ: return "BT.2100 PQ";
+    case heif_transfer_characteristic_SMPTE_ST_428_1: return "SMPTE ST 428-1";
+    case heif_transfer_characteristic_ITU_R_BT_2100_0_HLG: return "BT.2100 HLG";
+    default: return "unknown";
+  }
+}
+
+
+static const char* matrix_coefficients_name(uint16_t v)
+{
+  switch (v) {
+    case heif_matrix_coefficients_RGB_GBR: return "RGB/GBR";
+    case heif_matrix_coefficients_ITU_R_BT_709_5: return "BT.709";
+    case heif_matrix_coefficients_unspecified: return "unspecified";
+    case heif_matrix_coefficients_US_FCC_T47: return "US FCC T47";
+    case heif_matrix_coefficients_ITU_R_BT_470_6_System_B_G: return "BT.470 System B/G";
+    case heif_matrix_coefficients_ITU_R_BT_601_6: return "BT.601";
+    case heif_matrix_coefficients_SMPTE_240M: return "SMPTE 240M";
+    case heif_matrix_coefficients_YCgCo: return "YCgCo";
+    case heif_matrix_coefficients_ITU_R_BT_2020_2_non_constant_luminance: return "BT.2020 NCL";
+    case heif_matrix_coefficients_ITU_R_BT_2020_2_constant_luminance: return "BT.2020 CL";
+    case heif_matrix_coefficients_SMPTE_ST_2085: return "SMPTE ST 2085";
+    case heif_matrix_coefficients_chromaticity_derived_non_constant_luminance: return "chromaticity-derived NCL";
+    case heif_matrix_coefficients_chromaticity_derived_constant_luminance: return "chromaticity-derived CL";
+    case heif_matrix_coefficients_ICtCp: return "ICtCp";
+    default: return "unknown";
+  }
+}
 
 
 int main(int argc, char** argv)
@@ -307,8 +376,8 @@ int main(int argc, char** argv)
       case heif_colorspace_monochrome:
         printf("monochrome");
         break;
-      case heif_colorspace_nonvisual:
-        printf("non-visual");
+      case heif_colorspace_custom:
+        printf("custom");
         break;
       default:
         printf("unknown");
@@ -377,6 +446,26 @@ int main(int argc, char** argv)
     uint32_t profileType = heif_image_handle_get_color_profile_type(handle);
     printf("  color profile: %s\n", profileType ? heif_examples::fourcc_to_string(profileType).c_str() : "no");
 
+    heif_color_profile_nclx* nclx = nullptr;
+    err = heif_image_handle_get_nclx_color_profile(handle, &nclx);
+    if (err.code == heif_error_Ok && nclx) {
+      printf("    colour primaries: %d (%s)\n",
+             nclx->color_primaries, color_primaries_name(nclx->color_primaries));
+      printf("    transfer characteristics: %d (%s)\n",
+             nclx->transfer_characteristics, transfer_characteristics_name(nclx->transfer_characteristics));
+      printf("    matrix coefficients: %d (%s)\n",
+             nclx->matrix_coefficients, matrix_coefficients_name(nclx->matrix_coefficients));
+      printf("    full range flag: %d (%s)\n",
+             nclx->full_range_flag, nclx->full_range_flag ? "full" : "limited");
+    }
+    heif_nclx_color_profile_free(nclx);
+
+    heif_content_light_level cll = {0, 0};
+    if (heif_image_handle_get_content_light_level(handle, &cll) &&
+        (cll.max_content_light_level > 0 || cll.max_pic_average_light_level > 0)) {
+      printf("  content light level: MaxCLL=%u MaxFALL=%u\n",
+             cll.max_content_light_level, cll.max_pic_average_light_level);
+    }
 
     // --- depth information
 
@@ -778,6 +867,105 @@ int main(int argc, char** argv)
       properties_shown = true;
     }
 
+    // --- cmpd components
+
+    uint32_t num_cmpd_components = heif_image_handle_get_number_of_cmpd_components(handle);
+    if (num_cmpd_components > 0) {
+      int num_content_ids = heif_image_handle_has_gimi_component_content_ids(handle);
+
+      auto get_component_type_name = [](uint16_t type) -> const char* {
+        switch (type) {
+          case 0: return "monochrome";
+          case 1: return "Y";
+          case 2: return "Cb";
+          case 3: return "Cr";
+          case 4: return "red";
+          case 5: return "green";
+          case 6: return "blue";
+          case 7: return "alpha";
+          case 8: return "depth";
+          case 9: return "disparity";
+          case 10: return "palette";
+          case 11: return "filter_array";
+          case 12: return "padded";
+          case 13: return "cyan";
+          case 14: return "magenta";
+          case 15: return "yellow";
+          case 16: return "key_black";
+          default: return nullptr;
+        }
+      };
+
+      // Find the maximum display width of the "type_name (N)" column.
+      size_t max_type_width = 0;
+      for (uint32_t i = 0; i < num_cmpd_components; i++) {
+        uint16_t type = heif_image_handle_get_cmpd_component_type(handle, i);
+        const char* name = get_component_type_name(type);
+        std::ostringstream tmp;
+        if (name) {
+          tmp << name << " (" << type << ")";
+        }
+        else {
+          tmp << type;
+        }
+        max_type_width = std::max(max_type_width, tmp.str().size());
+      }
+
+      std::cout << "  components:\n";
+      for (uint32_t i = 0; i < num_cmpd_components; i++) {
+        uint16_t type = heif_image_handle_get_cmpd_component_type(handle, i);
+        const char* type_name = get_component_type_name(type);
+
+        std::ostringstream type_str;
+        if (type_name) {
+          type_str << type_name << " (" << type << ")";
+        }
+        else {
+          type_str << type;
+        }
+
+        std::cout << "    [" << i << "] type: "
+                  << std::left << std::setw(static_cast<int>(max_type_width)) << type_str.str();
+
+        const char* uri = heif_image_handle_get_cmpd_component_type_uri(handle, i);
+        if (uri) {
+          std::cout << " (uri: " << uri << ")";
+          heif_string_release(uri);
+        }
+
+        if (num_content_ids > 0) {
+          const char* content_id = heif_image_handle_get_gimi_component_content_id(handle, i);
+          if (content_id) {
+            std::cout << "  content ID: " << content_id;
+            heif_string_release(content_id);
+          }
+        }
+
+        std::cout << "\n";
+      }
+      properties_shown = true;
+    }
+
+    // --- OMAF
+
+    heif_omaf_image_projection projection = heif_image_handle_get_omaf_image_projection(handle);
+    if (projection != heif_omaf_image_projection_flat) {
+      std::cout << "  image projection: ";
+      switch (projection)
+      {
+      case heif_omaf_image_projection_equirectangular:
+        std::cout << "equirectangular";
+        break;
+      case heif_omaf_image_projection_cube_map:
+        std::cout << "cube-map";
+      default:
+        std::cout << "(unknown)";
+        break;
+      }
+      std::cout << "\n";
+      properties_shown = true;
+    }
+
     if (!properties_shown) {
       std::cout << "none\n";
     }
@@ -872,6 +1060,22 @@ int main(int argc, char** argv)
         uint16_t w, h;
         heif_track_get_image_resolution(track, &w, &h);
         std::cout << "  resolution: " << w << "x" << h << "\n";
+      }
+
+      uint32_t repetitions = heif_track_get_number_of_repetitions(track);
+      std::cout << "  repetitions: ";
+      if (repetitions == 0) {
+        std::cout << "unsupported editlist\n";
+      }
+      else if (repetitions == heif_sequence_track_number_of_repetitions_infinite) {
+        std::cout << "infinite\n";
+      }
+      else {
+        std::cout << repetitions;
+        if (repetitions == 1) {
+          std::cout << " (single playback)";
+        }
+        std::cout << "\n";
       }
 
       uint32_t sampleEntryType = heif_track_get_sample_entry_type_of_first_cluster(track);

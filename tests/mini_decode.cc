@@ -49,6 +49,10 @@ void check_image_handle_size(struct heif_context *&context) {
 }
 
 TEST_CASE("check image handle size") {
+  if (!heif_have_decoder_for_format(heif_compression_AV1)) {
+     SKIP("AV1 decoder not available, skipping test");
+  }
+
   auto file = GENERATE(MINI_FILES);
   auto context = get_context_for_test_file(file);
   INFO("file name: " << file);
@@ -69,21 +73,21 @@ void check_image_size_heif_mini(struct heif_context *&context) {
   REQUIRE(heif_image_has_channel(img, heif_channel_Alpha) == 0);
   REQUIRE(heif_image_has_channel(img, heif_channel_interleaved) == 0);
   int width = heif_image_get_primary_width(img);
-  REQUIRE(width == 128);
+  REQUIRE(width == 256);
   int height = heif_image_get_primary_height(img);
-  REQUIRE(height == 128);
+  REQUIRE(height == 256);
   width = heif_image_get_width(img, heif_channel_Y);
-  REQUIRE(width == 128);
+  REQUIRE(width == 256);
   height = heif_image_get_height(img, heif_channel_Y);
-  REQUIRE(height == 128);
+  REQUIRE(height == 256);
   width = heif_image_get_width(img, heif_channel_Cb);
-  REQUIRE(width == 128);
+  REQUIRE(width == 256);
   height = heif_image_get_height(img, heif_channel_Cr);
-  REQUIRE(height == 128);
+  REQUIRE(height == 256);
   width = heif_image_get_width(img, heif_channel_Cr);
-  REQUIRE(width == 128);
+  REQUIRE(width == 256);
   height = heif_image_get_height(img, heif_channel_Cr);
-  REQUIRE(height == 128);
+  REQUIRE(height == 256);
 
   int pixel_depth = heif_image_get_bits_per_pixel(img, heif_channel_Y);
   REQUIRE(pixel_depth == 8);
@@ -103,6 +107,10 @@ void check_image_size_heif_mini(struct heif_context *&context) {
 }
 
 TEST_CASE("check image size HEIF mini") {
+  if (!heif_have_decoder_for_format(heif_compression_HEVC)) {
+    SKIP("HEVC decoder not available, skipping test");
+  }
+
   auto context = get_context_for_test_file("lightning_mini.heif");
   check_image_size_heif_mini(context);
   heif_context_free(context);

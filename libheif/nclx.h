@@ -125,16 +125,9 @@ struct nclx_profile
   uint16_t m_matrix_coefficients = heif_matrix_coefficients_unspecified;
   bool m_full_range_flag = true;
 
-  bool operator==(const nclx_profile& b) const {
-    return m_colour_primaries == b.m_colour_primaries &&
-           m_transfer_characteristics == b.m_transfer_characteristics &&
-           m_matrix_coefficients == b.m_matrix_coefficients &&
-           m_full_range_flag == b.m_full_range_flag;
-  }
+  bool operator==(const nclx_profile& b) const = default;
 
-  bool operator!=(const nclx_profile& b) const {
-    return !(*this == b);
-  }
+  bool operator!=(const nclx_profile& b) const = default;
 
   static nclx_profile undefined() { return {}; }
 
@@ -161,6 +154,8 @@ struct nclx_profile
   void set_undefined();
 
   bool is_undefined() const;
+
+  bool is_defined() const { return !is_undefined(); }
 
   void replace_undefined_values_with_sRGB_defaults();
 

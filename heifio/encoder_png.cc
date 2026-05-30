@@ -36,39 +36,6 @@
 
 PngEncoder::PngEncoder() = default;
 
-// Returns false if ICC profile recognized invalid and could not be fixed.
-bool fix_icc_profile(uint8_t* profile_data, uint32_t& profile_size)
-{
-  if (profile_size < 128) {
-    return false;
-  }
-
-
-  // --- check that profile size specified in header matches the real size
-
-  uint32_t size_in_header = four_bytes_to_uint32(profile_data[0],
-                                                 profile_data[1],
-                                                 profile_data[2],
-                                                 profile_data[3]);
-
-  if (size_in_header != profile_size) {
-
-    // Size in header is smaller than actual size, but alignment indicates that it might
-    // be correct. Replace real data length with size in header.
-    if (size_in_header < profile_size && (size_in_header & 3)==0) {
-      fprintf(stderr, "Input ICC profile has wrong size in header (%d instead of %d). Skipping extra bytes at the end. "
-              "Note that this may still be incorrect and the ICC profile may be broken.\n", size_in_header, profile_size);
-
-      profile_size = size_in_header;
-    }
-    else {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 
 bool PngEncoder::Encode(const heif_image_handle* handle,
                         const heif_image* image, const std::string& filename)
@@ -130,7 +97,7 @@ bool PngEncoder::Encode(const heif_image_handle* handle,
   // --- write ICC profile
 
   if (handle) {
-    uint32_t profile_size = static_cast<uint32_t>(heif_image_handle_get_raw_color_profile_size(handle));
+    size_t profile_size = heif_image_handle_get_raw_color_profile_size(handle);
     if (profile_size > 0) {
       uint8_t* profile_data = static_cast<uint8_t*>(malloc(profile_size));
       heif_image_handle_get_raw_color_profile(handle, profile_data);
@@ -149,6 +116,19 @@ bool PngEncoder::Encode(const heif_image_handle* handle,
       }
       free(profile_data);
     }
+
+#ifdef PNG_cICP_SUPPORTED
+    if (heif_image_handle_get_color_profile_type(handle) == heif_color_profile_type_nclx) {
+      heif_color_profile_nclx* nclx = nullptr;
+      heif_image_handle_get_nclx_color_profile(handle, &nclx);
+      if (nclx) {
+        // Setting matrix coefficients to 0 (RGB) and full range flag to 1 (full range)
+        // because data is converted into RGB specified by PngEncoder::colorspace (heif_colorspace_RGB)
+        png_set_cICP(png_ptr, info_ptr, nclx->color_primaries, nclx->transfer_characteristics, 0, 1);
+        heif_nclx_color_profile_free(nclx);
+      }
+    }
+#endif
   }
 
   // --- write EXIF metadata
@@ -160,7 +140,10 @@ bool PngEncoder::Encode(const heif_image_handle* handle,
     if (exifdata) {
       if (exifsize > 4) {
         uint32_t skip = four_bytes_to_uint32(exifdata[0], exifdata[1], exifdata[2], exifdata[3]);
-        if (skip < (exifsize - 4)) {
+        if (skip > (exifsize - 4)) {
+          fprintf(stderr, "Invalid EXIF data (offset too large)\n");
+        }
+        else {
           skip += 4;
           uint8_t* ptr = exifdata + skip;
           size_t size = exifsize - skip;
@@ -204,6 +187,29 @@ bool PngEncoder::Encode(const heif_image_handle* handle,
       xmp_text.itxt_length = text_length;
       png_set_text(png_ptr, info_ptr, &xmp_text, 1);
     }
+  }
+#endif
+
+#ifdef PNG_cLLI_SUPPORTED
+  if (heif_image_has_content_light_level(image)) {
+    heif_content_light_level cll;
+    heif_image_get_content_light_level(image, &cll);
+    png_set_cLLI_fixed(png_ptr, info_ptr, cll.max_content_light_level * 10000, cll.max_pic_average_light_level * 10000);
+  }
+#endif
+
+#ifdef PNG_mDCV_SUPPORTED
+  if (heif_image_has_mastering_display_colour_volume(image)) {
+    heif_mastering_display_colour_volume mdcv;
+    heif_image_get_mastering_display_colour_volume(image, &mdcv);
+    // The fixed point precision of PNG MDCV values are the same as HEIF (XY coordinates: 0.00002, luminance: 0.0001)
+    png_set_mDCV_fixed(png_ptr, info_ptr,
+      mdcv.white_point_x, mdcv.white_point_y,
+      mdcv.display_primaries_x[0], mdcv.display_primaries_y[0],
+      mdcv.display_primaries_x[1], mdcv.display_primaries_y[1],
+      mdcv.display_primaries_x[2], mdcv.display_primaries_y[2],
+      mdcv.max_display_mastering_luminance,
+      mdcv.min_display_mastering_luminance);
   }
 #endif
 

@@ -23,7 +23,7 @@ set -e
 # Use script from https://chromium.googlesource.com/chromium/src/tools/clang/
 # to download prebuilt version of clang. This commit defines which version of
 # the script should be used (and thus defines the version of clang).
-COMMIT_HASH=55676aed71dd450595d83f107d24cb31c00160b3
+COMMIT_HASH=13d4d9000d7320838a4f4068751e23e909809ac0
 
 DEST=$1
 
@@ -32,7 +32,7 @@ if [ -z "${DEST}" ]; then
     exit 1
 fi
 
-url="https://chromium.googlesource.com/chromium/src/tools/clang/+/${COMMIT_HASH}/scripts/update.py?format=TEXT"
+url="https://github.com/chromium/chromium/raw/${COMMIT_HASH}/tools/clang/scripts/update.py"
 
 tmpdir=$(mktemp -d)
 echo "Using ${tmpdir} as temporary folder"
@@ -40,17 +40,14 @@ echo "Using ${tmpdir} as temporary folder"
 script_folder=${tmpdir}/tools/clang/scripts
 mkdir -p "${script_folder}"
 echo "Downloading from ${url} ..."
-curl -o "${script_folder}/update.py.b64" ${url}
-
-echo "Decoding base64 ..."
-base64 --decode "${script_folder}/update.py.b64" > "${script_folder}/update.py"
+curl --fail --location -o "${script_folder}/update.py" ${url}
 
 echo "Running ${script_folder}/update.py ..."
-python "${script_folder}/update.py"
+python3 "${script_folder}/update.py" --output-dir "${tmpdir}"
 
 echo "Copying to ${DEST} ..."
 mkdir -p "$DEST"
-cp -rf "${tmpdir}/third_party/llvm-build/Release+Asserts/"* "${DEST}"
+cp -rf "${tmpdir}/"* "${DEST}"
 
 echo "Cleaning up ..."
 rm -rf "${tmpdir}"

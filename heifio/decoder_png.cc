@@ -30,6 +30,7 @@
 #include <iostream>
 #include <memory>
 #include "decoder_png.h"
+#include "common_utils.h"
 #include "exif.h"
 
 extern "C" {
@@ -75,6 +76,19 @@ heif_error loadPNG(const char* filename, int output_bit_depth, InputImage *input
 #endif
   uint8_t* profile_data = nullptr;
   png_uint_32 profile_length = 5;
+#ifdef PNG_cICP_SUPPORTED
+  uint8_t color_primaries, transfer_characteristics, matrix_coefficients, video_full_range;
+  bool has_cICP = false;
+#endif
+#ifdef PNG_cLLI_SUPPORTED
+  uint32_t maximum_content_light_level_scaled_by_10000, maximum_frame_average_light_level_scaled_by_10000;
+  bool has_cLL = false;
+#endif
+#ifdef PNG_mDCV_SUPPORTED
+  png_fixed_point white_point_x, white_point_y, display_primaries_x[3], display_primaries_y[3];
+  png_uint_32 max_display_mastering_luminance, min_display_mastering_luminance;
+  bool has_mDCV = false;
+#endif
 
   /* Create and initialize the png_struct with the desired error handler
    * functions.  If you want to use the default stderr and longjump method,
@@ -181,15 +195,66 @@ heif_error loadPNG(const char* filename, int output_bit_depth, InputImage *input
    */
   png_read_update_info(png_ptr, info_ptr);
 
+  /* PNGv3 header */
+#ifdef PNG_cLLI_SUPPORTED
+  /* Set content light level
+  */
+  if (png_get_cLLI_fixed(png_ptr, info_ptr, &maximum_content_light_level_scaled_by_10000, &maximum_frame_average_light_level_scaled_by_10000) == PNG_INFO_cLLI)
+  {
+    has_cLL = true;
+  }
+  else {
+    has_cLL = false;
+  }
+#endif
+#ifdef PNG_cICP_SUPPORTED
+  if (png_get_cICP(png_ptr, info_ptr, &color_primaries, &transfer_characteristics, &matrix_coefficients, &video_full_range) == PNG_INFO_cICP)
+  {
+    has_cICP = true;
+  }
+  else {
+    has_cICP = false;
+  }
+#endif
+#ifdef PNG_mDCV_SUPPORTED
+  if (png_get_mDCV_fixed(png_ptr, info_ptr, &white_point_x, &white_point_y,
+    &display_primaries_x[0], &display_primaries_y[0], &display_primaries_x[1], &display_primaries_y[1], &display_primaries_x[2], &display_primaries_y[2],
+    &max_display_mastering_luminance, &min_display_mastering_luminance) == PNG_INFO_cICP) {
+    has_mDCV = true;
+  }
+  else {
+    has_mDCV = false;
+  }
+#endif
+
   /* Allocate the memory to hold the image using the fields of info_ptr. */
 
   /* The easiest way to read the image: */
   uint8_t** row_pointers = new png_bytep[height];
   assert(row_pointers != NULL);
 
-  for (uint32_t y = 0; y < height; y++) {
-    row_pointers[y] = (png_bytep) malloc(png_get_rowbytes(png_ptr, info_ptr));
-    assert(row_pointers[y] != NULL);
+  size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
+  // make it 16 bytes aligned, with overflow check
+  size_t aligned_rowbytes = (rowbytes + 15) & ~(size_t)15;
+
+  // check for integer overflows in alignment and total allocation size
+  if (aligned_rowbytes < rowbytes || (height > 0 && aligned_rowbytes > SIZE_MAX / height)) {
+    delete[] row_pointers;
+    free(profile_data);
+    png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp) NULL);
+    fclose(fh);
+    struct heif_error err = {
+      .code = heif_error_Memory_allocation_error,
+      .subcode = heif_suberror_Security_limit_exceeded,
+      .message = "PNG image too large"};
+    return err;
+  }
+
+  rowbytes = aligned_rowbytes;
+  row_pointers[0] = (png_bytep)malloc(rowbytes * height);
+  assert(row_pointers[0] != NULL);
+  for (uint32_t y = 1; y < height; y++) {
+    row_pointers[y] = row_pointers[0] + rowbytes * y;
   } // for
 
   /* Now it's time to read the image.  One of these methods is REQUIRED */
@@ -419,6 +484,74 @@ heif_error loadPNG(const char* filename, int output_bit_depth, InputImage *input
       }
     }
     else {
+      // band > 2, output_bit_depth > 8
+#ifdef PNG_cICP_SUPPORTED
+      if (has_cICP) {
+        heif_color_profile_nclx* nclx = heif_nclx_color_profile_alloc();
+        if (nclx) {
+          heif_nclx_color_profile_set_color_primaries(nclx, color_primaries);
+          heif_nclx_color_profile_set_transfer_characteristics(nclx, transfer_characteristics);
+
+          // Since matrix_coefficients are always 0 for PNGs, choose coefficients as default that
+          // match the color primaries.
+          // TODO: should we move this into libheif?
+
+          switch (color_primaries) {
+          default:
+          case heif_color_primaries_ITU_R_BT_709_5: // 1: HD, web, sRGB
+            matrix_coefficients = heif_matrix_coefficients_ITU_R_BT_709_5; // 1
+            break;
+          case heif_color_primaries_ITU_R_BT_470_6_System_B_G: // 5: PAL/SECAM
+          case heif_color_primaries_EBU_Tech_3213_E: // 22: EBU legacy
+            matrix_coefficients = heif_matrix_coefficients_ITU_R_BT_470_6_System_B_G; // 5
+            break;
+          case heif_color_primaries_ITU_R_BT_601_6: // 6: DVD, SD web video
+          case heif_color_primaries_ITU_R_BT_470_6_System_M: // 4: Legacy NTSC
+            matrix_coefficients = heif_matrix_coefficients_ITU_R_BT_601_6; // 6
+            break;
+          case heif_color_primaries_SMPTE_240M: // 7
+            matrix_coefficients = heif_matrix_coefficients_SMPTE_240M; // 7
+            break;
+          case heif_color_primaries_ITU_R_BT_2020_2_and_2100_0: // 9: HDR10, UHD broadcast
+          case heif_color_primaries_SMPTE_RP_431_2: // 11: DCI-P3 (D65)
+          case heif_color_primaries_SMPTE_EG_432_1: // 12: DCI-P3 (theater)
+            matrix_coefficients = heif_matrix_coefficients_ITU_R_BT_2020_2_non_constant_luminance; // 9
+            break;
+          }
+          heif_nclx_color_profile_set_matrix_coefficients(nclx, matrix_coefficients);
+          nclx->full_range_flag = true;
+          heif_image_set_nclx_color_profile(image, nclx);
+          heif_nclx_color_profile_free(nclx);
+        }
+      }
+#endif
+
+#ifdef PNG_cLLI_SUPPORTED
+      if (has_cLL) {
+        heif_content_light_level clli;
+        clli.max_content_light_level = clip_int_u16(maximum_content_light_level_scaled_by_10000 / 10000, 10000);
+        clli.max_pic_average_light_level = clip_int_u16(maximum_frame_average_light_level_scaled_by_10000 / 10000, 10000);
+        heif_image_set_content_light_level(image, &clli);
+      }
+#endif
+
+#ifdef PNG_mDCV_SUPPORTED
+      if (has_mDCV) {
+        heif_mastering_display_colour_volume mdcv;
+        mdcv.white_point_x = clip_int_u16(white_point_x, 37000);
+        mdcv.white_point_y = clip_int_u16(white_point_y, 42000);
+        mdcv.display_primaries_x[0] = clip_int_u16(display_primaries_x[0], 37000);
+        mdcv.display_primaries_x[1] = clip_int_u16(display_primaries_x[1], 37000);
+        mdcv.display_primaries_x[2] = clip_int_u16(display_primaries_x[2], 37000);
+        mdcv.display_primaries_y[0] = clip_int_u16(display_primaries_y[0], 42000);
+        mdcv.display_primaries_y[1] = clip_int_u16(display_primaries_y[1], 42000);
+        mdcv.display_primaries_y[2] = clip_int_u16(display_primaries_y[2], 42000);
+        mdcv.max_display_mastering_luminance = max_display_mastering_luminance;
+        mdcv.min_display_mastering_luminance = min_display_mastering_luminance;
+        heif_image_set_mastering_display_colour_volume(image, &mdcv);
+      }
+#endif
+
       for (uint32_t y = 0; y < height; y++) {
         uint8_t* p = row_pointers[y];
 
@@ -439,9 +572,7 @@ heif_error loadPNG(const char* filename, int output_bit_depth, InputImage *input
   }
 
   free(profile_data);
-  for (uint32_t y = 0; y < height; y++) {
-    free(row_pointers[y]);
-  } // for
+  free(row_pointers[0]);
 
   delete[] row_pointers;
   fclose(fh);

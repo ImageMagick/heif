@@ -33,7 +33,7 @@ HEADERS="libheif/api/libheif/heif_error.h libheif/api/libheif/heif_image.h libhe
 
 API_DEFINES=""
 for type in $DEFINE_TYPES; do
-    DEFINES=$(grep -h "^[ \t]*$type" $HEADERS | sed 's|[[:space:]]*\([^ \t=]*\)[[:space:]]*=.*|\1|g')
+    DEFINES=$(grep -hE "^[ \t]*${type}[A-Za-z0-9_]*[ \t]*=" $HEADERS | sed 's|[[:space:]]*\([^ \t=]*\)[[:space:]]*=.*|\1|g')
     if [ -z "$API_DEFINES" ]; then
         API_DEFINES="$DEFINES"
     else

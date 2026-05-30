@@ -26,7 +26,7 @@
 
 #include "catch_amalgamated.hpp"
 #include "libheif/heif.h"
-#include "pixelimage.h"
+#include "image/pixelimage.h"
 #include "api_structs.h"
 #include "test_utils.h"
 
