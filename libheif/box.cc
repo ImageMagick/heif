@@ -1920,10 +1920,13 @@ Error Box_iloc::read_data(heif_item_id item_id,
                 "idat box referenced in iref box is not present in file"};
       }
 
-      idat->read_data(istr,
-                      extent.offset + item->base_offset,
-                      extent.length,
-                      *dest, limits);
+      Error err = idat->read_data(istr,
+                                  extent.offset + item->base_offset,
+                                  extent.length,
+                                  *dest, limits);
+      if (err) {
+        return err;
+      }
 
       size -= extent.length;
     }
@@ -3729,6 +3732,12 @@ int Box_clap::left_rounded(uint32_t image_width) const
 
   // left = horizOff + (width-1)/2 - (clapWidth-1)/2
 
+  // Guard against image_width==0: `image_width - 1U` would underflow to
+  // UINT32_MAX and overflow the Fraction (GHSA-jc8f-p23p-5hjg).
+  if (image_width == 0) {
+    return 0;
+  }
+
   Fraction pcX = m_horizontal_offset + Fraction(image_width - 1U, 2U);
   Fraction left = pcX - (m_clean_aperture_width - 1) / 2;
 
@@ -3744,6 +3753,11 @@ int Box_clap::right_rounded(uint32_t image_width) const
 
 int Box_clap::top_rounded(uint32_t image_height) const
 {
+  // Guard against image_height==0 underflowing the Fraction (see left_rounded).
+  if (image_height == 0) {
+    return 0;
+  }
+
   Fraction pcY = m_vertical_offset + Fraction(image_height - 1U, 2U);
   Fraction top = pcY - (m_clean_aperture_height - 1) / 2;
 
@@ -4152,8 +4166,13 @@ static constexpr std::array supported_reference_types{
 
 bool Box_rref::all_reference_types_supported() const
 {
+  // TODO: replace with std::ranges variant once it is widely supported (e.g. on older clang/libc++):
+  //   return std::ranges::all_of(m_reference_types, [](uint32_t t) {
+  //     return std::ranges::find(supported_reference_types, t) != supported_reference_types.end();
+  //   });
   return std::all_of(m_reference_types.begin(), m_reference_types.end(), [](uint32_t t) {
-    return std::find(supported_reference_types.begin(), supported_reference_types.end(), t) != supported_reference_types.end();
+    return std::find(supported_reference_types.begin(), supported_reference_types.end(), t)
+           != supported_reference_types.end();
   });
 }
 
@@ -4163,6 +4182,8 @@ Error Box_rref::reference_types_supported_error() const
   std::vector<uint32_t> unsupported_types;
 
   for (uint32_t refType : m_reference_types) {
+    // TODO: replace with std::ranges variant once it is widely supported (e.g. on older clang/libc++):
+    //   if (std::ranges::find(supported_reference_types, refType) == supported_reference_types.end()) {
     if (std::find(supported_reference_types.begin(), supported_reference_types.end(), refType) == supported_reference_types.end()) {
       unsupported_types.push_back(refType);
     }
@@ -5219,7 +5240,7 @@ Error Box_taic::write(StreamWriter& writer) const {
   writer.write64(m_info.time_uncertainty);
   writer.write32(m_info.clock_resolution);
   writer.write32(m_info.clock_drift_rate);
-  writer.write8(m_info.clock_type);
+  writer.write8(static_cast<uint8_t>(m_info.clock_type << 6));
 
   prepend_header(writer, box_start);
 
@@ -5233,7 +5254,7 @@ Error Box_taic::parse(BitstreamRange& range, const heif_security_limits*) {
   m_info.clock_resolution = range.read32();
 
   m_info.clock_drift_rate = range.read32s();
-  m_info.clock_type = range.read8();
+  m_info.clock_type = range.read8() >> 6;
   return range.get_error();
 }
 

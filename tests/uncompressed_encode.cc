@@ -711,6 +711,73 @@ TEST_CASE("Encode RRRGGBB_BE 16 bit ")
 }
 
 
+// Boundary cases for the RRGGBB block-pixel encoder. 9 bit is the lowest valid
+// depth (m_bytes_per_pixel becomes 4); 13 bit is the highest the block encoder
+// accepts (m_bytes_per_pixel == 5). Both were adjacent to the out-of-bounds write
+// that occurred for the (now rejected) <= 8 bit case (GHSA-46rp-pcq2-rpmr).
+TEST_CASE("Encode RRRGGBB_LE 9 bit")
+{
+  heif_image *input_image = createImage_RRGGBB_interleaved(heif_chroma_interleaved_RRGGBB_LE, 9, true, false);
+  do_encode(input_image, "encode_rrggbb_9_le.heif", false);
+}
+
+
+TEST_CASE("Encode RRRGGBB_BE 9 bit")
+{
+  heif_image *input_image = createImage_RRGGBB_interleaved(heif_chroma_interleaved_RRGGBB_BE, 9, false, false);
+  do_encode(input_image, "encode_rrggbb_9_be.heif", false);
+}
+
+
+TEST_CASE("Encode RRRGGBB_LE 13 bit")
+{
+  heif_image *input_image = createImage_RRGGBB_interleaved(heif_chroma_interleaved_RRGGBB_LE, 13, true, false);
+  do_encode(input_image, "encode_rrggbb_13_le.heif", false);
+}
+
+
+TEST_CASE("Encode RRRGGBB_BE 13 bit")
+{
+  heif_image *input_image = createImage_RRGGBB_interleaved(heif_chroma_interleaved_RRGGBB_BE, 13, false, false);
+  do_encode(input_image, "encode_rrggbb_13_be.heif", false);
+}
+
+
+// Root-cause check: a 16-bit interleaved channel (RRGGBB / RRGGBBAA) with a bit
+// depth of <= 8 is self-inconsistent and must be rejected at image construction,
+// before any encoder can read/write past the under-sized plane.
+TEST_CASE("Reject <=8 bit 16-bit-interleaved channels")
+{
+  const heif_chroma formats[] = {
+    heif_chroma_interleaved_RRGGBB_LE,
+    heif_chroma_interleaved_RRGGBB_BE,
+    heif_chroma_interleaved_RRGGBBAA_LE,
+    heif_chroma_interleaved_RRGGBBAA_BE
+  };
+
+  for (heif_chroma chroma : formats) {
+    for (int bit_depth = 1; bit_depth <= 8; bit_depth++) {
+      heif_image* image;
+      heif_error err = heif_image_create(64, 64, heif_colorspace_RGB, chroma, &image);
+      REQUIRE(err.code == heif_error_Ok);
+
+      err = heif_image_add_plane(image, heif_channel_interleaved, 64, 64, bit_depth);
+      REQUIRE(err.code != heif_error_Ok);
+
+      heif_image_release(image);
+    }
+
+    // The lowest valid depth (9 bit) is still accepted.
+    heif_image* image;
+    heif_error err = heif_image_create(64, 64, heif_colorspace_RGB, chroma, &image);
+    REQUIRE(err.code == heif_error_Ok);
+    err = heif_image_add_plane(image, heif_channel_interleaved, 64, 64, 9);
+    REQUIRE(err.code == heif_error_Ok);
+    heif_image_release(image);
+  }
+}
+
+
 TEST_CASE("Encode RGBA")
 {
   heif_image *input_image = createImage_RGBA_interleaved();
@@ -953,5 +1020,48 @@ TEST_CASE("Encode tiled YCbCr 4:2:0 unci - chroma placement round-trip")
   heif_encoding_options_free(options);
   heif_encoder_release(encoder);
   heif_image_release(input_image);
+  heif_context_free(ctx);
+}
+
+
+// Regression test for the heap OOB write reported as GHSA-xpw3-9rhw-482x
+// (https://github.com/strukturag/libheif/security/advisories/GHSA-xpw3-9rhw-482x).
+// The uncompressed encoder sized its output buffer from the primary image
+// dimensions but copied each component plane using that plane's actual size.
+// A component plane larger than the primary image (e.g. an alpha plane that
+// does not match the color planes, as produced by an image sequence with a
+// mismatched alpha auxiliary track) was memcpy'd past the end of the buffer.
+// The encoder now rejects such inconsistent images instead of overflowing.
+TEST_CASE("Encode rejects oversized component plane")
+{
+  heif_image *image;
+  heif_error err = heif_image_create(2, 2, heif_colorspace_monochrome,
+                                     heif_chroma_monochrome, &image);
+  REQUIRE(err.code == heif_error_Ok);
+
+  err = heif_image_add_plane(image, heif_channel_Y, 2, 2, 8);
+  REQUIRE(err.code == heif_error_Ok);
+
+  // Alpha plane much larger than the 2x2 primary image. heif_image_add_plane
+  // does not validate the plane size against the image size, so this builds the
+  // same inconsistent image that the sequence decoder used to produce.
+  err = heif_image_add_plane(image, heif_channel_Alpha, 256, 256, 8);
+  REQUIRE(err.code == heif_error_Ok);
+
+  heif_context *ctx = heif_context_alloc();
+  heif_encoder *encoder;
+  err = heif_context_get_encoder_for_format(ctx, heif_compression_uncompressed, &encoder);
+  REQUIRE(err.code == heif_error_Ok);
+
+  heif_image_handle *output_image_handle = nullptr;
+  err = heif_context_encode_image(ctx, image, encoder, nullptr, &output_image_handle);
+  // Must fail cleanly rather than overflow the heap.
+  REQUIRE(err.code != heif_error_Ok);
+
+  if (output_image_handle) {
+    heif_image_handle_release(output_image_handle);
+  }
+  heif_encoder_release(encoder);
+  heif_image_release(image);
   heif_context_free(ctx);
 }

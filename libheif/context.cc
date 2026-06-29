@@ -767,8 +767,16 @@ Error HeifContext::interpret_heif_file_images()
     for (const auto& prop : properties) {
       auto clap = std::dynamic_pointer_cast<Box_clap>(prop);
       if (clap) {
-        image->set_resolution(clap->get_width_rounded(),
-                              clap->get_height_rounded());
+        int clap_width = clap->get_width_rounded();
+        int clap_height = clap->get_height_rounded();
+        if (clap_width <= 0 || clap_height <= 0) {
+          return {heif_error_Invalid_input,
+                  heif_suberror_Invalid_clean_aperture,
+                  "Clean aperture (clap) reduces image to zero size"};
+        }
+
+        image->set_resolution(static_cast<uint32_t>(clap_width),
+                              static_cast<uint32_t>(clap_height));
 
         if (image->has_intrinsic_matrix()) {
           image->get_intrinsic_matrix().apply_clap(clap.get(), image->get_width(), image->get_height());
@@ -2107,7 +2115,14 @@ std::vector<uint32_t> HeifContext::get_track_IDs() const
 
 Result<std::shared_ptr<Track>> HeifContext::get_track(uint32_t track_id)
 {
-  assert(has_sequence());
+  // The caller is expected to have confirmed (via has_sequence()) that there are
+  // sequence tracks before requesting one. Guard against an empty track map anyway,
+  // since this is reachable through the public API (e.g. on a still image file).
+  if (!has_sequence()) {
+    return Error{heif_error_Usage_error,
+                 heif_suberror_Unspecified,
+                 "File contains no sequence tracks"};
+  }
 
   if (track_id != 0) {
     auto iter = m_tracks.find(track_id);

@@ -69,6 +69,11 @@ struct ffmpeg_decoder
   }
 };
 
+// H. 264, H. 265, H. 266 require NAL. Others have no NAL.
+static bool supportsNal(AVCodecID id) {
+  return id == AV_CODEC_ID_H264 || id == AV_CODEC_ID_H265 || id == AV_CODEC_ID_H266;
+}
+
 static const int FFMPEG_DECODER_PLUGIN_PRIORITY = 90;
 
 #define MAX_PLUGIN_NAME_LENGTH 80
@@ -78,7 +83,7 @@ static char plugin_name[MAX_PLUGIN_NAME_LENGTH];
 
 static const char* ffmpeg_plugin_name()
 {
-  snprintf(plugin_name, MAX_PLUGIN_NAME_LENGTH, "FFMPEG AVC/HEVC decoder %s", av_version_info());
+  snprintf(plugin_name, MAX_PLUGIN_NAME_LENGTH, "FFmpeg decoder %s", av_version_info());
   plugin_name[MAX_PLUGIN_NAME_LENGTH - 1] = 0; //null-terminated
 
   return plugin_name;
@@ -99,30 +104,28 @@ static void ffmpeg_deinit_plugin()
 
 static int ffmpeg_does_support_format(heif_compression_format format)
 {
-  // TODO: it should work at least also for AV1 and JPEG. Check why it isn't decoding.
-
-  if (format == heif_compression_HEVC) {
-    return FFMPEG_DECODER_PLUGIN_PRIORITY;
-  }
-  else if (format == heif_compression_AVC) {
-    return FFMPEG_DECODER_PLUGIN_PRIORITY;
-  }
-#if 0
-  else if (format == heif_compression_VVC) {
-    return FFMPEG_DECODER_PLUGIN_PRIORITY;
-  }
-  else if (format == heif_compression_AV1) {
-    return FFMPEG_DECODER_PLUGIN_PRIORITY;
-  }
-  else if (format == heif_compression_JPEG) {
-    return FFMPEG_DECODER_PLUGIN_PRIORITY;
-  }
-  else if (format == heif_compression_JPEG2000 ||
-           format == heif_compression_HTJ2K) {
-    return FFMPEG_DECODER_PLUGIN_PRIORITY;
-  }
+  switch(format) {
+  case heif_compression_HEVC:
+    return avcodec_find_decoder(AV_CODEC_ID_HEVC) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
+  case heif_compression_AVC:
+    return avcodec_find_decoder(AV_CODEC_ID_H264) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
+  case heif_compression_VVC:
+    return avcodec_find_decoder(AV_CODEC_ID_VVC) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
+  case heif_compression_AV1:
+    return avcodec_find_decoder(AV_CODEC_ID_AV1) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
+  case heif_compression_JPEG:
+    return avcodec_find_decoder(AV_CODEC_ID_MJPEG) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
+  case heif_compression_JPEG2000:
+    return avcodec_find_decoder(AV_CODEC_ID_JPEG2000) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
+  case heif_compression_HTJ2K:
+    // FFmpeg gained High-Throughput JPEG 2000 (HT block coder) decoding in 7.0
+    // (libavcodec 61). Earlier versions silently misdecode the HT codestream.
+#if LIBAVCODEC_VERSION_MAJOR >= 61
+    return avcodec_find_decoder(AV_CODEC_ID_JPEG2000) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
+#else
+    return 0;
 #endif
-  else {
+  default:
     return 0;
   }
 }
@@ -146,7 +149,6 @@ static heif_error ffmpeg_new_decoder2(void** dec, const heif_decoder_plugin_opti
     case heif_compression_HEVC:
       decoder->av_codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
       break;
-#if 0
     case heif_compression_VVC:
       decoder->av_codec = avcodec_find_decoder(AV_CODEC_ID_VVC);
       break;
@@ -160,7 +162,6 @@ static heif_error ffmpeg_new_decoder2(void** dec, const heif_decoder_plugin_opti
     case heif_compression_HTJ2K:
       decoder->av_codec = avcodec_find_decoder(AV_CODEC_ID_JPEG2000);
       break;
-#endif
     default:
       assert(false);
       return {
@@ -218,45 +219,107 @@ void ffmpeg_set_strict_decoding(void* decoder_raw, int flag)
   decoder->strict_decoding = flag;
 }
 
+#if LIBAVCODEC_VERSION_MAJOR < 61
+// Scan a JPEG 2000 codestream main header for the CAP marker (0xFF50), which
+// signals the High-Throughput (HT) block coder (JPEG 2000 Part 15). FFmpeg
+// gained HT decoding only in 7.0 (libavcodec 61); older versions silently
+// misdecode the stream, so we use this to refuse HT input on those.
+static bool jpeg2000_codestream_uses_HT(const uint8_t* data, size_t size)
+{
+  // main header must start with the SOC marker (FF4F)
+  if (size < 2 || data[0] != 0xFF || data[1] != 0x4F) {
+    return false;
+  }
+
+  size_t pos = 2;
+  while (pos + 2 <= size) {
+    if (data[pos] != 0xFF) {
+      break;  // not positioned on a marker -> stop scanning
+    }
+
+    uint16_t marker = (uint16_t(data[pos]) << 8) | data[pos + 1];
+
+    if (marker == 0xFF50) {  // CAP
+      return true;
+    }
+    if (marker == 0xFF90 ||  // SOT  -> main header finished
+        marker == 0xFFD9) {  // EOC
+      break;
+    }
+
+    // All remaining main-header markers carry a 2-byte segment length.
+    if (pos + 4 > size) {
+      break;
+    }
+    uint16_t seg_len = (uint16_t(data[pos + 2]) << 8) | data[pos + 3];
+    if (seg_len < 2) {
+      break;  // malformed
+    }
+    pos += 2 + seg_len;
+  }
+
+  return false;
+}
+#endif
+
+
 static heif_error ffmpeg_push_data2(void *decoder_raw, const void *data, size_t size, uintptr_t user_data)
 {
   ffmpeg_decoder* decoder = (struct ffmpeg_decoder*) decoder_raw;
 
   const uint8_t* cdata = (const uint8_t*) data;
 
+#if LIBAVCODEC_VERSION_MAJOR < 61
+  // HEIF reports both plain and HT JPEG 2000 as heif_compression_JPEG2000, so an
+  // HT codestream can reach this plugin even though does_support_format() gates
+  // HTJ2K off. Detect it from the codestream and refuse, rather than emit garbage.
+  if (decoder->av_codec->id == AV_CODEC_ID_JPEG2000 &&
+      jpeg2000_codestream_uses_HT(cdata, size)) {
+    return {
+      heif_error_Unsupported_feature,
+      heif_suberror_Unsupported_data_version,
+      "High-Throughput JPEG 2000 decoding requires FFmpeg 7.0 or later"
+    };
+  }
+#endif
+
   ffmpeg_decoder::Packet pkt;
 
   size_t ptr = 0;
-  while (ptr < size)
-  {
-    if (size - ptr < 4) {
-      return {
-        heif_error_Decoder_plugin_error,
-        heif_suberror_End_of_data,
-        "insufficient data"
-      };
+  if (supportsNal(decoder->av_codec->id)) {
+    while (ptr < size)
+    {
+      if (size - ptr < 4) {
+        return {
+          heif_error_Decoder_plugin_error,
+          heif_suberror_End_of_data,
+          "insufficient data"
+        };
+      }
+
+      uint32_t nal_size = four_bytes_to_uint32(cdata[ptr + 0],
+                                               cdata[ptr + 1],
+                                               cdata[ptr + 2],
+                                               cdata[ptr + 3]);
+      ptr += 4;
+
+      if (nal_size > size - ptr) {
+        return {
+          heif_error_Decoder_plugin_error,
+          heif_suberror_End_of_data,
+          "insufficient data"
+        };
+      }
+
+      pkt.data.push_back(0);
+      pkt.data.push_back(0);
+      pkt.data.push_back(1);
+      pkt.data.insert(pkt.data.end(), cdata + ptr, cdata + ptr + nal_size);
+      ptr += nal_size;
     }
-
-    uint32_t nal_size = four_bytes_to_uint32(cdata[ptr + 0],
-                                             cdata[ptr + 1],
-                                             cdata[ptr + 2],
-                                             cdata[ptr + 3]);
-    ptr += 4;
-
-    if (nal_size > size - ptr) {
-      return {
-        heif_error_Decoder_plugin_error,
-        heif_suberror_End_of_data,
-        "insufficient data"
-      };
-    }
-
-    pkt.data.push_back(0);
-    pkt.data.push_back(0);
-    pkt.data.push_back(1);
-    pkt.data.insert(pkt.data.end(), cdata + ptr, cdata + ptr + nal_size);
-
-    ptr += nal_size;
+  }
+  else {
+    pkt.data.insert(pkt.data.end(), cdata, cdata + size);
   }
 
   pkt.user_data = user_data;
@@ -314,7 +377,7 @@ static int ffmpeg_get_chroma_width(const AVFrame* frame, heif_channel channel, h
     }
     else if (chroma == heif_chroma_420 || chroma == heif_chroma_422)
     {
-        return (frame->width + 1) / 2;
+        return frame->width / 2 + (frame->width & 1); // note: prevents integer overflow( + 1) / 2;
     }
     else
     {
@@ -330,7 +393,7 @@ static int ffmpeg_get_chroma_height(const AVFrame* frame, heif_channel channel, 
     }
     else if (chroma == heif_chroma_420)
     {
-        return (frame->height + 1) / 2;
+        return frame->height / 2 + (frame->height & 1); // note: prevents integer overflow( + 1) / 2;
     }
     else
     {
@@ -390,6 +453,42 @@ static heif_error ffmpeg_av_decode(ffmpeg_decoder* decoder, AVCodecContext* av_d
 
   if (out_user_data) {
     *out_user_data = av_frame->pts;
+  }
+
+  // FFmpeg's JPEG2000 decoder hands back the codestream's 3 components as packed
+  // "rgb24", but libheif stores them as sYCC (the codestream is tagged sYCC).
+  // De-interleave into YCbCr-444 planes so the container's nclx color conversion
+  // is applied correctly.
+  if (av_dec_ctx->pix_fmt == AV_PIX_FMT_RGB24 &&
+      decoder->av_codec->id == AV_CODEC_ID_JPEG2000) {
+    heif_error err = heif_image_create(av_frame->width, av_frame->height,
+                                       heif_colorspace_YCbCr, heif_chroma_444, image);
+    if (err.code) {
+      return err;
+    }
+    heif_channel planes[3] = {heif_channel_Y, heif_channel_Cb, heif_channel_Cr};
+    uint8_t* dst[3]; size_t dst_stride[3];
+    for (int c = 0; c < 3; c++) {
+      err = heif_image_add_plane_safe(*image, planes[c], av_frame->width, av_frame->height, 8, limits);
+      if (err.code) {
+        decoder->error_message = err.message;
+        err.message = decoder->error_message.c_str();
+        heif_image_release(*image);
+        return err;
+      }
+      dst[c] = heif_image_get_plane2(*image, planes[c], &dst_stride[c]);
+    }
+    const uint8_t* src = av_frame->data[0];
+    int src_stride = av_frame->linesize[0];
+    for (int y = 0; y < av_frame->height; y++) {
+      const uint8_t* row = src + static_cast<size_t>(y) * src_stride;
+      for (int x = 0; x < av_frame->width; x++) {
+        dst[0][y * dst_stride[0] + x] = row[x * 3 + 0];  // Y  <- "R"
+        dst[1][y * dst_stride[1] + x] = row[x * 3 + 1];  // Cb <- "G"
+        dst[2][y * dst_stride[2] + x] = row[x * 3 + 2];  // Cr <- "B"
+      }
+    }
+    return heif_error_success;
   }
 
   heif_chroma chroma = ffmpeg_get_chroma_format(av_dec_ctx->pix_fmt);

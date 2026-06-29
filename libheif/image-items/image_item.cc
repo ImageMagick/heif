@@ -333,14 +333,14 @@ Result<Encoder::CodedImageData> ImageItem::encode_to_bitstream_and_boxes(const s
     valid_pixi = pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_Y));
   }
   else if (colorspace == heif_colorspace_YCbCr) {
-    valid_pixi = (pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_Y)) ||
-                  pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_Cb)) ||
+    valid_pixi = (pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_Y)) &&
+                  pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_Cb)) &&
                   pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_Cr)));
   }
   else if (colorspace == heif_colorspace_RGB) {
     if (chroma == heif_chroma_444) {
-      valid_pixi = (pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_R)) ||
-                    pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_G)) ||
+      valid_pixi = (pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_R)) &&
+                    pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_G)) &&
                     pixi->add_channel_bits(image->get_bits_per_pixel(heif_channel_B)));
     }
     else if (chroma == heif_chroma_interleaved_RGB ||
@@ -350,8 +350,8 @@ Result<Encoder::CodedImageData> ImageItem::encode_to_bitstream_and_boxes(const s
              chroma == heif_chroma_interleaved_RRGGBBAA_LE ||
              chroma == heif_chroma_interleaved_RRGGBBAA_BE) {
       uint16_t bpp = image->get_bits_per_pixel(heif_channel_interleaved);
-      valid_pixi = (pixi->add_channel_bits(bpp) ||
-                    pixi->add_channel_bits(bpp) ||
+      valid_pixi = (pixi->add_channel_bits(bpp) &&
+                    pixi->add_channel_bits(bpp) &&
                     pixi->add_channel_bits(bpp));
     }
   }
@@ -1319,10 +1319,25 @@ heif_image_tiling ImageItem::get_heif_image_tiling() const
   tiling.num_columns = 1;
   tiling.num_rows = 1;
 
-  tiling.tile_width = m_width;
-  tiling.tile_height = m_height;
-  tiling.image_width = m_width;
-  tiling.image_height = m_height;
+  // Report the coded (pre-transformation) dimensions here. The caller applies
+  // the transformative properties (irot, imir, clap) via
+  // process_image_transformations_on_tiling(), so handing it the already
+  // transformed m_width/m_height would apply them a second time. For a clap
+  // that shrinks the image to zero this double application underflowed inside
+  // Box_clap::left_rounded() (GHSA-jc8f-p23p-5hjg); for irot/imir it silently
+  // produced wrong dimensions. The grid/unc/tiled overrides likewise report
+  // coded dimensions.
+  uint32_t coded_width = m_width;
+  uint32_t coded_height = m_height;
+  if (has_ispe_resolution()) {
+    coded_width = get_ispe_width();
+    coded_height = get_ispe_height();
+  }
+
+  tiling.tile_width = coded_width;
+  tiling.tile_height = coded_height;
+  tiling.image_width = coded_width;
+  tiling.image_height = coded_height;
 
   tiling.top_offset = 0;
   tiling.left_offset = 0;
