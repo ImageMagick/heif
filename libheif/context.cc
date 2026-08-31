@@ -1111,6 +1111,15 @@ Error HeifContext::interpret_heif_file_images()
     }
     else {
       metadata->m_data = *metadataResult;
+
+      // Account the (possibly decompressed) metadata against the total-memory budget
+      // for the lifetime of the context. This bounds the cumulative memory of up to
+      // max_items metadata items, which would otherwise bypass the security limits
+      // (GHSA-24wx-9w62-c96w).
+      if (Error memErr = metadata->m_memory_handle.alloc(metadata->m_data.size(), &m_limits,
+                                                         "decompressed item metadata")) {
+        return memErr;
+      }
     }
 
     // --- assign metadata to the image
@@ -1439,8 +1448,26 @@ Result<std::shared_ptr<HeifPixelImage>> HeifContext::decode_image(heif_item_id I
     return Error(heif_error_Invalid_input, heif_suberror_Nonexisting_item_referenced);
   }
 
+  // Seed the traversal state for this top-level decode. The cycle-detection set
+  // is carried over from the caller; the amplification budget (shared across all
+  // recursion branches and parallel tile-decode threads) is created here, once.
+  // (GHSA-x8xm-cm2c-cfc8)
+  DecodeTraversalState decode_state;
+  decode_state.processed_ids = std::move(processed_ids);
 
-  auto decodingResult = imgitem->decode_image(options, decode_only_tile, tx, ty, processed_ids);
+  const heif_security_limits* limits = get_security_limits();
+  if (limits && limits->max_items != 0) {
+    // Bound total sub-image decodes at a modest multiple of max_items. A
+    // well-formed file decodes each of its (<= max_items) items a small number
+    // of times, so this only trips on reference-amplification. Computed in 64
+    // bit and clamped to avoid overflow when max_items is configured very high.
+    uint64_t budget = static_cast<uint64_t>(limits->max_items) * MAX_DERIVED_IMAGE_DECODE_FACTOR;
+    decode_state.max_decodes = (budget > UINT32_MAX) ? UINT32_MAX : static_cast<uint32_t>(budget);
+    decode_state.max_overlay_nesting = MAX_OVERLAY_NESTING_LEVEL;
+    decode_state.decode_count = std::make_shared<std::atomic<uint32_t>>(0);
+  }
+
+  auto decodingResult = imgitem->decode_image(options, decode_only_tile, tx, ty, decode_state);
   if (!decodingResult) {
     return decodingResult.error();
   }

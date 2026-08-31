@@ -881,18 +881,30 @@ void ImageItem::set_omaf_image_projection(heif_omaf_image_projection projection)
 
 Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decoding_options& options,
                                                                 bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
-                                                                std::set<heif_item_id> processed_ids) const
+                                                                DecodeTraversalState decode_state) const
 {
   // Check for cycles before taking m_decode_mutex: a derived item that
   // (transitively) references itself would otherwise re-enter decode_image()
   // on the same ImageItem and self-deadlock on the non-recursive mutex.
   // The matching insert lives inside decode_compressed_image() of derived
-  // items (grid/overlay/iden), so the current item is in processed_ids only
+  // items (grid/overlay/iden), so the current item is in decode_state only
   // when called from one of its own descendants.
-  if (processed_ids.contains(m_id)) {
+  if (decode_state.processed_ids.contains(m_id)) {
     return Error{heif_error_Invalid_input,
                  heif_suberror_Unspecified,
                  "'iref' has cyclic references"};
+  }
+
+  // Bound the total number of sub-image decodes for this top-level decode.
+  // Derived images (grid/iovl/iden) can reference the same base image through
+  // indirection, and because the cycle-detection set is per-path, a shared
+  // subtree is otherwise re-decoded once per path that reaches it, which grows
+  // as branch^depth for nested references. This is the single choke point that
+  // every item decode passes through. (GHSA-x8xm-cm2c-cfc8)
+  if (!decode_state.count_decode()) {
+    return Error{heif_error_Invalid_input,
+                 heif_suberror_Security_limit_exceeded,
+                 "Too many derived-image decode operations (possible reference amplification)"};
   }
 
   if (m_item_error) {
@@ -924,7 +936,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
 
   // --- decode image
 
-  Result<std::shared_ptr<HeifPixelImage>> decodingResult = decode_compressed_image(options, decode_tile_only, tile_x0, tile_y0, processed_ids);
+  Result<std::shared_ptr<HeifPixelImage>> decodingResult = decode_compressed_image(options, decode_tile_only, tile_x0, tile_y0, decode_state);
   if (!decodingResult) {
     return decodingResult.error();
   }
@@ -1033,7 +1045,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
       return alpha_image->get_item_error();
     }
 
-    auto alphaDecodingResult = alpha_image->decode_image(options, decode_tile_only, tile_x0, tile_y0, processed_ids);
+    auto alphaDecodingResult = alpha_image->decode_image(options, decode_tile_only, tile_x0, tile_y0, decode_state);
     if (!alphaDecodingResult) {
       return alphaDecodingResult.error();
     }
@@ -1065,7 +1077,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
     //       It might also be that a specific output format implies that alpha is scaled (RGBA32). That would favor an enum for the scaling filter option + a bool to switch auto-filtering on.
     //       But we can only do this when libheif itself doesn't assume anymore that the alpha channel has the same resolution.
 
-    if ((alpha_image->get_width() != img->get_width()) || (alpha_image->get_height() != img->get_height())) {
+    if ((alpha->get_width() != img->get_width()) || (alpha->get_height() != img->get_height())) {
       std::shared_ptr<HeifPixelImage> scaled_alpha;
       Error err = alpha->scale_nearest_neighbor(scaled_alpha, img->get_width(), img->get_height(), m_heif_context->get_security_limits());
       if (err) {
@@ -1073,7 +1085,9 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
       }
       alpha = std::move(scaled_alpha);
     }
-    img->transfer_channel_from_image_as(alpha, channel, heif_channel_Alpha);
+    if (Error err = img->transfer_channel_from_image_as(alpha, channel, heif_channel_Alpha)) {
+      return err;
+    }
 
     if (is_premultiplied_alpha()) {
       img->set_premultiplied_alpha(true);
@@ -1242,15 +1256,15 @@ Result<std::vector<uint8_t>> ImageItem::read_bitstream_configuration_data_overri
 
 Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_compressed_image(const heif_decoding_options& options,
                                                                            bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
-                                                                           std::set<heif_item_id> processed_ids) const
+                                                                           DecodeTraversalState decode_state) const
 {
-  if (processed_ids.contains(m_id)) {
+  if (decode_state.processed_ids.contains(m_id)) {
     return Error{heif_error_Invalid_input,
                  heif_suberror_Unspecified,
                  "'iref' has cyclic references"};
   }
 
-  processed_ids.insert(m_id);
+  decode_state.processed_ids.insert(m_id);
 
 
   DataExtent extent;

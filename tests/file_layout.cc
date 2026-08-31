@@ -25,6 +25,7 @@
 */
 #include "catch_amalgamated.hpp"
 #include "libheif/heif.h"
+#include "libheif/heif_sequences.h"
 #include "api_structs.h"
 #include <cstdint>
 #include <stdio.h>
@@ -44,6 +45,72 @@ TEST_CASE("parse file layout") {
   Error err = file.read(reader, heif_get_global_security_limits());
 
   REQUIRE(err.error_code == heif_error_Ok);
+}
 
-  // TODO: read file where 'meta' box is not the first one after 'ftyp'
+
+TEST_CASE("meta box with size 0 (extends to end of file)") {
+  // The 'meta' box uses a box size of 0, which per ISO/IEC 14496-12 clause 4.2
+  // means it extends to the end of the file (legal for the last box). In this
+  // file 'meta' also appears after the media data rather than first. It must
+  // parse successfully (libavif / Chromium read and render this file).
+  auto istr = std::unique_ptr<std::istream>(new std::ifstream(tests_data_directory + "/meta_size_zero.avif", std::ios::binary));
+  auto reader = std::make_shared<StreamReader_istream>(std::move(istr));
+
+  FileLayout file;
+  Error err = file.read(reader, heif_get_global_security_limits());
+
+  REQUIRE(err.error_code == heif_error_Ok);
+  REQUIRE(file.get_meta_box() != nullptr);
+
+  // The resolved 'meta' box must yield the correct image metadata. Read the
+  // file through the high-level API and check the primary image dimensions.
+  // These come from the 'ispe' box, so no AV1 decoder is required.
+  heif_context* context = get_context_for_test_file("meta_size_zero.avif");
+  heif_image_handle* handle = get_primary_image_handle(context);
+  REQUIRE(heif_image_handle_get_ispe_width(handle) == 33);
+  REQUIRE(heif_image_handle_get_ispe_height(handle) == 11);
+  heif_image_handle_release(handle);
+  heif_context_free(context);
+}
+
+
+TEST_CASE("mini box with size 0 (extends to end of file)") {
+  // A top-level 'mini' box (MIAF low-overhead AVIF) with a box size of 0, which
+  // per ISO/IEC 14496-12 clause 4.2 means it extends to the end of the file.
+  auto istr = std::unique_ptr<std::istream>(new std::ifstream(tests_data_directory + "/mini_size_zero.avif", std::ios::binary));
+  auto reader = std::make_shared<StreamReader_istream>(std::move(istr));
+
+  FileLayout file;
+  Error err = file.read(reader, heif_get_global_security_limits());
+
+  REQUIRE(err.error_code == heif_error_Ok);
+  REQUIRE(file.get_mini_box() != nullptr);
+
+  heif_context* context = get_context_for_test_file("mini_size_zero.avif");
+  heif_image_handle* handle = get_primary_image_handle(context);
+  REQUIRE(heif_image_handle_get_ispe_width(handle) == 256);
+  REQUIRE(heif_image_handle_get_ispe_height(handle) == 256);
+  heif_image_handle_release(handle);
+  heif_context_free(context);
+}
+
+
+TEST_CASE("moov box with size 0 (extends to end of file)") {
+  // A sequence file laid out as 'ftyp' + 'mdat' + 'moov', where the trailing
+  // 'moov' box uses a box size of 0 (extends to end of file, per ISO/IEC
+  // 14496-12 clause 4.2). This is the common non-fast-start ordering.
+  auto istr = std::unique_ptr<std::istream>(new std::ifstream(tests_data_directory + "/moov_size_zero.heif", std::ios::binary));
+  auto reader = std::make_shared<StreamReader_istream>(std::move(istr));
+
+  FileLayout file;
+  Error err = file.read(reader, heif_get_global_security_limits());
+
+  REQUIRE(err.error_code == heif_error_Ok);
+  REQUIRE(file.get_moov_box() != nullptr);
+
+  // The resolved 'moov' box must yield a readable sequence track.
+  heif_context* context = get_context_for_test_file("moov_size_zero.heif");
+  REQUIRE(heif_context_has_sequence(context) == 1);
+  REQUIRE(heif_context_number_of_sequence_tracks(context) == 1);
+  heif_context_free(context);
 }
