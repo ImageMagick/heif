@@ -15,6 +15,11 @@ For AVIF, libaom, dav1d, svt-av1, or rav1e are used as codecs.
 libheif can be built with a subset of the supported codecs to keep the size and the number of dependencies low.
 Alternatively, the libheif codecs can also be built as separate plugins that can be installed and loaded dynamically when used.
 
+> **Project status (August 2026).** libheif and libde265 are maintained by a single independent developer with almost
+> no recurring funding, while 37 security advisories had to be investigated, fixed and released in 2026 alone.
+> If libheif is part of your product or service, please read [Funding](#funding) and [Commercial support](#commercial-support).
+> Security issues are reported as described in [SECURITY.md](SECURITY.md).
+
 ## Supported features
 
 libheif has support for:
@@ -32,16 +37,16 @@ libheif has support for:
 * streaming of images and video by requesting data from the network through a data-reader interface
 
 Supported codecs:
-| Format       |  Decoders           |  Encoders                    |
-|:-------------|:-------------------:|:----------------------------:|
-| HEIC         | libde265, ffmpeg    | x265, kvazaar                |
-| AVIF         | libaom, dav1d       | libaom, rav1e, svt-av1       |
-| VVC          | vvdec               | vvenc, uvg266                |
-| AVC          | openh264, ffmpeg    | x264                         |
-| JPEG         | libjpeg(-turbo)     | libjpeg(-turbo)              |
-| JPEG2000     | OpenJPEG            | OpenJPEG                     |
-| HTJ2K        | OpenJPEG            | OpenJPH                      |
-| uncompressed | built-in            | built-in                     |
+| Format       |  Decoders               |  Encoders                    |
+|:-------------|:-----------------------:|:----------------------------:|
+| HEIC         | libde265, ffmpeg        | x265, kvazaar                |
+| AVIF         | libaom, dav1d, ffmpeg   | libaom, rav1e, svt-av1       |
+| VVC          | vvdec, ffmpeg           | vvenc, uvg266                |
+| AVC          | openh264, ffmpeg        | x264                         |
+| JPEG         | libjpeg(-turbo), ffmpeg | libjpeg(-turbo)              |
+| JPEG2000     | OpenJPEG, ffmpeg        | OpenJPEG                     |
+| HTJ2K        | OpenJPEG, ffmpeg        | OpenJPH                      |
+| uncompressed | built-in                | built-in                     |
 
 ## Programming API
 
@@ -296,8 +301,8 @@ You can also add plugin directories programmatically.
 ## Usage
 
 libheif comes with a set of command line tools:
-* `heif-dec` for decoding HEIF images to JPEG or PNG. It can also decode image sequences or MP4 video.
-* `heif-enc` for encoding JPEG, PNG, TIFF, or Y4M images to HEIF images, image sequences or MP4 video.
+* `heif-dec` for decoding HEIF images to JPEG, PNG, TIFF, WebP, or Y4M. It can also decode image sequences or MP4 video.
+* `heif-enc` for encoding JPEG, PNG, TIFF, WebP, Y4M, raw pixel data, or HEIF/AVIF images to HEIF/AVIF images, image sequences, or MP4 video.
 * `heif-info` for getting some overview information about the HEIF file or (using the `-d` option) to dump the full box structure of the file.
 * `heif-view` for displaying HEIF image sequences
 
@@ -312,6 +317,13 @@ When you are programming against the libheif API and you need to process very la
 When using `heif-dec`, there is the option to switch off security limits with `--disable-limits`.
 In case a third-party software is using libheif, but does not give you a way to switch off the limits, you can set an environment variable `LIBHEIF_SECURITY_LIMITS=off` to switch it off globally.
 Clearly, only do this if you know what you are doing and you are sure not to process malicious files.
+
+### Reporting security issues
+
+Please report vulnerabilities through
+[GitHub private vulnerability reporting](https://github.com/strukturag/libheif/security/advisories/new),
+not in public issues. [SECURITY.md](SECURITY.md) describes what a report must contain, what is in scope,
+which versions receive fixes, and how fixes are released.
 
 ## Encoder benchmark
 
@@ -353,8 +365,8 @@ This is `libheif` running in JavaScript in your browser.
 ## Example programs
 
 Some example programs are provided in the `examples` directory.
-The program `heif-dec` converts all images stored in an HEIF/AVIF file to JPEG or PNG.
-`heif-enc` lets you convert JPEG files to HEIF/AVIF.
+The program `heif-dec` converts all images stored in an HEIF/AVIF file to JPEG, PNG, TIFF, WebP, or Y4M.
+`heif-enc` lets you convert JPEG, PNG, TIFF, WebP, Y4M, raw pixel data (`.raw`, `.img`), and HEIF/AVIF files to HEIF/AVIF.
 The program `heif-info` is a simple, minimal decoder that dumps the file structure to the console.
 
 For example convert `example.heic` to JPEGs and one of the JPEGs back to HEIF:
@@ -388,14 +400,20 @@ to update the gdk-pixbuf loader database.
 
 ## Software using libheif
 
+libheif is the HEIF/AVIF implementation behind most open-source image software. Because ImageMagick, libvips,
+GDAL and the desktop image loaders depend on it, it is also used indirectly by a large number of web services,
+content management systems and image processing pipelines built on these libraries.
+
 * [GIMP](https://www.gimp.org/)
 * [Krita](https://krita.org)
 * [ImageMagick](https://imagemagick.org/)
 * [GraphicsMagick](http://www.graphicsmagick.org/)
 * [darktable](https://www.darktable.org)
 * [digiKam 7.0.0](https://www.digikam.org/)
-* [libvips](https://github.com/libvips/libvips)
+* [libvips](https://github.com/libvips/libvips) and [sharp](https://sharp.pixelplumbing.com/) (Node.js)
+* [pillow-heif](https://pypi.org/project/pillow-heif/) (Python / Pillow)
 * [kImageFormats](https://api.kde.org/frameworks/kimageformats/html/index.html)
+* GNOME desktop (through the gdk-pixbuf loader included in libheif)
 * [libGD](https://libgd.github.io/)
 * [Kodi HEIF image decoder plugin](https://kodi.wiki/view/Add-on:HEIF_image_decoder)
 * [bimg](https://github.com/h2non/bimg)
@@ -407,12 +425,56 @@ to update the gdk-pixbuf loader database.
 
 [![libheif packaging status](https://repology.org/badge/vertical-allrepos/libheif.svg?exclude_unsupported=1&columns=3&exclude_sources=modules,site&header=libheif%20packaging%20status)](https://repology.org/project/libheif/versions)
 
-## Sponsors
+## Funding
 
-Since I work as an independent developer, I need your support to be able to allocate time for libheif.
-You can [sponsor](https://github.com/sponsors/farindk) the development using the link in the right hand column.
+libheif and libde265 are developed and maintained by me, Dirk Farin, as an independent developer.
+The libraries are used by practically every open-source application and service that handles HEIC or AVIF
+files (see [Software using libheif](#software-using-libheif)), but the maintenance work is almost entirely unfunded.
 
-A big thank you goes to these major sponsors for supporting the development of libheif:
+From January to August 2026, 37 security advisories were published for libheif, most of them found with
+automated tools by organizations that use libheif in their products, and six releases were made mainly to ship
+security fixes. Each fix means reproducing, fixing, testing, fuzzing and releasing, currently done in evenings and
+on weekends. Details are in [SECURITY.md](SECURITY.md).
+
+This is not a temporary situation. HEIF is built on a very flexible container format with wide value ranges and many
+loosely specified features, so the space of feature combinations that has to be validated is huge, and improved automated
+vulnerability discovery keeps finding new corners of it.
+[SECURITY.md](SECURITY.md#why-heif-files-are-hard-to-parse-safely) explains this in more detail.
+
+Recurring funding is what allows this work to happen during regular working hours.
+If libheif is part of your product or service, please consider one of these options:
+
+* **[GitHub Sponsors](https://github.com/sponsors/farindk)**, monthly or one-time. There are tiers for individuals,
+  small companies and larger commercial users. Organizations can pay by invoice through GitHub.
+* **[Commercial support](#commercial-support)** if you need pre-notification of security advisories, a direct contact,
+  or dedicated engineering time.
+* **Funding specific work.** New features, hardening of a subsystem your product relies on, or codec integrations can be
+  sponsored as scoped one-time projects. Several features of libheif were developed this way.
+
+A machine-readable description of the funding needs is in [funding.json](funding.json).
+
+### Commercial support
+
+For organizations that depend on libheif or libde265, commercial support is available directly from the author.
+Invoicing and vendor onboarding are possible. A support agreement can include:
+
+* pre-release notification of embargoed security advisories,
+* a direct contact for security and integration questions,
+* an agreed number of engineering hours per month (triage of your reports, review of your patches,
+  backports to the version you ship, integration help),
+* scoped projects (hardening, fuzzing, features, performance work).
+
+Contact: Dirk Farin <dirk.farin@gmail.com>
+
+Sponsorship through GitHub Sponsors funds the project as a whole and does not include these services.
+
+### Sponsors
+
+As of August 2026, the recurring sponsorship for libheif and libde265 amounts to **$41 per month**, against a goal of
+$5,000 per month, which would fund about two days per week of maintenance (see [funding.json](funding.json)).
+Thank you to everyone who sponsors the project.
+
+Thank you also to these organizations, which funded the development of specific features in the past:
 
 * AOMedia
 * OGC (Open Geospatial Consortium)

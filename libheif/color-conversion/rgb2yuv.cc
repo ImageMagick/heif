@@ -40,6 +40,10 @@ Op_RGB_to_YCbCr<Pixel>::state_after_conversion(const ColorState& input_state,
     return {};
   }
 
+  if (has_samples_wider_than_16bit(input_state)) {
+    return {};
+  }
+
   // TODO: add support for <8 bpp
   if (input_state.bits_per_pixel < 8) {
     return {};
@@ -117,6 +121,14 @@ Op_RGB_to_YCbCr<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
 
   int bpp = input->get_bits_per_pixel(heif_channel_R);
   if (bpp < 8 || (bpp > 8) != hdr) {
+    return Error::InternalError;
+  }
+
+  // All three colour planes are reinterpreted as the same 'Pixel' type below, so their
+  // bit depths (and hence plane strides) must match. Differing bit depths would make the
+  // shared stride assumption read past the smaller plane.
+  if (input->get_bits_per_pixel(heif_channel_G) != bpp ||
+      input->get_bits_per_pixel(heif_channel_B) != bpp) {
     return Error::InternalError;
   }
 
@@ -231,13 +243,13 @@ Op_RGB_to_YCbCr<Pixel>::convert_colorspace(const std::shared_ptr<const HeifPixel
       if (matrix_coeffs == 0) {
         if (full_range_flag) {
           out_cb[(y / subV) * out_cb_stride + (x / subH)] = in_b[y * in_b_stride + x];
-          out_cr[(y / subV) * out_cb_stride + (x / subH)] = in_r[y * in_b_stride + x];
+          out_cr[(y / subV) * out_cr_stride + (x / subH)] = in_r[y * in_r_stride + x];
         }
         else {
           out_cb[(y / subV) * out_cb_stride + (x / subH)] = (Pixel) clip_f_u16(
               ((in_b[y * in_b_stride + x] * 224.0f) / 256) + limited_range_offset, fullRange);
-          out_cr[(y / subV) * out_cb_stride + (x / subH)] = (Pixel) clip_f_u16(
-              ((in_r[y * in_b_stride + x] * 224.0f) / 256) + limited_range_offset, fullRange);
+          out_cr[(y / subV) * out_cr_stride + (x / subH)] = (Pixel) clip_f_u16(
+              ((in_r[y * in_r_stride + x] * 224.0f) / 256) + limited_range_offset, fullRange);
         }
       }
       else if (matrix_coeffs == 8) {
@@ -329,6 +341,10 @@ Op_RRGGBBxx_HDR_to_YCbCr420::state_after_conversion(const ColorState& input_stat
         input_state.chroma == heif_chroma_interleaved_RRGGBBAA_BE ||
         input_state.chroma == heif_chroma_interleaved_RRGGBBAA_LE) ||
       input_state.bits_per_pixel <= 8) {
+    return {};
+  }
+
+  if (has_samples_wider_than_16bit(input_state)) {
     return {};
   }
 
@@ -523,6 +539,12 @@ Op_RGB24_32_to_YCbCr::state_after_conversion(const ColorState& input_state,
   if (input_state.colorspace != heif_colorspace_RGB ||
       (input_state.chroma != heif_chroma_interleaved_RGB &&
        input_state.chroma != heif_chroma_interleaved_RGBA)) {
+    return {};
+  }
+
+  // The interleaved input is indexed as bytes and the output is hard-coded to 8 bits,
+  // so this operator handles 8-bit input only.
+  if (input_state.bits_per_pixel != 8) {
     return {};
   }
 
@@ -820,6 +842,12 @@ Op_RGB24_32_to_YCbCr444_GBR::state_after_conversion(const ColorState& input_stat
   if (input_state.colorspace != heif_colorspace_RGB ||
       (input_state.chroma != heif_chroma_interleaved_RGB &&
        input_state.chroma != heif_chroma_interleaved_RGBA)) {
+    return {};
+  }
+
+  // The interleaved input is indexed as bytes and the output is hard-coded to 8 bits,
+  // so this operator handles 8-bit input only.
+  if (input_state.bits_per_pixel != 8) {
     return {};
   }
 

@@ -33,6 +33,10 @@ Op_mono_to_YCbCr420::state_after_conversion(const ColorState& input_state,
     return {};
   }
 
+  if (has_samples_wider_than_16bit(input_state)) {
+    return {};
+  }
+
   std::vector<ColorStateWithCost> states;
 
   ColorState output_state;

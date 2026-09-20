@@ -96,6 +96,19 @@ Op_Any_RGB_to_YCbCr_420_Sharp::state_after_conversion(
     return {};
   }
 
+  // The alpha plane is read with the sample width and step derived from the color
+  // channels (input_bytes_per_sample below comes from heif_channel_R), so a planar
+  // input whose alpha plane has a different bit depth would be indexed with the wrong
+  // stride and read two bytes per 1-byte sample: a heap over-read past the alpha plane
+  // (OSS-Fuzz 6503781601443840). Such a state is reachable because Op_YCbCr_to_RGB
+  // deliberately copies the alpha plane through at its own depth while converting the
+  // color channels, so 10-bit R/G/B next to an 8-bit alpha is normal here. Decline it,
+  // exactly as every other RGB operator does; the pipeline then inserts
+  // Op_adjust_alpha_bit_depth first and hands us a matched-depth image.
+  if (input_state.has_alpha && input_state.get_alpha_bits_per_pixel() != input_state.bits_per_pixel) {
+    return {};
+  }
+
   if (target_state.chroma != heif_chroma_420) {
     return {};
   }

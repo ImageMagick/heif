@@ -28,6 +28,7 @@
 #include "api_structs.h"
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <utility>
 
 
@@ -116,8 +117,8 @@ void SampleAuxInfoHelper::write_all(const std::shared_ptr<Box>& parent, const st
 }
 
 
-SampleAuxInfoReader::SampleAuxInfoReader(std::shared_ptr<Box_saiz> saiz,
-                                         std::shared_ptr<Box_saio> saio,
+SampleAuxInfoReader::SampleAuxInfoReader(const std::shared_ptr<Box_saiz>& saiz,
+                                         const std::shared_ptr<Box_saio>& saio,
                                          const std::vector<std::shared_ptr<Chunk>>& chunks)
 {
   m_saiz = saiz;
@@ -949,7 +950,7 @@ void Track::add_chunk(heif_compression_format format)
   m_stsc->add_chunk(chunkIdx);
 }
 
-void Track::set_sample_description_box(std::shared_ptr<Box> sample_description_box)
+void Track::set_sample_description_box(const std::shared_ptr<Box>& sample_description_box)
 {
   // --- add 'taic' when we store timestamps as sample auxiliary information
 
@@ -1016,7 +1017,7 @@ Error Track::write_sample_data(const std::vector<uint8_t>& raw_data, uint32_t sa
 
   if (m_track_info.with_sample_content_ids != heif_sample_aux_info_presence_none) {
     if (gimi_contentID) {
-      auto id = *gimi_contentID;
+      const auto& id = *gimi_contentID;
       const char* id_str = id.c_str();
       std::vector<uint8_t> id_vector;
       id_vector.insert(id_vector.begin(), id_str, id_str + id.length() + 1);
@@ -1227,8 +1228,17 @@ Result<heif_raw_sequence_sample*> Track::get_next_sample_raw_data(const heif_dec
     return readResult.error();
   }
 
-  heif_raw_sequence_sample* sample = new heif_raw_sequence_sample();
-  sample->data = **readResult;
+  // Keep the sample in a unique_ptr until the single success exit below. Several
+  // error returns follow (sample auxiliary info driven by file bytes), and the
+  // Result<T*> error variant cannot carry the pointer back to the caller, so a raw
+  // 'new' here leaked the sample together with its full payload copy on every one
+  // of them (GHSA-4rv4-953r-p24q).
+  auto sample = std::make_unique<heif_raw_sequence_sample>();
+
+  // Move the payload out of the function-local extent instead of copying it. The
+  // extent is destroyed when this function returns anyway, and moving halves the
+  // peak memory needed per sample.
+  sample->data = std::move(**readResult);
 
   // read sample duration
 
@@ -1273,7 +1283,7 @@ Result<heif_raw_sequence_sample*> Track::get_next_sample_raw_data(const heif_dec
 
   m_next_sample_to_be_output++;
 
-  return sample;
+  return sample.release();
 }
 
 

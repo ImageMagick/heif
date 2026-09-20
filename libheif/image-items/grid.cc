@@ -27,6 +27,7 @@
 #include <mutex>
 #include <set>
 #include <algorithm>
+#include <utility>
 #include "api_structs.h"
 #include "security_limits.h"
 
@@ -247,7 +248,7 @@ static void wait_for_jobs(std::deque<std::future<Error> >* jobs) {
 }
 #endif
 
-Result<std::shared_ptr<HeifPixelImage>> ImageItem_Grid::decode_full_grid_image(const heif_decoding_options& options, DecodeTraversalState decode_state) const
+Result<std::shared_ptr<HeifPixelImage>> ImageItem_Grid::decode_full_grid_image(const heif_decoding_options& options, const DecodeTraversalState& decode_state) const
 {
   std::shared_ptr<HeifPixelImage> img; // the decoded image
 
@@ -460,9 +461,21 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_Grid::decode_full_grid_image(c
     return Error{heif_error_Canceled, heif_suberror_Unspecified, "Decoding the image was canceled"};
   }
 
-  if (img) {
-    img->add_warnings(*warnings.get());
+  if (!img) {
+    // No tile could be decoded and the output canvas was never created.
+    // Returning the null image would only produce a meaningless generic error
+    // further up. Return the first per-tile error instead, which names the
+    // actual cause, for example that no decoder plugin is installed (#1876).
+    if (!warnings->empty()) {
+      return warnings->front();
+    }
+
+    return Error{heif_error_Invalid_input,
+                 heif_suberror_Invalid_grid_data,
+                 "Grid image without tiles"};
   }
+
+  img->add_warnings(*warnings.get());
 
   return img;
 }
@@ -483,7 +496,7 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
                                                   std::shared_ptr<HeifPixelImage>& inout_image,
                                                   const heif_decoding_options& options,
                                                   int& progress_counter,
-                                                  std::shared_ptr<std::vector<Error> > warnings,
+                                                  const std::shared_ptr<std::vector<Error> >& warnings,
                                                   DecodeTraversalState decode_state) const
 {
   std::shared_ptr<HeifPixelImage> tile_img;
@@ -510,7 +523,7 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
     return error;
   }
 
-  auto decodeResult = tileItem->decode_image(options, false, 0, 0, decode_state);
+  auto decodeResult = tileItem->decode_image(options, false, 0, 0, std::move(decode_state));
   if (!decodeResult) {
     if (!options.strict_decoding) {
       // We ignore broken tiles. The un-pasted canvas region stays zero from calloc().
@@ -531,8 +544,11 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
 
   // --- generate the image canvas for combining all the tiles
 
-  if (!inout_image) { // this avoids that we normally have to lock a mutex
+  {
 #if ENABLE_PARALLEL_TILE_DECODING
+    // All threads have to take this mutex, even those that will only read `inout_image`.
+    // Otherwise, the image initialization would not be synchronized to them (they could,
+    // for example, see the image pointer before the image content initialization is visible).
     static std::mutex createImageMutex;
     std::lock_guard<std::mutex> lock(createImageMutex);
 #endif
@@ -556,7 +572,7 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
 
       grid_image->copy_metadata_from(*tile_img);
 
-      inout_image = grid_image; // We have to set this at the very end because of the unlocked check to `inout_image` above.
+      inout_image = grid_image;
     }
   }
 
@@ -599,7 +615,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_Grid::decode_grid_tile(const h
     return error;
   }
 
-  return tile_item->decode_compressed_image(options, false, 0, 0, decode_state);
+  return tile_item->decode_compressed_image(options, false, 0, 0, std::move(decode_state));
 }
 
 
@@ -784,7 +800,9 @@ Result<std::shared_ptr<ImageItem_Grid>> ImageItem_Grid::add_new_grid_item(HeifCo
   file->add_iref_reference(grid_id, fourcc("dimg"), tile_ids);
 
   // Add ISPE property
-  file->add_ispe_property(grid_id, output_width, output_height, false);
+  if (Error err = file->add_ispe_property(grid_id, output_width, output_height, false)) {
+    return err;
+  }
 
   // PIXI property will be added when the first tile is set
 
@@ -850,7 +868,9 @@ Error ImageItem_Grid::add_image_tile(uint32_t tile_x, uint32_t tile_y,
 
     // Add transformative properties
 
-    get_context()->get_heif_file()->add_orientation_properties(get_id(), m_grid_orientation);
+    if (Error err = get_context()->get_heif_file()->add_orientation_properties(get_id(), m_grid_orientation)) {
+      return err;
+    }
   }
 
   return Error::Ok;

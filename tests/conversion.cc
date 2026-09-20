@@ -27,6 +27,7 @@
 #include <iomanip>
 #include "catch_amalgamated.hpp"
 #include "color-conversion/colorconversion.h"
+#include "color-conversion/hdr_sdr.h"
 #include "image/pixelimage.h"
 #include <cmath>
 
@@ -893,4 +894,199 @@ TEST_CASE("Mismatched alpha bit depth - conversion correctness") {
     CHECK(p[2] == 192);  // B (unchanged)
     CHECK(p[3] == 200);  // A (10-bit 800 >> 2 = 200)
   }
+
+#ifdef HAVE_LIBSHARPYUV
+  // Regression test for OSS-Fuzz 6503781601443840 (file_fuzzer, ASan
+  // heap-buffer-overflow READ in Op_Any_RGB_to_YCbCr_420_Sharp).
+  //
+  // Op_YCbCr_to_RGB copies the alpha plane through at its own bit depth while
+  // converting the color channels, so a decoded HEIC with 10-bit color and an 8-bit
+  // alpha auxiliary image produces exactly this planar RGB state. The sharp-yuv
+  // operator then read the alpha plane with the sample width and step taken from the
+  // color channels: it walked a 1-byte-per-sample plane with a step of 2 and read two
+  // bytes per sample, running off the end of the plane. Every other RGB operator
+  // declines a mismatched alpha depth, which lets Op_adjust_alpha_bit_depth normalize
+  // the plane first; the sharp operator was missing that guard.
+  //
+  // The image must be big enough that the doubled indexing leaves the allocation
+  // rather than landing in the stride padding: 64x64 (the size of the original PoC)
+  // over-reads, a small image like the 4x2 above would not.
+  SECTION("10-bit RGB color with 8-bit alpha -> YCbCr 420 with sharp yuv") {
+    const uint32_t width = 64;
+    const uint32_t height = 64;
+
+    heif_color_conversion_options sharp_options{};
+    sharp_options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_sharp_yuv;
+    sharp_options.preferred_chroma_upsampling_algorithm = heif_chroma_upsampling_bilinear;
+    sharp_options.only_use_preferred_chroma_algorithm = true;
+
+    auto img = std::make_shared<HeifPixelImage>();
+    img->create(width, height, heif_colorspace_RGB, heif_chroma_444);
+
+    img->fill_new_channel(heif_channel_R, 512, width, height, 10, nullptr);
+    img->fill_new_channel(heif_channel_G, 256, width, height, 10, nullptr);
+    img->fill_new_channel(heif_channel_B, 768, width, height, 10, nullptr);
+    img->fill_new_channel(heif_channel_Alpha, 200, width, height, 8, nullptr);
+
+    REQUIRE(img->get_bits_per_pixel(heif_channel_R) == 10);
+    REQUIRE(img->get_bits_per_pixel(heif_channel_Alpha) == 8);
+
+    nclx_profile target_nclx = nclx_profile::defaults();
+    target_nclx.set_matrix_coefficients(heif_matrix_coefficients_ITU_R_BT_601_6);
+
+    auto result = convert_colorspace(img, heif_colorspace_YCbCr, heif_chroma_420,
+                                     target_nclx, 10, sharp_options, nullptr,
+                                     heif_get_disabled_security_limits());
+    REQUIRE(result);
+    auto out = *result;
+
+    CHECK(out->get_colorspace() == heif_colorspace_YCbCr);
+    CHECK(out->get_chroma_format() == heif_chroma_420);
+    REQUIRE(out->has_channel(heif_channel_Alpha));
+    CHECK(out->get_bits_per_pixel(heif_channel_Alpha) == 10);
+
+    // The 8-bit alpha is widened to 10 bits by bit replication before the sharp
+    // conversion runs: 200 -> (200 << 2) | (200 >> 6) = 803.
+    size_t stride;
+    const uint8_t* p_a = out->get_channel_memory(heif_channel_Alpha, &stride);
+    REQUIRE(p_a != nullptr);
+    const uint16_t* a16 = reinterpret_cast<const uint16_t*>(p_a);
+    CHECK(a16[0] == 803);
+    CHECK(a16[(height - 1) * (stride / 2) + (width - 1)] == 803);
+  }
+#endif
+}
+
+
+// Regression test for GHSA-8857-r8x5-7499. Op_to_hdr_planes widens an 8-bit input to a higher
+// bit depth with out = (in << (m-8)) | (in >> (16-m)). For m > 16 the right shift exponent
+// (16-m) becomes negative, which is undefined behavior (UBSan: "shift exponent is negative"),
+// and m > 16 also does not fit the uint16_t output plane. The operation must only offer/perform
+// the conversion for 8 < m <= 16.
+TEST_CASE("Op_to_hdr_planes rejects out-of-range output bit depth", "[heif_image]")
+{
+  heif_color_conversion_options options{};
+  std::unique_ptr<heif_color_conversion_options_ext, void(*)(heif_color_conversion_options_ext*)>
+      options_ext(heif_color_conversion_options_ext_alloc(), heif_color_conversion_options_ext_free);
+
+  ColorState input_state(heif_colorspace_YCbCr, heif_chroma_444, false, 8);
+  nclx_default_if_undefined(input_state);
+
+  const uint32_t width = 4;
+  const uint32_t height = 4;
+  auto img = std::make_shared<HeifPixelImage>();
+  img->create(width, height, heif_colorspace_YCbCr, heif_chroma_444);
+  img->fill_new_channel(heif_channel_Y, 0xAB, width, height, 8, nullptr);
+  img->fill_new_channel(heif_channel_Cb, 0xAB, width, height, 8, nullptr);
+  img->fill_new_channel(heif_channel_Cr, 0xAB, width, height, 8, nullptr);
+
+  Op_to_hdr_planes op;
+
+  SECTION("supported target bit depths widen correctly") {
+    for (int out_bits : {9, 10, 16}) {
+      ColorState target_state(heif_colorspace_YCbCr, heif_chroma_444, false, out_bits);
+      nclx_default_if_undefined(target_state);
+
+      auto states = op.state_after_conversion(input_state, target_state, options, *options_ext);
+      REQUIRE(states.size() == 1);
+
+      auto result = op.convert_colorspace(img, input_state, target_state, options, *options_ext,
+                                          heif_get_disabled_security_limits());
+      REQUIRE(result);
+      size_t stride;
+      const uint16_t* p = (const uint16_t*) (*result)->get_channel_memory(heif_channel_Y, &stride);
+      REQUIRE(p != nullptr);
+      const uint16_t expected = (uint16_t) ((0xAB << (out_bits - 8)) | (0xAB >> (16 - out_bits)));
+      CHECK(p[0] == expected);
+    }
+  }
+
+  SECTION("out-of-range target bit depths are rejected without UB") {
+    for (int out_bits : {17, 20, 24, 32}) {
+      ColorState target_state(heif_colorspace_YCbCr, heif_chroma_444, false, out_bits);
+      nclx_default_if_undefined(target_state);
+
+      // The pipeline must not select this operation for an unsupported target.
+      auto states = op.state_after_conversion(input_state, target_state, options, *options_ext);
+      CHECK(states.empty());
+
+      // A direct call must return an error instead of performing the negative shift.
+      auto result = op.convert_colorspace(img, input_state, target_state, options, *options_ext,
+                                          heif_get_disabled_security_limits());
+      CHECK_FALSE(result);
+    }
+  }
+}
+
+
+// Regression test for GHSA-2c3g-p585-8rpq. Op_RGB24_32_to_YCbCr (like the other conversion
+// operations) used to compute the row offset y * stride in 32-bit int, which overflows as soon
+// as a plane exceeds 2 GB and made the conversion read from a wild address. All internal
+// strides are size_t since v1.19.6. Reproducing the overflow inherently needs a plane of more
+// than 2 GB (about 5 GB in total for this test), so the test is hidden from the default run.
+// Run it explicitly with:
+//     ./tests/conversion "[large-memory]"
+TEST_CASE("RGB24 to YCbCr conversion with planes larger than 2 GB", "[.large-memory]")
+{
+  // Same size as the advisory PoC. The row stride is about 98 KB, so y * stride exceeds
+  // INT32_MAX for every row beyond roughly 21850.
+  const uint32_t w = 32767;
+  const uint32_t h = 32767;
+
+  // Creates an interleaved RGB image with a red first row and a blue last row.
+  auto make_image = [](uint32_t width, uint32_t height) {
+    auto img = std::make_shared<HeifPixelImage>();
+    img->create(width, height, heif_colorspace_RGB, heif_chroma_interleaved_RGB);
+    auto err = img->add_channel(heif_channel_interleaved, width, height, 8, nullptr);
+    REQUIRE(!err);
+
+    size_t stride;
+    uint8_t* first = img->get_channel_memory(heif_channel_interleaved, &stride);
+    uint8_t* last = first + static_cast<size_t>(height - 1) * stride;
+    for (uint32_t x = 0; x < width; x++) {
+      first[3 * x + 0] = 255;
+      first[3 * x + 1] = 0;
+      first[3 * x + 2] = 0;
+      last[3 * x + 0] = 0;
+      last[3 * x + 1] = 0;
+      last[3 * x + 2] = 255;
+    }
+    return img;
+  };
+
+  // Force nearest-neighbor chroma downsampling: this selects the single-step, per-pixel
+  // Op_RGB24_32_to_YCbCr from the advisory. The default (sharp yuv, if libsharpyuv is
+  // available) adjusts luma based on the neighboring rows, which are left uninitialized here.
+  heif_color_conversion_options options;
+  heif_color_conversion_options_set_defaults(&options);
+  options.preferred_chroma_downsampling_algorithm = heif_chroma_downsampling_nearest_neighbor;
+  options.only_use_preferred_chroma_algorithm = true;
+
+  auto convert = [&](const std::shared_ptr<HeifPixelImage>& img) {
+    auto result = convert_colorspace(img, heif_colorspace_YCbCr, heif_chroma_420,
+                                     nclx_profile::defaults(), 8, options, nullptr,
+                                     heif_get_disabled_security_limits());
+    REQUIRE(result);
+    return *result;
+  };
+
+  auto big = make_image(w, h);
+  size_t in_stride;
+  big->get_channel_memory(heif_channel_interleaved, &in_stride);
+  REQUIRE(static_cast<uint64_t>(in_stride) * (h - 1) > INT32_MAX); // the last row is only reachable with 64-bit offsets
+
+  auto big_out = convert(big);
+  big.reset();
+  auto small_out = convert(make_image(2, 2));
+
+  // The first and the last row of the large image must convert to the same luma values as
+  // the two rows of the small reference image.
+  size_t big_stride, small_stride;
+  const uint8_t* big_y = big_out->get_channel_memory(heif_channel_Y, &big_stride);
+  const uint8_t* small_y = small_out->get_channel_memory(heif_channel_Y, &small_stride);
+  REQUIRE(big_y[0] == small_y[0]);
+  REQUIRE(big_y[w - 1] == small_y[0]);
+  REQUIRE(big_y[static_cast<size_t>(h - 1) * big_stride] == small_y[small_stride]);
+  REQUIRE(big_y[static_cast<size_t>(h - 1) * big_stride + (w - 1)] == small_y[small_stride]);
+  REQUIRE(small_y[0] != small_y[small_stride]);
 }

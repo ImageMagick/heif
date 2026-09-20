@@ -53,6 +53,27 @@ struct ColorState
 
 std::ostream& operator<<(std::ostream& ostr, const ColorState& state);
 
+
+// True if 'state' has a colour or alpha component wider than 16 bits.
+//
+// Every conversion operator reads and writes sample data through uint8_t* or uint16_t*
+// and derives shift amounts from the bit depth, so none of them can handle a wider
+// component. Images with wider components do exist: 'unci' components may be up to 256
+// bits and we store up to 128 of them (64-bit integers, 32/64-bit floats, complex
+// numbers) so that they can be read through the component API.
+//
+// An operator that cannot handle a bit depth must not offer itself to the pipeline for
+// it, so each operator states its own supported range in state_after_conversion(). This
+// helper spells out the upper bound they currently all share; operators with a tighter
+// or different range (an exact 8 bits, or an explicit list) say so themselves instead.
+// When an operator gains support for wider samples it simply stops calling this, and the
+// catch-all in convert_colorspace() can go away.
+inline bool has_samples_wider_than_16bit(const ColorState& state)
+{
+  return state.bits_per_pixel > 16 ||
+         (state.has_alpha && state.get_alpha_bits_per_pixel() > 16);
+}
+
 // These are some integer constants for typical color conversion Op speed costs.
 // The integer value is the speed cost. Any other integer can be assigned to the speed cost.
 enum SpeedCosts
@@ -67,7 +88,7 @@ enum SpeedCosts
 
 struct ColorStateWithCost
 {
-  ColorStateWithCost(ColorState c, int s) : color_state(std::move(c)), speed_costs(s) {}
+  ColorStateWithCost(ColorState c, int s) : color_state(c), speed_costs(s) {}
 
   ColorState color_state;
 

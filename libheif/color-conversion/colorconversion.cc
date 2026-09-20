@@ -618,6 +618,54 @@ Result<std::shared_ptr<HeifPixelImage>> convert_colorspace(const std::shared_ptr
     return input;
   }
   else {
+    // Every color-conversion operator is written for 8-bit or 16-bit integer samples.
+    // They access the planes through uint8_t* / uint16_t* and derive shift amounts and
+    // midpoint values from the bit depth (e.g. '128 << (bpp - 8)' in Op_mono_to_YCbCr420).
+    // An 'unci' component may however declare a bit depth of up to 256 bits, of which we
+    // accept up to 128 (64-bit integers, 32/64-bit floats, complex numbers). Those are
+    // stored by HeifPixelImage so that they can be read through the component API. A
+    // 64-bit monochrome component reached Op_mono_to_YCbCr420 and shifted an 'int' by
+    // 56 (OSS-Fuzz 5154611212910592). A nop conversion is handled above and still hands
+    // the image through untouched, so wide components stay accessible to the caller.
+    //
+    // This is a backstop, not the primary defence. The constraint belongs in each
+    // operator's state_after_conversion(), and every operator now declares it there
+    // (most through has_samples_wider_than_16bit()), so construct_pipeline() above
+    // already fails for a wider input and a real conversion never reaches this loop.
+    // Keep it until an operator actually supports more than 16 bits per component,
+    // then remove it together with that operator's call to the helper.
+
+    for (heif_channel channel : channels) {
+      if (input->get_bits_per_pixel(channel) > 16) {
+        return Error{heif_error_Unsupported_feature,
+                     heif_suberror_Unsupported_bit_depth,
+                     "Color conversion of images with more than 16 bits per component is not supported."};
+      }
+    }
+
+    // The YCbCr color-conversion operators assume that luma and chroma share a
+    // single bit depth: several of them read the chroma planes with a sample width
+    // derived from the luma bit depth. A file may however declare per-component bit
+    // depths (e.g. 'unci'), so we reject a real (non-nop) conversion of any YCbCr
+    // image whose Y/Cb/Cr channels do not agree, rather than over-reading a narrower
+    // chroma plane (GHSA-w7mc-p8jc-p853). An identity decode (is_nop() above)
+    // returns the image untouched and is unaffected. RGB is intentionally not
+    // restricted here: the RGB operators support differing per-channel bit depths
+    // (e.g. 5/6/5). Alpha is handled separately by the individual operators.
+
+    if (input->get_colorspace() == heif_colorspace_YCbCr &&
+        input->has_channel(heif_channel_Y) &&
+        input->has_channel(heif_channel_Cb) &&
+        input->has_channel(heif_channel_Cr)) {
+      int bpp_y = input->get_bits_per_pixel(heif_channel_Y);
+      if (input->get_bits_per_pixel(heif_channel_Cb) != bpp_y ||
+          input->get_bits_per_pixel(heif_channel_Cr) != bpp_y) {
+        return Error{heif_error_Unsupported_feature,
+                     heif_suberror_Unsupported_bit_depth,
+                     "Color conversion of YCbCr images with differing luma and chroma bit depths is not supported."};
+      }
+    }
+
     return pipeline.convert_image(input, limits);
   }
 }

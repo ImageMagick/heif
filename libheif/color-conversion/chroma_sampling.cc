@@ -49,6 +49,10 @@ Op_YCbCr444_to_YCbCr420_average<Pixel>::state_after_conversion(const ColorState&
     return {};
   }
 
+  if (has_samples_wider_than_16bit(input_state)) {
+    return {};
+  }
+
   if (input_state.nclx.get_matrix_coefficients() == 0) {
     return {};
   }
@@ -273,6 +277,10 @@ Op_YCbCr444_to_YCbCr422_average<Pixel>::state_after_conversion(const ColorState&
     return {};
   }
 
+  if (has_samples_wider_than_16bit(input_state)) {
+    return {};
+  }
+
   if (input_state.nclx.get_matrix_coefficients() == 0) {
     return {};
   }
@@ -472,6 +480,10 @@ Op_YCbCr420_bilinear_to_YCbCr444<Pixel>::state_after_conversion(const ColorState
   bool hdr = !std::is_same<Pixel, uint8_t>::value;
 
   if ((input_state.bits_per_pixel > 8) != hdr) {
+    return {};
+  }
+
+  if (has_samples_wider_than_16bit(input_state)) {
     return {};
   }
 
@@ -753,6 +765,10 @@ Op_YCbCr422_bilinear_to_YCbCr444<Pixel>::state_after_conversion(const ColorState
   bool hdr = !std::is_same<Pixel, uint8_t>::value;
 
   if ((input_state.bits_per_pixel > 8) != hdr) {
+    return {};
+  }
+
+  if (has_samples_wider_than_16bit(input_state)) {
     return {};
   }
 

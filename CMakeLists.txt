@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.16.3) # Oldest Ubuntu LTS (20.04 currently)
 
-project(libheif LANGUAGES C CXX VERSION 1.23.2)
+project(libheif LANGUAGES C CXX VERSION 1.23.4)
 
 # compatibility_version is never allowed to be decreased for any specific SONAME.
 # Libtool in the libheif-1.15.1 release had set it to 17.0.0, so we have to use this for the v1.x.y versions.
@@ -45,6 +45,16 @@ if(NOT MSVC)
   add_compile_options(-Wno-error=conversion)
   add_compile_options(-Wno-error=unused-parameter)
   add_compile_options(-Wno-error=deprecated-declarations)
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
+    # GCC 16 speculatively devirtualizes a virtual call to several candidate targets and then runs
+    # -Warray-bounds on the inlined body of a candidate whose type is larger than the object that was
+    # actually allocated, even though that branch can never be taken at runtime. Examples are the
+    # std::shared_ptr control block destructor and virtual calls through a base class pointer:
+    #   "array subscript 'Box_meta[0]' is partly outside array bounds of 'unsigned char [56]'"
+    # This is a compiler false positive (observed with GCC 16.0 snapshots, 16.1 and 16.2), so do not
+    # let it fail the build.
+    add_compile_options(-Wno-error=array-bounds)
+  endif ()
   if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
       add_compile_options(-Wno-error=tautological-compare)
       add_compile_options(-Wno-error=tautological-constant-out-of-range-compare)
@@ -314,7 +324,7 @@ endif()
 
 # uncompressed
 
-option(WITH_UNCOMPRESSED_CODEC " Support internal ISO/IEC 23001-17 uncompressed codec (experimental) " OFF)
+option(WITH_UNCOMPRESSED_CODEC "Support internal ISO/IEC 23001-17 uncompressed codec" OFF)
 
 # Web codecs
 
@@ -543,7 +553,7 @@ if (WITH_HEADER_COMPRESSION OR WITH_UNCOMPRESSED_CODEC)
     find_package(Brotli)
     if (Brotli_FOUND)
         message("Brotli found")
-        list(APPEND REQUIRES_PRIVATE "libbrotlidec")
+        list(APPEND REQUIRES_PRIVATE "libbrotlidec" "libbrotlienc")
     else()
         message("Brotli not found")
     endif()
