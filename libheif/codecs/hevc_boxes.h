@@ -84,6 +84,10 @@ struct HEVCDecoderConfigurationRecord
   bool get_general_profile_compatibility_flag(int idx) const;
 
   bool is_profile_compatible(Profile) const;
+
+  // Whether the profile is one of those that the MIAF profiles for HEVC list for their images
+  // (ISO/IEC 23000-22, A.3 to A.5). The tier and the level are not considered.
+  bool is_miaf_profile() const;
 };
 
 
@@ -101,7 +105,7 @@ public:
   bool is_essential() const override { return true; }
 
 
-  std::string dump(Indent&) const override;
+  void dump(std::ostream&, Indent&, bool full_log) const override;
 
   const char* debug_box_name() const override { return "HEVC Configuration Item"; }
 

@@ -15,8 +15,8 @@ For AVIF, libaom, dav1d, svt-av1, or rav1e are used as codecs.
 libheif can be built with a subset of the supported codecs to keep the size and the number of dependencies low.
 Alternatively, the libheif codecs can also be built as separate plugins that can be installed and loaded dynamically when used.
 
-> **Project status (August 2026).** libheif and libde265 are maintained by a single independent developer with almost
-> no recurring funding, while 37 security advisories had to be investigated, fixed and released in 2026 alone.
+> **Project status (September 2026).** libheif and libde265 are maintained by a single independent developer with almost
+> no recurring funding, while 61 security advisories had to be investigated, fixed and released in 2026 alone.
 > If libheif is part of your product or service, please read [Funding](#funding) and [Commercial support](#commercial-support).
 > Security issues are reported as described in [SECURITY.md](SECURITY.md).
 
@@ -296,6 +296,13 @@ You can also add plugin directories programmatically.
 * The FFMPEG decoding plugin can make use of h265 hardware decoders. However, it currently (v1.17.0, ffmpeg v4.4.2) does not work
   correctly with all streams. Thus, libheif still prefers the libde265 decoder if it is available.
 
+* The FFMPEG decoder handles HEVC images with 8, 9, 10 and 12 bits per sample only. Images with 11 bits or with 13 to 15 bits
+  have to be decoded with libde265. Use libde265 v1.1.3 or later for these, since earlier versions do not decode image sequences
+  with more than 12 bits correctly.
+
+* HEVC images can have up to 15 bits per sample. HEVC itself allows 16 bits, but the `hvcC` box of the file format cannot signal
+  this bit depth. libheif refuses to encode HEVC images with 16 bits per sample.
+
 * The "webcodecs" HEVC decoder can only be used in emscripten builds since it uses the web-browser's API. For the same reason, it is not available as a plugin.
 
 ## Usage
@@ -431,8 +438,8 @@ libheif and libde265 are developed and maintained by me, Dirk Farin, as an indep
 The libraries are used by practically every open-source application and service that handles HEIC or AVIF
 files (see [Software using libheif](#software-using-libheif)), but the maintenance work is almost entirely unfunded.
 
-From January to August 2026, 37 security advisories were published for libheif, most of them found with
-automated tools by organizations that use libheif in their products, and six releases were made mainly to ship
+From January to September 2026, 61 security advisories were published for libheif, most of them found with
+automated tools by organizations that use libheif in their products, and nine releases were made mainly to ship
 security fixes. Each fix means reproducing, fixing, testing, fuzzing and releasing, currently done in evenings and
 on weekends. Details are in [SECURITY.md](SECURITY.md).
 
@@ -470,7 +477,7 @@ Sponsorship through GitHub Sponsors funds the project as a whole and does not in
 
 ### Sponsors
 
-As of August 2026, the recurring sponsorship for libheif and libde265 amounts to **$41 per month**, against a goal of
+As of September 2026, the recurring sponsorship for libheif and libde265 amounts to **$41 per month**, against a goal of
 $5,000 per month, which would fund about two days per week of maintenance (see [funding.json](funding.json)).
 Thank you to everyone who sponsors the project.
 

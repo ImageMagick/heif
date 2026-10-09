@@ -63,6 +63,9 @@ typedef struct heif_image_tiling
 
 // If 'process_image_transformations' is true, this returns modified sizes.
 // If it is false, the top_offset and left_offset will always be (0;0).
+// The tiling describes the tiles that can be decoded independently. An image is reported
+// as a single tile when its internal tiles cannot be decoded on their own, or when its
+// alpha channel is stored with a different tiling.
 LIBHEIF_API
 heif_error heif_image_handle_get_image_tiling(const heif_image_handle* handle, int process_image_transformations, struct heif_image_tiling* out_tiling);
 
@@ -96,6 +99,10 @@ heif_error heif_image_handle_decode_image_tile(const heif_image_handle* in_handl
 /**
  * @brief Encodes an array of images into a grid.
  *
+ * All tiles have to have the same size, colorspace, chroma format and bit depths, and they have
+ * to consist of the same components. For example, either all tiles have an alpha channel or
+ * none of them has. A grid whose tiles differ in this is refused when it is decoded.
+ *
  * @param ctx The file context
  * @param tiles User allocated array of images that will form the grid.
  * @param rows The number of rows in the grid.
@@ -123,6 +130,11 @@ heif_error heif_context_add_grid_image(heif_context* ctx,
                                        const heif_encoding_options* encoding_options,
                                        heif_image_handle** out_grid_image_handle);
 
+// Encodes an image and adds it as the tile at position (tile_x; tile_y) of a tiled image,
+// for example one that was created with heif_context_add_grid_image().
+// All tiles of an image have to have the same colorspace, chroma format and bit depths, and
+// they have to consist of the same components. For example, either all tiles have an alpha
+// channel or none of them has. A grid whose tiles differ in this is refused when it is decoded.
 LIBHEIF_API
 heif_error heif_context_add_image_tile(heif_context* ctx,
                                        heif_image_handle* tiled_image,

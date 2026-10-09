@@ -114,6 +114,8 @@ public:
 
   heif_brand2 get_compatible_brand() const override;
 
+  bool is_coded_in_miaf_profile() const override;
+
   Result<Encoder::CodedImageData> encode(const std::shared_ptr<HeifPixelImage>& image,
                                          heif_encoder* encoder,
                                          const heif_encoding_options& options,
@@ -135,6 +137,11 @@ public:
 private:
   ImageOverlay m_overlay_spec;
   std::vector<heif_item_id> m_overlay_image_ids;
+
+  int get_first_image_bit_depth() const;
+
+  // The bit depth of the canvas that the images are composed on.
+  int get_canvas_bit_depth() const;
 
   Error read_overlay_spec();
 

@@ -480,8 +480,11 @@ uint32_t ImageItem::get_ispe_height() const
 
 void ImageItem::get_tile_size(uint32_t& w, uint32_t& h) const
 {
-  w = get_width();
-  h = get_height();
+  // Without tiles, the single tile is the whole coded image. Like in get_heif_image_tiling(),
+  // this is the size before the image transformations (which get_width() and get_height()
+  // include). The size is 0 when it is unknown.
+  w = get_ispe_width();
+  h = get_ispe_height();
 }
 
 
@@ -504,6 +507,19 @@ Error ImageItem::postprocess_coded_image_colorspace(heif_colorspace* inout_color
   }
 
   return Error::Ok;
+}
+
+
+Result<std::shared_ptr<Decoder>> ImageItem::decoder_or_error(std::shared_ptr<Decoder> decoder)
+{
+  if (!decoder) {
+    return Error{heif_error_Usage_error,
+                 heif_suberror_Unspecified,
+                 "The image was not read from a file. An image that was added to the context by "
+                 "encoding cannot be decoded and its coded format cannot be queried."};
+  }
+
+  return decoder;
 }
 
 
@@ -1036,41 +1052,47 @@ Error check_miaf_derivation_constraints(const ImageItem* item,
     return Error::Ok;  // already verified in this context
   }
 
-  // Rank budget passed to this item's own 'dimg' inputs.
-  int child_max_rank;
-  bool child_parent_is_iden;
+  // Rank budget passed to this item's own 'dimg' inputs. A coded image is the
+  // leaf of the derivation chain and has no 'dimg' inputs to walk, but it may
+  // still carry an auxiliary image, which is checked below.
+  bool has_derivation_inputs = true;
+  int child_max_rank = MIAF_RANK_CODED;
+  bool child_parent_is_iden = false;
   if (is_iden) {
     child_max_rank = max_rank;          // transparent: inputs keep this position
     child_parent_is_iden = true;
   }
   else if (rank == MIAF_RANK_OVERLAY) {
     child_max_rank = MIAF_RANK_GRID;    // overlay inputs: grid or below
-    child_parent_is_iden = false;
   }
   else if (rank == MIAF_RANK_GRID) {
     child_max_rank = MIAF_RANK_CODED;   // grid inputs: coded (or iden -> coded)
-    child_parent_is_iden = false;
   }
   else {
-    return Error::Ok;                   // coded image: leaf of the derivation chain
+    has_derivation_inputs = false;      // coded image: leaf of the derivation chain
   }
 
-  auto file = item->get_file();
-  auto iref = file ? file->get_iref_box() : nullptr;
-  if (iref) {
-    for (heif_item_id child_id : iref->get_references(id, fourcc("dimg"))) {
-      auto child = item->get_context()->get_image(child_id, true);
-      if (child) {
-        if (Error err = check_miaf_derivation_constraints(child.get(), child_max_rank,
-                                                          child_parent_is_iden, verified)) {
-          return err;
+  if (has_derivation_inputs) {
+    auto file = item->get_file();
+    auto iref = file ? file->get_iref_box() : nullptr;
+    if (iref) {
+      for (heif_item_id child_id : iref->get_references(id, fourcc("dimg"))) {
+        auto child = item->get_context()->get_image(child_id, true);
+        if (child) {
+          if (Error err = check_miaf_derivation_constraints(child.get(), child_max_rank,
+                                                            child_parent_is_iden, verified)) {
+            return err;
+          }
         }
       }
     }
   }
 
   // An auxiliary (e.g. alpha) image is a separate image whose own derivation
-  // chain must independently satisfy MIAF, so check it as a fresh chain.
+  // chain must independently satisfy MIAF, so check it as a fresh chain. This
+  // applies to every item of the walk, including coded images (a plain coded
+  // primary image with an alpha auxiliary is the common case), since the
+  // auxiliary is decoded as part of this item's decode.
   if (auto alpha = item->get_alpha_channel()) {
     if (Error err = check_miaf_derivation_constraints(alpha.get(), MIAF_RANK_OVERLAY,
                                                       /*parent_is_iden=*/false, verified)) {
@@ -1121,7 +1143,8 @@ Error ImageItem::verify_decodable() const
 
 Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decoding_options& options,
                                                                 bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
-                                                                DecodeTraversalState decode_state) const
+                                                                DecodeTraversalState decode_state,
+                                                                bool decode_as_single_tile) const
 {
   // Check for cycles before taking m_decode_mutex: a derived item that
   // (transitively) references itself would otherwise re-enter decode_image()
@@ -1161,9 +1184,28 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
 
   std::lock_guard<std::mutex> lock(m_decode_mutex);
 
+  // --- check whether the image is exposed as a single tile
+
+  // A tile of this image can only be combined with the same tile of the alpha image.
+  // When the alpha image has a different tiling, the image is exposed as a single tile,
+  // which is the whole image (see get_image_tiling_with_alpha()).
+  if (decode_tile_only && !decode_as_single_tile && has_alpha_with_different_tiling()) {
+    decode_as_single_tile = true;
+  }
+
+  // Whether only a tile of the coded image is decoded. A single tile is the whole coded
+  // image. It is still processed like a tile, which means that it is not cropped.
+  const bool decode_coded_tile_only = (decode_tile_only && !decode_as_single_tile);
+
+  if (decode_tile_only && decode_as_single_tile && (tile_x0 != 0 || tile_y0 != 0)) {
+    return Error{heif_error_Usage_error,
+                 heif_suberror_Invalid_parameter_value,
+                 "Tile position is outside of the image tiling."};
+  }
+
   // --- check whether image size (according to 'ispe') exceeds maximum
 
-  if (!decode_tile_only) {
+  if (!decode_coded_tile_only) {
     auto ispe = get_property<Box_ispe>();
     if (ispe) {
       Error err = check_for_valid_image_size(get_context()->get_security_limits(), ispe->get_width(), ispe->get_height());
@@ -1176,15 +1218,31 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
 
   // --- transform tile position
 
-  if (decode_tile_only && options.ignore_transformations == false) {
-    if (Error error = transform_requested_tile_position_to_original_tile_position(tile_x0, tile_y0)) {
-      return error;
+  // The alpha image gets the requested tile position and converts it according to
+  // its own transformations.
+  const uint32_t requested_tile_x0 = tile_x0;
+  const uint32_t requested_tile_y0 = tile_y0;
+
+  if (decode_coded_tile_only) {
+    if (options.ignore_transformations == false) {
+      // This also checks that the tile position is within the tiling.
+      if (Error error = transform_requested_tile_position_to_original_tile_position(tile_x0, tile_y0)) {
+        return error;
+      }
+    }
+    else {
+      heif_image_tiling tiling = get_heif_image_tiling();
+      if (tile_x0 >= tiling.num_columns || tile_y0 >= tiling.num_rows) {
+        return Error{heif_error_Usage_error,
+                     heif_suberror_Invalid_parameter_value,
+                     "Tile position is outside of the image tiling."};
+      }
     }
   }
 
   // --- decode image
 
-  Result<std::shared_ptr<HeifPixelImage>> decodingResult = decode_compressed_image(options, decode_tile_only, tile_x0, tile_y0, decode_state);
+  Result<std::shared_ptr<HeifPixelImage>> decodingResult = decode_compressed_image(options, decode_coded_tile_only, tile_x0, tile_y0, decode_state);
   if (!decodingResult) {
     return decodingResult.error();
   }
@@ -1198,7 +1256,13 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
 
   // --- validate the decoded image against the signaled size (pre-transform)
 
-  if (Error err = check_decoded_image_size(*img, decode_tile_only, tile_x0, tile_y0)) {
+  if (Error err = check_decoded_image_size(*img, decode_coded_tile_only, tile_x0, tile_y0)) {
+    return err;
+  }
+
+  // --- validate the decoded image against the signaled bit depth
+
+  if (Error err = check_decoded_image_bit_depth(*img)) {
     return err;
   }
 
@@ -1310,7 +1374,10 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
     // deadlocking the decode thread. (GHSA-8fmq-r4pf-7m57)
     decode_state.processed_ids.insert(m_id);
 
-    auto alphaDecodingResult = alpha_image->decode_image(options, decode_tile_only, tile_x0, tile_y0, decode_state);
+    // The alpha image does its own conversion of the tile position. When this image is
+    // decoded as a single tile, the alpha image is decoded as a whole, too.
+    auto alphaDecodingResult = alpha_image->decode_image(options, decode_tile_only, requested_tile_x0, requested_tile_y0,
+                                                         decode_state, decode_as_single_tile);
     if (!alphaDecodingResult) {
       return alphaDecodingResult.error();
     }
@@ -1588,6 +1655,55 @@ Error ImageItem::check_decoded_image_size(const HeifPixelImage& img,
 }
 
 
+Error ImageItem::check_decoded_image_bit_depth(const HeifPixelImage& img) const
+{
+  // The bit depths that the image handle reports (heif_image_handle_get_luma_bits_per_pixel()
+  // and ..._chroma_...) are taken from the configuration of the item, e.g. the 'hvcC' box,
+  // or from the first tile of a grid. The decoded image gets its bit depth from the
+  // bitstream. A file can make the two disagree. An application that reads the planes of
+  // the decoded image with the bit depth it got from the handle would then read out of
+  // bounds, so the decoded image must not contradict the handle (GHSA-vv35-6hxg-95x8).
+
+  int luma_bpp = get_luma_bits_per_pixel();
+  int chroma_bpp = get_chroma_bits_per_pixel();
+
+  bool mismatch = false;
+
+  // The handle reports a single luma bit depth. An 'unci' image can have several components
+  // that are mapped to the Y channel (e.g. several monochrome bands) with different bit
+  // depths. A single value cannot describe them (the handle reports the largest one), so the
+  // luma depth is not compared when there are several such components.
+  int num_luma_components = 0;
+  for (const ComponentDescription& component : img.get_component_descriptions()) {
+    if (component.channel == heif_channel_Y && component.has_data_plane) {
+      num_luma_components++;
+    }
+  }
+
+  if (luma_bpp > 0 && num_luma_components <= 1 && img.has_channel(heif_channel_Y) &&
+      img.get_bits_per_pixel(heif_channel_Y) != luma_bpp) {
+    mismatch = true;
+  }
+
+  // The handle reports a single bit depth for both chroma planes. An 'unci' image can have
+  // Cb and Cr planes of different depths, which a single value cannot describe, so the
+  // chroma depth is only compared when both planes have the same.
+  if (chroma_bpp > 0 && img.has_channel(heif_channel_Cb) && img.has_channel(heif_channel_Cr) &&
+      img.get_bits_per_pixel(heif_channel_Cb) == img.get_bits_per_pixel(heif_channel_Cr) &&
+      img.get_bits_per_pixel(heif_channel_Cb) != chroma_bpp) {
+    mismatch = true;
+  }
+
+  if (mismatch) {
+    return Error{heif_error_Invalid_input,
+                 heif_suberror_Unspecified,
+                 "Decoded image does not have the bit depth signaled in the file."};
+  }
+
+  return Error::Ok;
+}
+
+
 heif_image_tiling ImageItem::get_heif_image_tiling() const
 {
   // --- Return a dummy tiling consisting of only a single tile for the whole image
@@ -1624,6 +1740,45 @@ heif_image_tiling ImageItem::get_heif_image_tiling() const
 
   for (uint32_t& s : tiling.extra_dimension_size) {
     s = 0;
+  }
+
+  return tiling;
+}
+
+
+bool ImageItem::has_alpha_with_different_tiling() const
+{
+  const std::shared_ptr<ImageItem>& alpha_image = get_alpha_channel();
+  if (!alpha_image || alpha_image->get_item_error()) {
+    return false;
+  }
+
+  const heif_image_tiling tiling = get_heif_image_tiling();
+  const heif_image_tiling alpha_tiling = alpha_image->get_heif_image_tiling();
+
+  if (tiling.num_columns != alpha_tiling.num_columns ||
+      tiling.num_rows != alpha_tiling.num_rows) {
+    return true;
+  }
+
+  // The alpha image may have another resolution, as it is scaled to the size of this
+  // image. The tiles have to cover the same part of the image, though.
+  return (static_cast<uint64_t>(tiling.tile_width) * alpha_tiling.image_width !=
+          static_cast<uint64_t>(alpha_tiling.tile_width) * tiling.image_width ||
+          static_cast<uint64_t>(tiling.tile_height) * alpha_tiling.image_height !=
+          static_cast<uint64_t>(alpha_tiling.tile_height) * tiling.image_height);
+}
+
+
+heif_image_tiling ImageItem::get_image_tiling_with_alpha() const
+{
+  heif_image_tiling tiling = get_heif_image_tiling();
+
+  if (has_alpha_with_different_tiling()) {
+    tiling.num_columns = 1;
+    tiling.num_rows = 1;
+    tiling.tile_width = tiling.image_width;
+    tiling.tile_height = tiling.image_height;
   }
 
   return tiling;

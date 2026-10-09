@@ -59,10 +59,27 @@ unc_decoder::unc_decoder(uint32_t width, uint32_t height,
 }
 
 
+// The size of the data of one tile, as the sum of the sizes from get_tile_data_sizes().
+static Result<uint64_t> sum_tile_data_sizes(const std::vector<uint64_t>& sizes)
+{
+  uint64_t tile_size = 0;
+  for (uint64_t size : sizes) {
+    if (size > UINT64_MAX - tile_size) {
+      return Error{heif_error_Invalid_input, heif_suberror_Invalid_image_size,
+                   "uncompressed tile size exceeds 64-bit range"};
+    }
+    tile_size += size;
+  }
+
+  return tile_size;
+}
+
+
 Error unc_decoder::fetch_tile_data(const DataExtent& dataExtent,
                                    const UncompressedImageCodec::unci_properties& properties,
                                    uint32_t tile_x, uint32_t tile_y,
-                                   std::vector<uint8_t>& tile_data)
+                                   std::vector<uint8_t>& tile_data,
+                                   MemoryHandle& tile_data_memory_handle)
 {
   if (m_tile_width == 0 || m_tile_height == 0) {
     return {heif_error_Decoder_plugin_error, heif_suberror_Unspecified, "Internal error: unc_decoder tile dimensions are 0"};
@@ -75,10 +92,43 @@ Error unc_decoder::fetch_tile_data(const DataExtent& dataExtent,
   const auto& sizes = *sizesResult;
   uint32_t tileIdx = tile_x + tile_y * (m_width / m_tile_width);
 
-  if (sizes.size() == 1) {
+  // May be nullptr for a raw data extent, in which case no limit applies.
+  const heif_security_limits* limits = dataExtent.m_file ? dataExtent.m_file->get_security_limits() : nullptr;
+
+  const auto tile_access = UncompressedImageCodec::get_tile_access(m_uncC, properties.cmpC, properties.icef);
+
+  if (tile_access == UncompressedImageCodec::TileAccess::whole_item) {
+    // decode_image() decompresses such an item once for all tiles, and the image item
+    // does not offer decoding of individual tiles (GHSA-6fqc-p7r8-2g36).
+    return {heif_error_Decoder_plugin_error, heif_suberror_Unspecified,
+            "Internal error: unci tiles cannot be decoded independently for this generic compression"};
+  }
+  else if (tile_access == UncompressedImageCodec::TileAccess::compressed_units) {
+    // The compressed units are the complete tile, and get_compressed_image_data_uncompressed()
+    // returns the whole tile irrespective of the requested range. Fetch it only once.
+    // The scattered per-component reads below would decompress the same units again for
+    // each component and concatenate the copies, growing 'tile_data' to num_components
+    // times the tile size without any memory accounting (GHSA-fcmw-5764-7rq8).
+
+    Result<uint64_t> tileSizeResult = sum_tile_data_sizes(sizes);
+    if (!tileSizeResult) {
+      return tileSizeResult.error();
+    }
+
+    // The requested size is the size of the whole tile. Units that decompress to
+    // a different size are rejected.
+    Error err = get_compressed_image_data_uncompressed(dataExtent, properties, &tile_data, 0, *tileSizeResult, tileIdx, nullptr);
+    if (err) {
+      return err;
+    }
+  }
+  else if (sizes.size() == 1) {
     // Single contiguous read (component, pixel, mixed, row interleave)
     uint64_t tile_start_offset = sizes[0] * tileIdx;
-    return get_compressed_image_data_uncompressed(dataExtent, properties, &tile_data, tile_start_offset, sizes[0], tileIdx, nullptr);
+    Error err = get_compressed_image_data_uncompressed(dataExtent, properties, &tile_data, tile_start_offset, sizes[0], tileIdx, nullptr);
+    if (err) {
+      return err;
+    }
   }
   else {
     // Scattered per-component reads (tile_component interleave)
@@ -94,12 +144,23 @@ Error unc_decoder::fetch_tile_data(const DataExtent& dataExtent,
         return err;
       }
 
+      // Charge the component data to the memory budget before appending it, so that
+      // the accumulated tile data cannot grow beyond the security limits.
+      if (Error memErr = tile_data_memory_handle.alloc(channel_data.size(), limits, "unci tile data")) {
+        return memErr;
+      }
+
       tile_data.insert(tile_data.end(), channel_data.begin(), channel_data.end());
       component_offset += size * num_tiles;
     }
+
+    return Error::Ok;
   }
 
-  return Error::Ok;
+  // The reading and decompression functions only bound the memory while they run.
+  // 'tile_data' outlives them, so charge it to the memory budget for as long as the
+  // caller keeps it.
+  return tile_data_memory_handle.alloc(tile_data.size(), limits, "unci tile data");
 }
 
 
@@ -131,49 +192,123 @@ const Error unc_decoder::get_compressed_image_data_uncompressed(const DataExtent
     return Error::Ok;
   }
 
-  if (icef_box && cmpC_box->get_compressed_unit_type() == heif_cmpC_compressed_unit_type_image_tile) {
-    const auto& units = icef_box->get_units();
-    if (tile_idx >= units.size()) {
-      return {
-        heif_error_Invalid_input,
-        heif_suberror_Unspecified,
-        "no icef-box entry for tile index"
-      };
-    }
+  uint32_t units_per_tile = 0;
+  const auto tile_access = UncompressedImageCodec::get_tile_access(m_uncC, cmpC_box, icef_box, &units_per_tile);
 
-    const auto unit = units[tile_idx];
+  if (tile_access != UncompressedImageCodec::TileAccess::compressed_units) {
+    // An item that has to be decompressed as a whole is handled by decode_image(),
+    // which decompresses it once for all tiles (GHSA-6fqc-p7r8-2g36).
+    return {heif_error_Decoder_plugin_error, heif_suberror_Unspecified,
+            "Internal error: unci tiles cannot be decoded independently for this generic compression"};
+  }
 
-    // get data needed for one tile
+  // --- the tile consists of 'units_per_tile' consecutive compressed units
+
+  const auto& units = icef_box->get_units();
+
+  const uint64_t first_unit = static_cast<uint64_t>(tile_idx) * units_per_tile;
+  if (first_unit >= units.size() ||
+      units_per_tile > units.size() - first_unit) {
+    return {
+      heif_error_Invalid_input,
+      heif_suberror_Unspecified,
+      "no icef-box entry for tile index"
+    };
+  }
+
+  // Decompress only the units of this tile. 'range_size' is the size of the tile, so
+  // there cannot be more data than this in a valid file. Stopping there prevents small
+  // units from inflating far beyond the tile size (GHSA-fcmw-5764-7rq8).
+  uint64_t remaining_size = range_size;
+
+  // The decompression functions only bound the memory of the unit they are working on.
+  // This handle accounts for the units of the tile that have been decompressed already.
+  // The complete tile is charged by the caller afterwards.
+  MemoryHandle accumulated_memory_handle;
+
+  for (uint32_t i = 0; i < units_per_tile; i++) {
+    const auto unit = units[first_unit + i];
+
     Result<std::vector<uint8_t> > readingResult = dataExtent.read_data(unit.unit_offset, unit.unit_size);
     if (!readingResult) {
       return readingResult.error();
     }
 
-    const std::vector<uint8_t>& compressed_bytes = *readingResult;
-
-    // decompress only the unit
-    auto dataResult = do_decompress_data(cmpC_box, compressed_bytes, limits);
+    auto dataResult = do_decompress_data(cmpC_box, *readingResult, limits, remaining_size);
     if (!dataResult) {
       return dataResult.error();
     }
 
-    *data = std::move(*dataResult);
-  }
-  else if (icef_box) {
-    // get all data and decode all
-    Result<std::vector<uint8_t>*> readResult = dataExtent.read_data();
-    if (!readResult) {
-      return readResult.error();
+    if (dataResult->size() > remaining_size) {
+      return {
+        heif_error_Invalid_input,
+        heif_suberror_Decompression_invalid_data,
+        "compressed units of unci image contain more data than the image tile"
+      };
     }
 
-    const std::vector<uint8_t> compressed_bytes = std::move(**readResult);
+    remaining_size -= dataResult->size();
 
+    if (Error memErr = accumulated_memory_handle.alloc(dataResult->size(), limits,
+                                                       "unci icef decompressed units")) {
+      return memErr;
+    }
+
+    if (units_per_tile == 1) {
+      *data = std::move(*dataResult);
+    }
+    else {
+      data->insert(data->end(), dataResult->begin(), dataResult->end());
+    }
+  }
+
+  // Too little data is rejected as well. The tile decoders would read the missing
+  // data as zeros.
+  if (remaining_size != 0) {
+    return {
+      heif_error_Invalid_input,
+      heif_suberror_End_of_data,
+      "compressed units of unci image contain less data than the image tile"
+    };
+  }
+
+  return Error::Ok;
+}
+
+
+Result<std::vector<uint8_t> > unc_decoder::decompress_whole_item(const DataExtent& dataExtent,
+                                                                 const UncompressedImageCodec::unci_properties& properties,
+                                                                 uint64_t expected_size) const
+{
+  std::shared_ptr<const Box_cmpC> cmpC_box = properties.cmpC;
+  std::shared_ptr<const Box_icef> icef_box = properties.icef;
+
+  // Security limits used to bound the (potentially highly amplified) decompressed
+  // output. May be nullptr for a raw data extent, in which case no limit applies.
+  const heif_security_limits* limits = dataExtent.m_file ? dataExtent.m_file->get_security_limits() : nullptr;
+
+  Result<std::vector<uint8_t>*> readResult = dataExtent.read_data();
+  if (!readResult) {
+    return readResult.error();
+  }
+
+  // Do not move the data out of the extent. This is the read cache of the extent and
+  // an emptied cache makes the next access read the data again, which a raw extent cannot do.
+  const std::vector<uint8_t>& compressed_bytes = **readResult;
+
+  // 'expected_size' is the size of the data of all tiles, so there cannot be more data
+  // than this in a valid file. Stopping there bounds the decompression by the image
+  // size instead of the memory budget.
+
+  std::vector<uint8_t> data;
+
+  if (icef_box) {
     // Bound the total decompressed output accumulated across all units. The units
     // may overlap (nothing forces them to be disjoint), so N units can point at the
     // same compressed slice and be decompressed N times into `data`. Without this
     // accounting, that amplifies a tiny icef box into an unbounded allocation
     // (GHSA-24wx-9w62-c96w). The handle is local, so it only bounds the peak while
-    // building `data`; the cropped result is accounted by the caller.
+    // building `data`; the result is accounted by the caller.
     MemoryHandle accumulated_memory_handle;
 
     for (Box_icef::CompressedUnitInfo unit_info : icef_box->get_units()) {
@@ -193,80 +328,59 @@ const Error unc_decoder::get_compressed_image_data_uncompressed(const DataExtent
       auto unit_end = unit_start + unit_info.unit_size;
       std::vector<uint8_t> compressed_unit_data = std::vector<uint8_t>(unit_start, unit_end);
 
-      auto dataResult = do_decompress_data(cmpC_box, compressed_unit_data, limits);
+      auto dataResult = do_decompress_data(cmpC_box, compressed_unit_data, limits, expected_size - data.size());
       if (!dataResult) {
         return dataResult.error();
       }
 
-      const std::vector<uint8_t> uncompressed_unit_data = std::move(*dataResult);
+      if (dataResult->size() > expected_size - data.size()) {
+        return Error{
+          heif_error_Invalid_input,
+          heif_suberror_Decompression_invalid_data,
+          "compressed unci image contains more data than the image tiles"
+        };
+      }
 
-      if (Error memErr = accumulated_memory_handle.alloc(uncompressed_unit_data.size(), limits,
+      if (Error memErr = accumulated_memory_handle.alloc(dataResult->size(), limits,
                                                          "unci icef decompressed units")) {
         return memErr;
       }
 
-      data->insert(data->end(), uncompressed_unit_data.data(), uncompressed_unit_data.data() + uncompressed_unit_data.size());
+      data.insert(data.end(), dataResult->begin(), dataResult->end());
     }
-
-    if (range_start_offset > data->size() ||
-        range_size > data->size() - range_start_offset) {
-      return {
-        heif_error_Invalid_input,
-        heif_suberror_Unspecified,
-        "Data range out of existing range"
-      };
-    }
-
-    // cut out the range that we actually need
-    memcpy(data->data(), data->data() + range_start_offset, range_size);
-    data->resize(range_size);
   }
   else {
-    // get all data and decode all
-    Result<std::vector<uint8_t>*> readResult = dataExtent.read_data();
-    if (!readResult) {
-      return readResult.error();
-    }
-
-    std::vector<uint8_t> compressed_bytes = std::move(**readResult);
-
     // Decode as a single blob
-    auto dataResult = do_decompress_data(cmpC_box, compressed_bytes, limits);
+    auto dataResult = do_decompress_data(cmpC_box, compressed_bytes, limits, expected_size);
     if (!dataResult) {
       return dataResult.error();
     }
 
-    *data = std::move(*dataResult);
-
-    // Use subtraction form to avoid a uint64_t wrap in 'range_start_offset + range_size'.
-    // A crafted tiling can make the requested tile range wrap to zero, passing the
-    // addition-form check and leading to an out-of-bounds read in the memcpy() below
-    // (GHSA-hh47-fhqr-cj2r; same root cause as the icef sibling branch above, GHSA-73p7-m7gg-w2jv).
-    if (range_start_offset > data->size() ||
-        range_size > data->size() - range_start_offset) {
-      return {
-        heif_error_Invalid_input,
-        heif_suberror_Unspecified,
-        "Data range out of existing range"
-      };
-    }
-
-    // cut out the range that we actually need
-    memcpy(data->data(), data->data() + range_start_offset, range_size);
-    data->resize(range_size);
+    data = std::move(*dataResult);
   }
 
-  return Error::Ok;
+  // Too little data is rejected as well. The tile decoders would read the missing
+  // data as zeros.
+  if (data.size() < expected_size) {
+    return Error{
+      heif_error_Invalid_input,
+      heif_suberror_End_of_data,
+      "compressed unci image contains less data than the image tiles"
+    };
+  }
+
+  return data;
 }
 
 
 Result<std::vector<uint8_t> > unc_decoder::do_decompress_data(std::shared_ptr<const Box_cmpC>& cmpC_box,
                                                               const std::vector<uint8_t>& compressed_data,
-                                                              const heif_security_limits* limits) const
+                                                              const heif_security_limits* limits,
+                                                              uint64_t max_output_size) const
 {
   if (cmpC_box->get_compression_type() == fourcc("brot")) {
 #if HAVE_BROTLI
-    return decompress_brotli(compressed_data, limits);
+    return decompress_brotli(compressed_data, limits, max_output_size);
 #else
     return Error(heif_error_Unsupported_feature,
                  heif_suberror_Unsupported_generic_compression_method,
@@ -275,7 +389,7 @@ Result<std::vector<uint8_t> > unc_decoder::do_decompress_data(std::shared_ptr<co
   }
   else if (cmpC_box->get_compression_type() == fourcc("zlib")) {
 #if HAVE_ZLIB
-    return decompress_zlib(compressed_data, limits);
+    return decompress_zlib(compressed_data, limits, max_output_size);
 #else
     return Error(heif_error_Unsupported_feature,
                  heif_suberror_Unsupported_generic_compression_method,
@@ -284,7 +398,7 @@ Result<std::vector<uint8_t> > unc_decoder::do_decompress_data(std::shared_ptr<co
   }
   else if (cmpC_box->get_compression_type() == fourcc("defl")) {
 #if HAVE_ZLIB
-    return decompress_deflate(compressed_data, limits);
+    return decompress_deflate(compressed_data, limits, max_output_size);
 #else
     return Error(heif_error_Unsupported_feature,
                  heif_suberror_Unsupported_generic_compression_method,
@@ -310,10 +424,66 @@ Error unc_decoder::decode_image(const DataExtent& extent,
 
   ensure_channel_list(img);
 
+  // The extent and properties the tile data is fetched from.
+  const DataExtent* tile_extent = &extent;
+  const UncompressedImageCodec::unci_properties* tile_properties = &properties;
+
+  DataExtent decompressed_extent;
+  UncompressedImageCodec::unci_properties decompressed_properties;
+
+  if (UncompressedImageCodec::get_tile_access(m_uncC, properties.cmpC, properties.icef) ==
+      UncompressedImageCodec::TileAccess::whole_item) {
+    // The compressed units do not correspond to the tiles, so the item has to be
+    // decompressed completely to get the data of any tile. Do this once for all tiles
+    // and continue as if the item was not compressed. Decompressing the item again for
+    // each tile needs time proportional to num_tiles * item_size (GHSA-6fqc-p7r8-2g36).
+
+    auto sizesResult = get_tile_data_sizes();
+    if (!sizesResult) {
+      return sizesResult.error();
+    }
+
+    Result<uint64_t> tileSizeResult = sum_tile_data_sizes(*sizesResult);
+    if (!tileSizeResult) {
+      return tileSizeResult.error();
+    }
+
+    const uint64_t num_tiles = static_cast<uint64_t>(m_uncC->get_number_of_tile_columns()) * m_uncC->get_number_of_tile_rows();
+    if (num_tiles != 0 && *tileSizeResult > UINT64_MAX / num_tiles) {
+      return {heif_error_Invalid_input, heif_suberror_Invalid_image_size,
+              "uncompressed image data size exceeds 64-bit range"};
+    }
+
+    auto dataResult = decompress_whole_item(extent, properties, *tileSizeResult * num_tiles);
+    if (!dataResult) {
+      return dataResult.error();
+    }
+
+    // May be nullptr for a raw data extent, in which case no limit applies.
+    const heif_security_limits* limits = extent.m_file ? extent.m_file->get_security_limits() : nullptr;
+
+    // The decompressed data is kept until all tiles are decoded, so charge it to the memory budget.
+    if (Error memErr = decompressed_extent.m_raw_memory_handle.alloc(dataResult->size(), limits,
+                                                                     "decompressed unci image data")) {
+      return memErr;
+    }
+
+    decompressed_extent.m_file = extent.m_file;
+    decompressed_extent.m_raw = std::move(*dataResult);
+
+    decompressed_properties = properties;
+    decompressed_properties.cmpC = nullptr;
+    decompressed_properties.icef = nullptr;
+
+    tile_extent = &decompressed_extent;
+    tile_properties = &decompressed_properties;
+  }
+
   for (uint32_t tile_y0 = 0; tile_y0 < m_height; tile_y0 += tile_height)
     for (uint32_t tile_x0 = 0; tile_x0 < m_width; tile_x0 += tile_width) {
       std::vector<uint8_t> tile_data;
-      Error error = fetch_tile_data(extent, properties, tile_x0 / tile_width, tile_y0 / tile_height, tile_data);
+      MemoryHandle tile_data_memory_handle;
+      Error error = fetch_tile_data(*tile_extent, *tile_properties, tile_x0 / tile_width, tile_y0 / tile_height, tile_data, tile_data_memory_handle);
       if (error) {
         return error;
       }

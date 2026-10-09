@@ -31,6 +31,7 @@
 
 #include <deque>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -53,8 +54,12 @@ struct ffmpeg_decoder
 
   struct Packet
   {
+    // The payload is followed by AV_INPUT_BUFFER_PADDING_SIZE zero bytes, as FFmpeg
+    // requires for its input buffers. An empty vector is the 'flush' packet.
     std::vector<uint8_t> data;
     uintptr_t user_data;
+
+    int payload_size() const { return (int) (data.size() - AV_INPUT_BUFFER_PADDING_SIZE); }
   };
 
   std::deque<Packet> input_data;
@@ -63,8 +68,11 @@ struct ffmpeg_decoder
   // --- decoder
 
   const AVCodec* av_codec = NULL;
-  AVCodecParserContext* av_codec_parser_context = NULL;
   AVCodecContext* av_codec_context = NULL;
+
+  // Only set when the decoder does not export the colour signalling itself,
+  // see ffmpeg_decoder_needs_parser_for_colour_signalling().
+  AVCodecParserContext* av_codec_parser_context = NULL;
 
   std::string error_message;
 
@@ -80,10 +88,38 @@ static bool supportsNal(AVCodecID id) {
   return id == AV_CODEC_ID_H264 || id == AV_CODEC_ID_H265 || id == AV_CODEC_ID_H266;
 }
 
+// Emulation prevention keeps 00 00 00, 00 00 01 and 00 00 02 out of every valid
+// NAL unit. The NAL units are handed to FFmpeg with start codes, so such a byte
+// sequence would make FFmpeg split the data differently than libheif did when it
+// checked the parameter sets.
+static bool contains_start_code_prefix(const uint8_t* data, size_t size)
+{
+  for (size_t i = 2; i < size; i++) {
+    if (data[i] <= 2 && data[i - 1] == 0 && data[i - 2] == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Codecs whose bitstream carries CICP colour signalling (VUI / sequence header).
 static bool codec_has_cicp_signalling(AVCodecID id)
 {
   return supportsNal(id) || id == AV_CODEC_ID_AV1;
+}
+
+// FFmpeg's VVC decoder copies the colour signalling of the VUI into the codec context
+// only since FFmpeg 8.0 (libavcodec 62). In FFmpeg 7.x, this is done by the VVC parser
+// and without it, all VVC images would be reported with an unspecified colour profile.
+// All other decoders export the colour signalling themselves and do not need the parser.
+static bool ffmpeg_decoder_needs_parser_for_colour_signalling(AVCodecID id)
+{
+#if LIBAVCODEC_VERSION_MAJOR < 62
+  return id == AV_CODEC_ID_VVC;
+#else
+  (void) id;
+  return false;
+#endif
 }
 
 static const int FFMPEG_DECODER_PLUGIN_PRIORITY = 90;
@@ -118,6 +154,12 @@ static int ffmpeg_does_support_format(heif_compression_format format)
 {
   switch(format) {
   case heif_compression_HEVC:
+    // FFmpeg's HEVC decoder handles 8, 9, 10 and 12 bits per sample only (FFmpeg 6.1 and 7.1).
+    // For streams with 11 bits or with 13 to 16 bits, avcodec_send_packet() fails. libde265
+    // decodes all bit depths and is the decoder to use for these streams. It has the higher
+    // priority, so that it is chosen whenever it is available.
+    // We cannot return 0 for the bit depths that FFmpeg does not handle: the format
+    // description passed to does_support_format2() holds the compression format only.
     return avcodec_find_decoder(AV_CODEC_ID_HEVC) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
   case heif_compression_AVC:
     return avcodec_find_decoder(AV_CODEC_ID_H264) ? FFMPEG_DECODER_PLUGIN_PRIORITY : 0;
@@ -187,14 +229,28 @@ static heif_error ffmpeg_new_decoder2(void** dec, const heif_decoder_plugin_opti
     return { heif_error_Decoder_plugin_error, heif_suberror_Unspecified, "avcodec_find_decoder() returned error" };
   }
 
-  decoder->av_codec_parser_context = av_parser_init(decoder->av_codec->id);
-  if (!decoder->av_codec_parser_context) {
-    return { heif_error_Decoder_plugin_error, heif_suberror_Unspecified, "av_parser_init returned error" };
+  if (ffmpeg_decoder_needs_parser_for_colour_signalling(decoder->av_codec->id)) {
+    // This is NULL when FFmpeg was built without the parser. We can still decode then,
+    // only the colour signalling of the bitstream is not reported.
+    decoder->av_codec_parser_context = av_parser_init(decoder->av_codec->id);
   }
 
   decoder->av_codec_context = avcodec_alloc_context3(decoder->av_codec);
   if (!decoder->av_codec_context) {
     return { heif_error_Memory_allocation_error, heif_suberror_Unspecified, "avcodec_alloc_context3 returned error" };
+  }
+
+  // Crop exactly as the bitstream signals. Otherwise FFmpeg rounds a left crop
+  // down to keep the plane pointers aligned, and the decoded image comes out
+  // wider than the size signaled in the file.
+  decoder->av_codec_context->flags |= AV_CODEC_FLAG_UNALIGNED;
+
+  // Let FFmpeg refuse pictures larger than libheif's limit for this image
+  // (ispe plus a coding-unit margin), as the libde265 plugin does.
+  const heif_security_limits* limits = options->limits ? options->limits : heif_get_global_security_limits();
+  if (limits->max_image_size_pixels > 0 &&
+      limits->max_image_size_pixels <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    decoder->av_codec_context->max_pixels = static_cast<int64_t>(limits->max_image_size_pixels);
   }
 
   /* open it */
@@ -323,6 +379,14 @@ static heif_error ffmpeg_push_data2(void *decoder_raw, const void *data, size_t 
         };
       }
 
+      if (contains_start_code_prefix(cdata + ptr, nal_size)) {
+        return {
+          heif_error_Decoder_plugin_error,
+          heif_suberror_Unspecified,
+          "NAL unit contains a start code prefix"
+        };
+      }
+
       pkt.data.push_back(0);
       pkt.data.push_back(0);
       pkt.data.push_back(1);
@@ -334,6 +398,7 @@ static heif_error ffmpeg_push_data2(void *decoder_raw, const void *data, size_t 
     pkt.data.insert(pkt.data.end(), cdata, cdata + size);
   }
 
+  pkt.data.resize(pkt.data.size() + AV_INPUT_BUFFER_PADDING_SIZE, 0);
   pkt.user_data = user_data;
 
   decoder->input_data.emplace_back(std::move(pkt));
@@ -354,6 +419,7 @@ static heif_error ffmpeg_push_data(void *decoder_raw, const void *data, size_t s
 static heif_chroma ffmpeg_get_chroma_format(AVPixelFormat pix_fmt) {
   switch (pix_fmt) {
     case AV_PIX_FMT_GRAY8:
+    case AV_PIX_FMT_GRAY9:
     case AV_PIX_FMT_GRAY10:
     case AV_PIX_FMT_GRAY12:
     case AV_PIX_FMT_GRAY14:
@@ -362,6 +428,7 @@ static heif_chroma ffmpeg_get_chroma_format(AVPixelFormat pix_fmt) {
 
     case AV_PIX_FMT_YUV420P:
     case AV_PIX_FMT_YUVJ420P:
+    case AV_PIX_FMT_YUV420P9:
     case AV_PIX_FMT_YUV420P10:
     case AV_PIX_FMT_YUV420P12:
     case AV_PIX_FMT_YUV420P14:
@@ -369,6 +436,8 @@ static heif_chroma ffmpeg_get_chroma_format(AVPixelFormat pix_fmt) {
       return heif_chroma_420;
 
     case AV_PIX_FMT_YUV422P:
+    case AV_PIX_FMT_YUVJ422P:
+    case AV_PIX_FMT_YUV422P9:
     case AV_PIX_FMT_YUV422P10:
     case AV_PIX_FMT_YUV422P12:
     case AV_PIX_FMT_YUV422P14:
@@ -376,10 +445,25 @@ static heif_chroma ffmpeg_get_chroma_format(AVPixelFormat pix_fmt) {
       return heif_chroma_422;
 
     case AV_PIX_FMT_YUV444P:
+    case AV_PIX_FMT_YUVJ444P:
+    case AV_PIX_FMT_YUV444P9:
     case AV_PIX_FMT_YUV444P10:
     case AV_PIX_FMT_YUV444P12:
     case AV_PIX_FMT_YUV444P14:
     case AV_PIX_FMT_YUV444P16:
+      return heif_chroma_444;
+
+    // FFmpeg's HEVC and AVC decoders output planar GBR for 4:4:4 streams signaling
+    // matrix_coefficients 0. Its G, B, R planes map onto Y, Cb, Cr, which is
+    // exactly how libheif stores images with the identity matrix.
+    // HEVC is decoded up to 12 bits, AVC (High 4:4:4 Predictive) up to 14 bits.
+    // The JPEG decoder outputs GBRP for a JPEG that was coded without colour transform.
+    // That one carries no colour signalling, see ffmpeg_is_planar_gbr().
+    case AV_PIX_FMT_GBRP:
+    case AV_PIX_FMT_GBRP9:
+    case AV_PIX_FMT_GBRP10:
+    case AV_PIX_FMT_GBRP12:
+    case AV_PIX_FMT_GBRP14:
       return heif_chroma_444;
 
     default:
@@ -427,22 +511,34 @@ static int get_ffmpeg_format_bpp(AVPixelFormat pix_fmt)
     case AV_PIX_FMT_YUV420P:
     case AV_PIX_FMT_YUVJ420P:
     case AV_PIX_FMT_YUV422P:
+    case AV_PIX_FMT_YUVJ422P:
     case AV_PIX_FMT_YUV444P:
+    case AV_PIX_FMT_YUVJ444P:
+    case AV_PIX_FMT_GBRP:
       return 8;
+    case AV_PIX_FMT_GRAY9:
+    case AV_PIX_FMT_YUV420P9:
+    case AV_PIX_FMT_YUV422P9:
+    case AV_PIX_FMT_YUV444P9:
+    case AV_PIX_FMT_GBRP9:
+      return 9;
     case AV_PIX_FMT_GRAY10:
     case AV_PIX_FMT_YUV420P10:
     case AV_PIX_FMT_YUV422P10:
     case AV_PIX_FMT_YUV444P10:
+    case AV_PIX_FMT_GBRP10:
       return 10;
     case AV_PIX_FMT_GRAY12:
     case AV_PIX_FMT_YUV420P12:
     case AV_PIX_FMT_YUV422P12:
     case AV_PIX_FMT_YUV444P12:
+    case AV_PIX_FMT_GBRP12:
       return 12;
     case AV_PIX_FMT_GRAY14:
     case AV_PIX_FMT_YUV420P14:
     case AV_PIX_FMT_YUV422P14:
     case AV_PIX_FMT_YUV444P14:
+    case AV_PIX_FMT_GBRP14:
       return 14;
     case AV_PIX_FMT_GRAY16:
     case AV_PIX_FMT_YUV420P16:
@@ -480,6 +576,17 @@ static AVPixelFormat ffmpeg_native_pix_fmt(AVPixelFormat pix_fmt, bool* byte_swa
 
   *byte_swap = true;
   return swapped;
+}
+
+
+// Whether the planes of a format accepted by ffmpeg_get_chroma_format() hold G, B, R instead
+// of Y, Cb, Cr. Packed RGB is not meant here: the JPEG 2000 decoder returns sYCC as RGB24/RGB48.
+static bool ffmpeg_is_planar_gbr(AVPixelFormat pix_fmt)
+{
+  const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(pix_fmt);
+  const uint64_t planar_rgb = AV_PIX_FMT_FLAG_PLANAR | AV_PIX_FMT_FLAG_RGB;
+
+  return desc && (desc->flags & planar_rgb) == planar_rgb;
 }
 
 
@@ -715,9 +822,6 @@ static heif_error ffmpeg_decode_next_image2(void* decoder_raw,
   heif_error err = kSuccess;
 
   if (!decoder->input_data.empty()) {
-    uint8_t* parse_av_data = NULL;
-    int parse_av_data_size = 0;
-
     ffmpeg_decoder::Packet& first_pkt = decoder->input_data.front();
 
     if (first_pkt.data.empty()) {
@@ -737,49 +841,28 @@ static heif_error ffmpeg_decode_next_image2(void* decoder_raw,
         return { heif_error_Memory_allocation_error, heif_suberror_Unspecified, "av_packet_alloc returned error" };
       }
 
-      parse_av_data = first_pkt.data.data();
-      parse_av_data_size = (int) first_pkt.data.size();
-      size_t n_bytes_consumed = 0;
+      // Every pushed chunk is a complete access unit, so it goes to the decoder
+      // as one packet.
+      av_pkt->data = first_pkt.data.data();
+      av_pkt->size = first_pkt.payload_size();
+      av_pkt->pts = first_pkt.user_data;
 
-      while (parse_av_data_size > 0) {
+      if (decoder->av_codec_parser_context) {
+        // We run the parser only to let it copy the colour signalling into the codec context.
+        // It does not split the input and we send the whole access unit to the decoder.
+        uint8_t* parsed_data = NULL;
+        int parsed_size = 0;
+
         decoder->av_codec_parser_context->flags = PARSER_FLAG_COMPLETE_FRAMES;
-        ret = av_parser_parse2(decoder->av_codec_parser_context, decoder->av_codec_context, &av_pkt->data, &av_pkt->size,
-                               parse_av_data, parse_av_data_size,
-                               AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
-        if (ret < 0) {
-          return {heif_error_Decoder_plugin_error, heif_suberror_Unspecified, "av_parser_parse2 returned error"};
-        }
-
-        // std::cout << "decode packet of size: " << ret << "\n";
-
-        parse_av_data += ret;
-        parse_av_data_size -= ret;
-        n_bytes_consumed += ret;
-
-        if (av_pkt->size) {
-          av_pkt->pts = first_pkt.user_data;
-
-          ret = avcodec_send_packet(decoder->av_codec_context, av_pkt);
-          if (ret < 0) {
-            char buf[100];
-            av_make_error_string(buf, 100, ret);
-            return {heif_error_Decoder_plugin_error, heif_suberror_Unspecified, "Error in avcodec_send_packet"};
-          }
-        }
-        else {
-          break;
-        }
+        av_parser_parse2(decoder->av_codec_parser_context, decoder->av_codec_context, &parsed_data, &parsed_size,
+                         av_pkt->data, av_pkt->size,
+                         AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
       }
 
-      if (n_bytes_consumed == first_pkt.data.size()) {
-        decoder->input_data.pop_front();
-      }
-      else {
-        if (n_bytes_consumed > 0) {
-          memmove(first_pkt.data.data(), first_pkt.data.data() + n_bytes_consumed,
-                  first_pkt.data.size() - n_bytes_consumed);
-          decoder->input_data.resize(decoder->input_data.size() - n_bytes_consumed);
-        }
+      ret = avcodec_send_packet(decoder->av_codec_context, av_pkt);
+      decoder->input_data.pop_front();
+      if (ret < 0) {
+        return {heif_error_Decoder_plugin_error, heif_suberror_Unspecified, "Error in avcodec_send_packet"};
       }
     }
   }
@@ -818,6 +901,21 @@ static heif_error ffmpeg_decode_next_image2(void* decoder_raw,
   // codestream. Attaching them as a bitstream profile would make libheif convert the
   // decoded planes when the file has no 'colr' box. Leave the profile unset for those.
   if (!codec_has_cicp_signalling(decoder->av_codec->id)) {
+
+    // The exception are planes that hold G, B, R, which the JPEG decoder returns for a JPEG
+    // coded without colour transform. Without the identity matrix, libheif would convert
+    // them like YCbCr. The colour primaries and the transfer curve remain unspecified.
+    if (ffmpeg_is_planar_gbr(static_cast<AVPixelFormat>(av_frame->format))) {
+      nclx = heif_nclx_color_profile_alloc();
+      auto nclx_deleter = std::unique_ptr<heif_color_profile_nclx, void (*)(heif_color_profile_nclx*)>(nclx, [](heif_color_profile_nclx* nclx){heif_nclx_color_profile_free(nclx);});
+
+      heif_nclx_color_profile_set_color_primaries(nclx, heif_color_primaries_unspecified);
+      heif_nclx_color_profile_set_transfer_characteristics(nclx, heif_transfer_characteristic_unspecified);
+      heif_nclx_color_profile_set_matrix_coefficients(nclx, heif_matrix_coefficients_RGB_GBR);
+      nclx->full_range_flag = true;
+      heif_image_set_nclx_color_profile(*out_img, nclx);
+    }
+
     return heif_error_ok;
   }
 

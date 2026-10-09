@@ -163,6 +163,17 @@ public:
   // Returns a Usage_error naming the offending plane.
   Error check_plane_layout() const;
 
+  // Checks that no sample exceeds the value range of its plane's bit depth. A plane stores
+  // its samples in whole bytes (e.g. 10-bit samples in 16-bit words), so the memory can hold
+  // larger values than the bit depth allows, and the bit depth is only a promise of whoever
+  // filled the plane. Code that derives table sizes or bit counts from the bit depth (third
+  // party encoders, libsharpyuv) relies on that promise. Only planes with unsigned integer
+  // samples are checked.
+  // Like check_plane_layout(), this is a check for the places where pixel data enters from the
+  // outside, not something HeifPixelImage enforces by itself.
+  // Returns a Usage_error naming the offending plane.
+  Error check_sample_value_ranges() const;
+
   heif_chroma get_chroma_format() const { return m_chroma; }
 
   heif_colorspace get_colorspace() const { return m_colorspace; }
@@ -320,9 +331,14 @@ public:
 
   Error extract_alpha_from_RGBA(const std::shared_ptr<const HeifPixelImage>& srcimage, const heif_security_limits* limits);
 
-  void fill_channel(heif_channel dst_channel, uint16_t value);
+  // Sets all samples of the plane to 'value'. The plane may have up to 64 bits per sample;
+  // the value is written with the width of the plane's storage word (8, 16, 32 or 64 bits).
+  // The datatype of the plane is not considered: the caller has to pass a value that is
+  // meaningful for it.
+  // Returns an error if there is no such plane or if it has more than 64 bits per sample.
+  Error fill_channel(heif_channel dst_channel, uint64_t value);
 
-  Error fill_new_channel(heif_channel dst_channel, uint16_t value, int width, int height, int bpp, const heif_security_limits* limits);
+  Error fill_new_channel(heif_channel dst_channel, uint64_t value, int width, int height, int bpp, const heif_security_limits* limits);
 
   Error transfer_channel_from_image_as(const std::shared_ptr<HeifPixelImage>& source,
                                     heif_channel src_channel,
@@ -408,6 +424,8 @@ private:
     int get_bytes_per_pixel() const;
 
     template <typename T> void mirror_inplace(heif_transform_mirror_direction);
+
+    template <typename T> void fill(T value);
 
     template<typename T>
     void rotate_ccw(int angle_degrees, ComponentStorage& out_plane) const;
