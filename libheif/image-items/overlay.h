@@ -100,10 +100,6 @@ public:
 
   Error initialize_decoder() override;
 
-  int get_luma_bits_per_pixel() const override;
-
-  int get_chroma_bits_per_pixel() const override;
-
   Error get_coded_image_colorspace(heif_colorspace* out_colorspace, heif_chroma* out_chroma) const override;
 
   // Delegates to the first overlay-input image's component descriptions,
@@ -129,12 +125,18 @@ public:
                                                                   bool decode_tile_only, uint32_t tile_x0, uint32_t tile_y0,
                                                                   DecodeTraversalState decode_state) const override;
 
+  void get_coded_image_size(uint32_t& w, uint32_t& h) const override;
+
 
   // --- iovl specific
 
   static Result<std::shared_ptr<ImageItem_Overlay>> add_new_overlay_item(HeifContext* ctx, const ImageOverlay& overlayspec);
 
 private:
+  int get_luma_bits_per_pixel_unlocked() const override;
+
+  int get_chroma_bits_per_pixel_unlocked() const override;
+
   ImageOverlay m_overlay_spec;
   std::vector<heif_item_id> m_overlay_image_ids;
 

@@ -39,6 +39,7 @@
 
 
 class HeifContext;
+class HeifFile;
 
 class HeifPixelImage;
 
@@ -46,6 +47,10 @@ class HeifPixelImage;
 class ImageMetadata
 {
 public:
+  void set_source(std::shared_ptr<HeifFile> file) { m_source = std::move(file); }
+
+  Error ensure_loaded(size_t max_output_size = SIZE_MAX);
+
   heif_item_id item_id;
   std::string item_type;  // e.g. "Exif"
   std::string content_type;
@@ -59,6 +64,10 @@ public:
   // security limits (GHSA-24wx-9w62-c96w). MemoryHandle is move-only, which makes
   // ImageMetadata move-only; it is only ever held via shared_ptr, so that is fine.
   MemoryHandle m_memory_handle;
+
+private:
+  std::shared_ptr<HeifFile> m_source;
+  std::mutex m_load_mutex;
 };
 
 
@@ -171,6 +180,10 @@ public:
 
   heif_property_id add_property_without_deduplication(const std::shared_ptr<Box>& property, bool essential);
 
+  // Encoding only: attach an already constructed 'colr' property to the file.
+  // Reading a profile and setting ImageDescription metadata must not do this.
+  virtual heif_property_id add_color_profile_property(const std::shared_ptr<Box_colr>& property);
+
   void set_resolution(uint32_t w, uint32_t h)
   {
     m_width = w;
@@ -196,11 +209,11 @@ public:
 
   uint32_t get_ispe_height() const;
 
-  // Default behavior: forward call to Decoder
-  [[nodiscard]] virtual int get_luma_bits_per_pixel() const;
+  // Serialize queries with decode_image(), which can replace the decoder's
+  // cached item data while another thread is reading it.
+  [[nodiscard]] int get_luma_bits_per_pixel() const;
 
-  // Default behavior: forward call to Decoder
-  [[nodiscard]] virtual int get_chroma_bits_per_pixel() const;
+  [[nodiscard]] int get_chroma_bits_per_pixel() const;
 
   void set_size(uint32_t w, uint32_t h)
   {
@@ -209,6 +222,12 @@ public:
   }
 
   virtual void get_tile_size(uint32_t& w, uint32_t& h) const;
+
+  // The size of the image that decode_compressed_image() builds when it decodes the whole
+  // image (before the image transformations). The size is 0 when it is unknown.
+  // Default behavior: the 'ispe' size. Derived images that take the size of their canvas
+  // from their own header return that one.
+  virtual void get_coded_image_size(uint32_t& w, uint32_t& h) const;
 
   virtual Error get_coded_image_colorspace(heif_colorspace* out_colorspace, heif_chroma* out_chroma) const;
 
@@ -344,10 +363,6 @@ public:
   void set_nominal_diffuse_white_luminance(uint32_t luminance) override;
 
   void set_pixel_ratio(uint32_t h, uint32_t v) override;
-
-  void set_color_profile_nclx(const nclx_profile& profile) override;
-
-  void set_color_profile_icc(const std::shared_ptr<const color_profile_raw>& profile) override;
 
   void set_omaf_image_projection(heif_omaf_image_projection image_projection) override;
 
@@ -550,6 +565,13 @@ private:
   void generate_property_boxes_for_ImageDescription();
 
 protected:
+  // decode_image() already holds m_decode_mutex when it checks the decoded bit
+  // depth. Its own queries use these methods to avoid locking the mutex twice.
+  // Implementations that query another item use that item's locking public method.
+  [[nodiscard]] virtual int get_luma_bits_per_pixel_unlocked() const;
+
+  [[nodiscard]] virtual int get_chroma_bits_per_pixel_unlocked() const;
+
   // Result<std::vector<uint8_t>> read_bitstream_configuration_data_override(heif_item_id itemId, heif_compression_format format) const;
 
   virtual Result<Encoder::CodedImageData> encode(const std::shared_ptr<HeifPixelImage>& image,
@@ -602,11 +624,11 @@ public:
     return m_item_error;
   }
 
-  [[nodiscard]] int get_luma_bits_per_pixel() const override { return -1; }
-
-  [[nodiscard]] int get_chroma_bits_per_pixel() const override { return -1; }
-
 private:
+  [[nodiscard]] int get_luma_bits_per_pixel_unlocked() const override { return -1; }
+
+  [[nodiscard]] int get_chroma_bits_per_pixel_unlocked() const override { return -1; }
+
   uint32_t m_item_type;
   Error m_item_error;
 };

@@ -26,6 +26,7 @@
 #include <deque>
 #include <future>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <algorithm>
 #include <utility>
@@ -288,7 +289,9 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_Grid::decode_full_grid_image(c
   // remember which tile to put where into the image
   struct tile_data
   {
-    heif_item_id tileID;
+    // An empty entry represents a tile skipped during non-strict decoding.
+    // Item ID 0 is not an empty entry.
+    std::optional<heif_item_id> tileID;
     uint32_t x_origin, y_origin;
   };
 
@@ -435,9 +438,15 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_Grid::decode_full_grid_image(c
       tile_data data = tiles.front();
       tiles.pop_front();
 
+      // Skipped tiles leave empty queue entries. Do not decode an unrelated
+      // item (in particular item 0) or start a job for such an entry.
+      if (!data.tileID) {
+        continue;
+      }
+
       errs.push_back(std::async(std::launch::async,
                                 &ImageItem_Grid::decode_and_paste_tile_image, this,
-                                data.tileID, data.x_origin, data.y_origin, std::ref(img), options,
+                                *data.tileID, data.x_origin, data.y_origin, std::ref(img), options,
                                 std::ref(progress_counter), warnings, decode_state));
     }
 
@@ -505,6 +514,13 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
   static std::mutex warningsMutex;
 #endif
 
+  // The grid may have more rows or columns of tiles than the output image needs. A tile
+  // that lies completely outside of the image has nothing to contribute. It is not decoded,
+  // because each surplus tile could otherwise cost a full decode of a large tile item.
+  if (x0 >= get_grid_spec().get_width() || y0 >= get_grid_spec().get_height()) {
+    return progress_and_return_ok(options, progress_counter);
+  }
+
   auto tileItem = get_context()->get_image(tileID, true);
   if (!tileItem && !options.strict_decoding) {
     // We ignore missing images. The un-pasted canvas region stays zero from calloc().
@@ -526,7 +542,11 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
 
   auto decodeResult = tileItem->decode_image(options, false, 0, 0, std::move(decode_state));
   if (!decodeResult) {
-    if (!options.strict_decoding) {
+    // An exceeded security limit is not a broken tile. When the decode budget of the whole
+    // image is used up, every further tile fails as well, and returning the image with
+    // these tiles left blank would hide that the file exceeds the limits.
+    if (!options.strict_decoding &&
+        decodeResult.error().sub_error_code != heif_suberror_Security_limit_exceeded) {
       // We ignore broken tiles. The un-pasted canvas region stays zero from calloc().
 #if ENABLE_PARALLEL_TILE_DECODING
       std::lock_guard<std::mutex> lock(warningsMutex);
@@ -615,12 +635,6 @@ Error ImageItem_Grid::decode_and_paste_tile_image(heif_item_id tileID, uint32_t 
     return {heif_error_Invalid_input,
             heif_suberror_Wrong_tile_image_chroma_format,
             "Image tile has different chroma format than combined image"};
-  }
-
-  // The grid may have more rows or columns of tiles than the output image needs. A tile
-  // that lies completely outside of the image has nothing to contribute.
-  if (x0 >= inout_image->get_width() || y0 >= inout_image->get_height()) {
-    return progress_and_return_ok(options, progress_counter);
   }
 
   // copy_image_to() refuses a tile whose planes have another bit depth than the canvas.
@@ -790,8 +804,15 @@ void ImageItem_Grid::get_tile_size(uint32_t& w, uint32_t& h) const
 }
 
 
+void ImageItem_Grid::get_coded_image_size(uint32_t& w, uint32_t& h) const
+{
+  w = get_grid_spec().get_width();
+  h = get_grid_spec().get_height();
+}
 
-int ImageItem_Grid::get_luma_bits_per_pixel() const
+
+
+int ImageItem_Grid::get_luma_bits_per_pixel_unlocked() const
 {
   auto child_result = get_context()->find_first_coded_image_id(get_id());
   if (child_result.is_error()) {
@@ -807,7 +828,7 @@ int ImageItem_Grid::get_luma_bits_per_pixel() const
 }
 
 
-int ImageItem_Grid::get_chroma_bits_per_pixel() const
+int ImageItem_Grid::get_chroma_bits_per_pixel_unlocked() const
 {
   auto child_result = get_context()->find_first_coded_image_id(get_id());
   if (child_result.is_error()) {
@@ -815,6 +836,10 @@ int ImageItem_Grid::get_chroma_bits_per_pixel() const
   }
 
   auto image = get_context()->get_image(*child_result, true);
+  if (!image) {
+    return -1;
+  }
+
   return image->get_chroma_bits_per_pixel();
 }
 
@@ -981,7 +1006,7 @@ Error ImageItem_Grid::add_image_tile(uint32_t tile_x, uint32_t tile_y,
                                         heif_image_input_class_normal,
                                         m_tile_encoding_options->output_nclx_profile);
     for (auto& property : colr_boxes) {
-      add_property(property, is_property_essential(property));
+      add_color_profile_property(property);
     }
 
     // Add transformative properties

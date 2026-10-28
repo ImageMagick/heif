@@ -90,6 +90,8 @@ struct encoder_struct_svt
 
   EbComponentType* svt_encoder = nullptr;
   EbSvtAv1EncConfiguration svt_config{}; // value-initialized: svt_encode_sequence_frame() reads encoder_bit_depth from it
+  int input_width = 0;
+  int input_height = 0;
   EbBufferHeaderType input_buffer;
 
   bool still_image_mode = false;
@@ -700,7 +702,20 @@ void svt_query_encoded_size(void* encoder_raw, uint32_t input_width, uint32_t in
 {
   auto* encoder = (encoder_struct_svt*) encoder_raw;
 
-  // SVT-AV1 (as of version 1.2.1) can only create image sizes matching the chroma format. Add padding if necessary.
+#if SVT_AV1_CHECK_VERSION(3, 0, 0)
+  // SVT-AV1 >= 3.0.0 supports odd image sizes. Minimum size is 4 (1 since v4.2.0).
+
+#if SVT_AV1_CHECK_VERSION(4, 2, 0)
+  const uint32_t min_size = 1;
+#else
+  const uint32_t min_size = 4;
+#endif
+
+  (void) encoder;
+  *encoded_width = std::max(input_width, min_size);
+  *encoded_height = std::max(input_height, min_size);
+#else
+  // Older SVT-AV1 versions can only create image sizes matching the chroma format and at least 64 pixels. Add padding if necessary.
 
   if (input_width < 64) {
     *encoded_width = 64;
@@ -721,6 +736,7 @@ void svt_query_encoded_size(void* encoder_raw, uint32_t input_width, uint32_t in
   else {
     *encoded_height = input_height;
   }
+#endif
 }
 
 
@@ -747,6 +763,8 @@ static heif_error svt_start_sequence_encoding_intern(void* encoder_raw, const he
 
   int w = heif_image_get_width(image, heif_channel_Y);
   int h = heif_image_get_height(image, heif_channel_Y);
+  encoder->input_width = w;
+  encoder->input_height = h;
 
   uint32_t encoded_width, encoded_height;
   svt_query_encoded_size(encoder_raw, w, h, &encoded_width, &encoded_height);
@@ -1042,6 +1060,11 @@ static heif_error svt_encode_sequence_frame(void* encoder_raw, const heif_image*
     return input_error;
   }
 
+  input_error = check_sequence_frame_size(image, encoder->input_width, encoder->input_height);
+  if (input_error.code != heif_error_Ok) {
+    return input_error;
+  }
+
   int w = heif_image_get_width(image, heif_channel_Y);
   int h = heif_image_get_height(image, heif_channel_Y);
   const heif_chroma chroma = heif_image_get_chroma_format(image);
@@ -1135,7 +1158,7 @@ static heif_error svt_encode_sequence_frame(void* encoder_raw, const heif_image*
       }
     }
 
-    input_buffer.n_filled_len += 2 * uvWidth * uvHeight;
+    input_buffer.n_filled_len += 2 * uvWidth * uvHeight * bytesPerPixel;
     input_picture_buffer->cb_stride = uvWidth;
     input_picture_buffer->cr_stride = uvWidth;
 

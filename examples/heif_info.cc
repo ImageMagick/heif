@@ -749,13 +749,23 @@ int main(int argc, char** argv)
       std::vector<heif_item_id> text_items(numTextItems);
       heif_image_handle_get_list_of_text_item_ids(handle, text_items.data(), numTextItems);
       for (heif_item_id text_item_id : text_items) {
-        struct heif_text_item* text_item;
+        struct heif_text_item* text_item = nullptr;
         err = heif_context_get_text_item(ctx.get(), text_item_id, &text_item);
-        const char* text_content = heif_text_item_get_content(text_item);
-        printf("  text item: %s\n", text_content);
-        heif_string_release(text_content);
+        if (err.code != heif_error_Ok || !text_item) {
+          printf("  text item: unavailable\n");
+          continue;
+        }
 
-        char* elng;
+        const char* text_content = heif_text_item_get_content(text_item);
+        if (text_content) {
+          printf("  text item: %s\n", text_content);
+          heif_string_release(text_content);
+        }
+        else {
+          printf("  text item: unavailable\n");
+        }
+
+        char* elng = nullptr;
         err = heif_item_get_property_extended_language(ctx.get(),
                                                        text_item_id,
                                                        &elng);
@@ -763,6 +773,7 @@ int main(int argc, char** argv)
           printf("    extended language: %s\n", elng);
         }
         heif_string_release(elng);
+        heif_text_item_release(text_item);
       }
     }
     else {
@@ -1087,13 +1098,15 @@ int main(int argc, char** argv)
       std::cout << "  sample entry type: " << heif_examples::fourcc_to_string(sampleEntryType) << "\n";
 
       if (sampleEntryType == heif_fourcc('u', 'r', 'i', 'm')) {
-        const char* uri;
+        const char* uri = nullptr;
         err = heif_track_get_urim_sample_entry_uri_of_first_cluster(track, &uri);
         if (err.code) {
           std::cerr << "error reading urim-track uri: " << err.message << "\n";
         }
-        std::cout << "  uri: " << uri << "\n";
-        heif_string_release(uri);
+        else {
+          std::cout << "  uri: " << uri << "\n";
+          heif_string_release(uri);
+        }
       }
 
       std::cout << "  sample auxiliary information: ";

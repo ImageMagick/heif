@@ -290,6 +290,7 @@ uint8_t* heif_image_get_plane2(heif_image*,
 typedef struct heif_scaling_options heif_scaling_options;
 
 // Currently, heif_scaling_options is not defined yet. Pass a NULL pointer.
+// On error, '*output' is set to NULL. Always check the returned error.
 LIBHEIF_API
 heif_error heif_image_scale_image(const heif_image* input,
                                   heif_image** output,
@@ -426,8 +427,9 @@ int heif_image_is_premultiplied_alpha(heif_image* image);
 // This function extends the padding of the image so that it has at least the given physical size.
 // The padding border is filled with the pixels along the right/bottom border.
 // This function may be useful if you want to process the image, but have some external padding requirements.
-// The image size will not be modified if it is already larger/equal than the given physical size.
-// I.e. you cannot assume that after calling this function, the stride will be equal to min_physical_width.
+// Each requested dimension must be at least as large as the corresponding image dimension;
+// otherwise an error is returned. The logical image size is not modified.
+// Existing padding may be larger, so the stride need not equal min_physical_width.
 LIBHEIF_API
 heif_error heif_image_extend_padding_to_size(heif_image* image,
                                              int min_physical_width, int min_physical_height);

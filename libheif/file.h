@@ -29,6 +29,7 @@
 #include "image-items/vvc.h"
 //#include "codecs/uncompressed/unc_boxes.h"
 #include "file_layout.h"
+#include "compression.h"
 
 #include <map>
 #include <memory>
@@ -66,7 +67,10 @@ public:
 
   // The limits will be shared from the HeifContext limits.
   // You have to make sure that the pointer points to a valid object as long as the HeifFile is used.
-  void set_security_limits(const heif_security_limits* limits) { m_limits = limits; }
+  void set_security_limits(const heif_security_limits* limits) {
+    m_limits = limits;
+    m_metadata_decompression_budget.set_limit(limits ? &limits->max_total_memory : nullptr);
+  }
 
   const heif_security_limits* get_security_limits() const { return m_limits; }
 
@@ -123,7 +127,8 @@ public:
 
   std::string get_item_uri_type(heif_item_id ID) const;
 
-  Result<std::vector<uint8_t>> get_uncompressed_item_data(heif_item_id ID) const;
+  Result<std::vector<uint8_t>> get_uncompressed_item_data(heif_item_id ID,
+                                                          size_t max_output_size = SIZE_MAX) const;
 
   Error append_data_from_file_range(std::vector<uint8_t>& out_data, uint64_t offset, uint32_t size) const;
 
@@ -135,7 +140,8 @@ public:
 
   // If `out_compression` is not NULL, the compression method is returned there and the compressed data is returned.
   // If `out_compression` is NULL, the data is returned decompressed.
-  Result<std::vector<uint8_t>> get_item_data(heif_item_id ID, heif_metadata_compression* out_compression) const;
+  Result<std::vector<uint8_t>> get_item_data(heif_item_id ID, heif_metadata_compression* out_compression,
+                                              size_t max_output_size = SIZE_MAX) const;
 
   std::shared_ptr<Box_ftyp> get_ftyp_box() { return m_ftyp_box; }
 
@@ -264,6 +270,8 @@ public:
   std::shared_ptr<Box_mvhd> get_mvhd_box() { return m_mvhd_box; }
 
 private:
+  Result<std::vector<uint8_t>> read_item_data_with_limit(heif_item_id ID,
+                                                          size_t max_output_size) const;
 #if ENABLE_PARALLEL_TILE_DECODING
   mutable std::mutex m_read_mutex;
 #endif
@@ -304,6 +312,7 @@ private:
   std::shared_ptr<Box_mvhd> m_mvhd_box;
 
   const heif_security_limits* m_limits = nullptr;
+  mutable MetadataDecompressionBudget m_metadata_decompression_budget;
   IDCreator m_id_creator;
 
   Error parse_heif_file();

@@ -22,6 +22,7 @@
 #define LIBHEIF_TRACK_VISUAL_H
 
 #include "track.h"
+#include "image/image_description.h"
 #include <string>
 #include <memory>
 #include <vector>
@@ -90,11 +91,22 @@ private:
 
   int m_sample_duration = 0; // TODO: pass this through encoder or handle it correctly with frame reordering
 
+  // Colour profiles and HDR metadata of each sample entry in 'stsd', indexed by sample description index - 1.
+  // Collected once in load() and attached to every decoded frame.
+  std::vector<ImageDescription> m_sample_description_metadata;
+
   // If there is an alpha-channel track associated with this color track, we reference it from here
   std::shared_ptr<Track_Visual> m_aux_alpha_track;
 
+  std::shared_ptr<class Decoder> m_active_decoder;
+
   heif_encoder* m_active_encoder = nullptr;
   std::unique_ptr<heif_encoder> m_alpha_track_encoder;
+
+  // Separate amortized work budgets for each compression format. A frame credits
+  // its own format only; balances saturate at zero and persist across decode calls.
+  std::map<heif_compression_format, uint16_t> m_decode_work_debt;
+  bool m_decode_work_limit_exceeded = false;
 
   Result<bool> process_encoded_data(heif_encoder* encoder);
 };

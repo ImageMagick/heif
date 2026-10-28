@@ -293,6 +293,13 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem_Overlay::decode_compressed_ima
   return decode_overlay_image(options, decode_state);
 }
 
+
+void ImageItem_Overlay::get_coded_image_size(uint32_t& w, uint32_t& h) const
+{
+  w = m_overlay_spec.get_canvas_width();
+  h = m_overlay_spec.get_canvas_height();
+}
+
 // Note: ImageItem_Overlay does not override check_decoded_image_size(). The overlay
 // canvas is built to the overlay-header size by construction (decode_overlay_image
 // creates it at m_overlay_spec canvas size), so checking it against that same size
@@ -462,7 +469,7 @@ int ImageItem_Overlay::get_canvas_bit_depth() const
 
 // The overlay image is the canvas, so these report the bit depth of the canvas.
 
-int ImageItem_Overlay::get_luma_bits_per_pixel() const
+int ImageItem_Overlay::get_luma_bits_per_pixel_unlocked() const
 {
   if (get_first_image_bit_depth() < 0) {
     return -1;
@@ -472,9 +479,9 @@ int ImageItem_Overlay::get_luma_bits_per_pixel() const
 }
 
 
-int ImageItem_Overlay::get_chroma_bits_per_pixel() const
+int ImageItem_Overlay::get_chroma_bits_per_pixel_unlocked() const
 {
-  return get_luma_bits_per_pixel();
+  return get_luma_bits_per_pixel_unlocked();
 }
 
 

@@ -32,6 +32,38 @@
 #include "codecs/uncompressed/unc_boxes.h"
 
 
+namespace {
+
+// One outstanding sample is enough for codecs without frame reordering: after
+// submitting a complete sample, the next poll must return an image or an error.
+// Video codecs may buffer pictures. This is a work budget, not a codec latency
+// claim: each returned frame also pays for one non-displayed sample.
+uint16_t max_sequence_decode_work_debt(heif_compression_format format)
+{
+  switch (format) {
+    case heif_compression_JPEG:
+    case heif_compression_JPEG2000:
+    case heif_compression_HTJ2K:
+    case heif_compression_uncompressed:
+    case heif_compression_mask:
+      return 1;
+    case heif_compression_VVC:
+      // vvdec parses up to 8 pictures ahead, on top of the frame reordering of the stream.
+      return 64;
+    default:
+      return 32;
+  }
+}
+
+Error sequence_decode_work_limit_error()
+{
+  return {heif_error_Invalid_input, heif_suberror_Security_limit_exceeded,
+          "Sequence decoding exceeded the limit for samples without enough output frames."};
+}
+
+} // namespace
+
+
 Track_Visual::Track_Visual(HeifContext* ctx)
   : Track(ctx)
 {
@@ -69,6 +101,38 @@ Error Track_Visual::load(const std::shared_ptr<Box_trak>& trak)
         heif_suberror_Unspecified,
         "Image sequence track has a chunk that references a non-visual sample description."
       };
+    }
+  }
+
+  // Collect the colour profiles and HDR metadata of each sample entry, so that we can attach them to the decoded frames.
+  // As for image item properties, a later 'colr' box replaces an earlier one of the same kind.
+
+  for (size_t i = 0; i < m_stsd->get_num_sample_entries(); i++) {
+    auto sample_entry = m_stsd->get_sample_entry(i);
+    ImageDescription& metadata = m_sample_description_metadata.emplace_back();
+
+    for (const auto& colr : sample_entry->get_child_boxes<Box_colr>()) {
+      metadata.set_color_profile(colr->get_color_profile());
+    }
+
+    if (auto clli = sample_entry->get_child_box<Box_clli>()) {
+      metadata.set_clli(clli->clli);
+    }
+
+    if (auto mdcv = sample_entry->get_child_box<Box_mdcv>()) {
+      metadata.set_mdcv(mdcv->mdcv);
+    }
+
+    if (auto amve = sample_entry->get_child_box<Box_amve>()) {
+      metadata.set_amve(amve->amve);
+    }
+
+    if (auto ndwt = sample_entry->get_child_box<Box_ndwt>()) {
+      metadata.set_nominal_diffuse_white_luminance(ndwt->get_diffuse_white_luminance());
+    }
+
+    if (auto pasp = sample_entry->get_child_box<Box_pasp>()) {
+      metadata.set_pixel_ratio(pasp->hSpacing, pasp->vSpacing);
     }
   }
 
@@ -193,6 +257,10 @@ bool Track_Visual::has_alpha_channel() const
 
 Result<std::shared_ptr<HeifPixelImage> > Track_Visual::decode_next_image_sample(const heif_decoding_options& options)
 {
+  if (m_decode_work_limit_exceeded) {
+    return sequence_decode_work_limit_error();
+  }
+
   // --- If we ignore the editlist, we stop when we reached the end of the original samples.
 
   uint64_t num_output_samples = m_num_output_samples;
@@ -236,11 +304,17 @@ Result<std::shared_ptr<HeifPixelImage> > Track_Visual::decode_next_image_sample(
       };
     }
 
-    // avoid calling get_decoded_frame() before starting the decoder.
-    if (m_next_sample_to_be_decoded != 0) {
-      Result<std::shared_ptr<HeifPixelImage> > getFrameResult = decoder->get_decoded_frame(options,
-                                                                                           &decoded_sample_idx,
-                                                                                           m_heif_context->get_security_limits());
+    const heif_compression_format format = decoder->get_compression_format();
+    uint16_t& decode_work_debt = m_decode_work_debt[format];
+
+    if (m_active_decoder) {
+      // Drain the decoder that received the samples before switching descriptions
+      // or finishing input. The next sample may belong to another decoder.
+      const bool end_of_input = m_next_sample_to_be_decoded >= num_output_samples;
+      const bool switching_decoder = decoder != m_active_decoder;
+      Result<std::shared_ptr<HeifPixelImage> > getFrameResult = m_active_decoder->get_decoded_frame(options,
+                                                                                                    &decoded_sample_idx,
+                                                                                                    m_heif_context->get_security_limits());
       if (getFrameResult.error()) {
         return getFrameResult.error();
       }
@@ -251,28 +325,47 @@ Result<std::shared_ptr<HeifPixelImage> > Track_Visual::decode_next_image_sample(
       if (*getFrameResult != nullptr) {
         image = *getFrameResult;
 
-        // If this was the last frame in the EditList segment, reset the 'flushed' flag
-        // in case we have to restart the decoder for another repetition of the segment.
-        if ((m_next_sample_to_be_output + 1) % m_presentation_timeline.size() == 0) {
-          m_decoder_is_flushed = false;
-        }
+        // Credit the returned frame and one potentially non-displayed sample.
+        // Do this at the decoder boundary, even if later image postprocessing fails.
+        // The frame comes from the active decoder, which can have a different format
+        // than the decoder of the next input sample when the sample description changes.
+        uint16_t& output_work_debt = m_decode_work_debt[m_active_decoder->get_compression_format()];
+        output_work_debt = (output_work_debt > 2) ? output_work_debt - 2 : 0;
 
         break;
       }
 
-      // If the sequence has ended and the decoder was flushed, but we still did not receive
-      // the image, we are waiting for, this is an error.
+      if ((end_of_input || switching_decoder) && !m_decoder_is_flushed) {
+        if (Error err = m_active_decoder->flush_decoder()) {
+          return err;
+        }
+        m_decoder_is_flushed = true;
+        continue;
+      }
+
+      // A drained decoder can be replaced at a chunk boundary. At end-of-input,
+      // a missing output frame is an error.
       if (m_decoder_is_flushed) {
-        return Error(heif_error_Decoder_plugin_error,
-                     heif_suberror_Unspecified,
-                     "Did not decode all frames");
+        if (end_of_input) {
+          return Error(heif_error_Decoder_plugin_error,
+                       heif_suberror_Unspecified,
+                       "Did not decode all frames");
+        }
+        m_active_decoder->release_decoder();
+        m_active_decoder.reset();
+        m_decoder_is_flushed = false;
       }
     }
 
 
     // --- Push more data into the decoder (or send end-of-sequence).
 
-    if (m_next_sample_to_be_decoded < m_num_output_samples) {
+    if (m_next_sample_to_be_decoded < num_output_samples) {
+
+      if (decode_work_debt >= max_sequence_decode_work_debt(format)) {
+        m_decode_work_limit_exceeded = true;
+        return sequence_decode_work_limit_error();
+      }
 
       // --- Find the data extent that stores the compressed frame data.
 
@@ -285,8 +378,11 @@ Result<std::shared_ptr<HeifPixelImage> > Track_Visual::decode_next_image_sample(
       m_next_sample_to_be_decoded++;
 
       // Send the decoder configuration when we send the first sample of the chunk.
-      // The configuration NALs might change for each chunk.
-      const bool is_first_sample = (sample_idx_in_chunk == 0);
+      // The configuration NALs might change for each chunk. A decoder that is shared by
+      // consecutive chunks with the same sample description receives them again, which is
+      // harmless (repeated parameter sets / sequence headers), and a decoder that was released
+      // after draining needs them to start again.
+      const bool is_first_sample = (sample_idx_in_chunk == chunk->first_sample_number());
 
       // --- Push data into the decoder.
       Error decodingError = decoder->decode_sequence_frame_from_compressed_data(is_first_sample,
@@ -296,17 +392,16 @@ Result<std::shared_ptr<HeifPixelImage> > Track_Visual::decode_next_image_sample(
       if (decodingError) {
         return decodingError;
       }
+
+      decode_work_debt++;
+      m_active_decoder = decoder;
     }
     else {
-      // --- End of sequence (Editlist segment) reached.
-
-      // std::cout << "FLUSH\n";
-      Error flushError = decoder->flush_decoder();
-      if (flushError) {
-        return flushError;
-      }
-
-      m_decoder_is_flushed = true;
+      // Not reached: at end of input, there is always an active decoder (we pushed at least one sample)
+      // and the draining above either returns a frame or reports an error. Guard against endless looping anyway.
+      return Error(heif_error_Decoder_plugin_error,
+                   heif_suberror_Unspecified,
+                   "Did not decode all frames");
     }
   }
 
@@ -314,11 +409,50 @@ Result<std::shared_ptr<HeifPixelImage> > Track_Visual::decode_next_image_sample(
   // --- We have received a new decoded image.
   //     Postprocess decoded image, attach metadata.
 
+  const SampleTiming& outputTiming = m_presentation_timeline[m_next_sample_to_be_output % m_presentation_timeline.size()];
+  const auto& chunk = m_chunks[outputTiming.chunkIdx];
+  // Track::load() verified that the sample description index exists.
+  const ImageDescription& metadata = m_sample_description_metadata[chunk->get_sample_description_index() - 1];
+
+  // Sample-entry colour information takes precedence over bitstream metadata.
+  const nclx_profile sample_entry_nclx = metadata.get_color_profile_nclx();
+  if (sample_entry_nclx.is_defined()) {
+    std::vector<Error> warnings;
+    image->set_color_profile_nclx(consolidate_colr_and_bitstream_nclx(sample_entry_nclx, image->get_color_profile_nclx(),
+                                                                      options, warnings));
+    image->add_warnings(warnings);
+  }
+
+  if (metadata.has_icc_color_profile()) {
+    image->set_color_profile_icc(metadata.get_color_profile_icc());
+  }
+
+  if (metadata.has_clli()) {
+    image->set_clli(metadata.get_clli());
+  }
+
+  if (metadata.has_mdcv()) {
+    image->set_mdcv(metadata.get_mdcv());
+  }
+
+  if (metadata.has_amve()) {
+    image->set_amve(metadata.get_amve());
+  }
+
+  if (metadata.has_nominal_diffuse_white()) {
+    image->set_nominal_diffuse_white_luminance(metadata.get_nominal_diffuse_white_luminance());
+  }
+
+  if (metadata.has_nonsquare_pixel_ratio()) {
+    uint32_t h, v;
+    metadata.get_pixel_ratio(&h, &v);
+    image->set_pixel_ratio(h, v);
+  }
+
   if (m_stts) {
     // 'sample_idx_in_chunk' follows m_next_sample_to_be_decoded, which runs ahead of the output
     // by the decoder latency. Look the duration up by the output position instead, like
     // Track::get_next_sample_raw_data() does.
-    const SampleTiming& outputTiming = m_presentation_timeline[m_next_sample_to_be_output % m_presentation_timeline.size()];
     image->set_sample_duration(m_stts->get_sample_duration(outputTiming.sampleIdx));
   }
 

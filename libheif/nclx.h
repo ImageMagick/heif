@@ -125,14 +125,9 @@ struct nclx_profile
   uint16_t m_matrix_coefficients = heif_matrix_coefficients_unspecified;
   bool m_full_range_flag = true;
 
-  bool operator==(const nclx_profile& b) const {
-    return m_colour_primaries == b.m_colour_primaries &&
-           m_transfer_characteristics == b.m_transfer_characteristics &&
-           m_matrix_coefficients == b.m_matrix_coefficients &&
-           m_full_range_flag == b.m_full_range_flag;
-  }
+  bool operator==(const nclx_profile& b) const = default;
 
-  bool operator!=(const nclx_profile& b) const { return !(*this == b); }
+  bool operator!=(const nclx_profile& b) const = default;
 
   static nclx_profile undefined() { return {}; }
 
@@ -228,6 +223,16 @@ protected:
 private:
   std::shared_ptr<const color_profile> m_color_profile;
 };
+
+
+// Combine the NCLX profile of a 'colr' box (image item property or sample entry) with the
+// profile signalled in the coded bitstream (e.g. HEVC SPS VUI, AV1 sequence header).
+// The 'colr' box takes precedence, but mismatches are reported in 'warnings' and, if requested
+// by 'options', a broken full-range flag is corrected.
+nclx_profile consolidate_colr_and_bitstream_nclx(const nclx_profile& colr_nclx,
+                                                 const nclx_profile& bitstream_nclx,
+                                                 const struct heif_decoding_options& options,
+                                                 std::vector<Error>& warnings);
 
 
 #endif //LIBHEIF_NCLX_H

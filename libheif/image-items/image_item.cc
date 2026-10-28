@@ -49,6 +49,36 @@
 #endif
 
 
+Error ImageMetadata::ensure_loaded(size_t max_output_size)
+{
+  std::lock_guard<std::mutex> lock(m_load_mutex);
+
+  if (m_source) {
+    auto data_result = m_source->get_uncompressed_item_data(item_id, max_output_size);
+    if (!data_result) {
+      return data_result.error();
+    }
+
+    MemoryHandle memory_handle;
+    if (Error err = memory_handle.alloc(data_result->capacity(), m_source->get_security_limits(),
+                                        "decompressed item metadata")) {
+      return err;
+    }
+
+    m_data = std::move(*data_result);
+    m_memory_handle = std::move(memory_handle);
+    m_source.reset();
+  }
+
+  if (m_data.size() > max_output_size) {
+    return Error(heif_error_Memory_allocation_error, heif_suberror_Security_limit_exceeded,
+                 "Metadata item exceeds the requested maximum output size");
+  }
+
+  return Error::Ok;
+}
+
+
 ImageItem::ImageItem(HeifContext* context)
     : m_heif_context(context)
 {
@@ -105,6 +135,16 @@ heif_property_id ImageItem::add_property_without_deduplication(const std::shared
 
   m_properties.push_back(property);
   return get_file()->add_property_without_deduplication(get_id(), property, essential);
+}
+
+
+heif_property_id ImageItem::add_color_profile_property(const std::shared_ptr<Box_colr>& property)
+{
+  if (!property) {
+    return 0;
+  }
+
+  return add_property(property, is_property_essential(property));
 }
 
 
@@ -417,6 +457,11 @@ Error ImageItem::encode_to_item(HeifContext* ctx,
   // set item properties
 
   for (auto& propertyBox : codingResult->properties) {
+    if (auto colr = std::dynamic_pointer_cast<Box_colr>(propertyBox)) {
+      add_color_profile_property(colr);
+      continue;
+    }
+
     bool essential = is_property_essential(propertyBox);
 
     // TODO: can we simply use add_property() ?
@@ -488,6 +533,13 @@ void ImageItem::get_tile_size(uint32_t& w, uint32_t& h) const
 }
 
 
+void ImageItem::get_coded_image_size(uint32_t& w, uint32_t& h) const
+{
+  w = get_ispe_width();
+  h = get_ispe_height();
+}
+
+
 Error ImageItem::postprocess_coded_image_colorspace(heif_colorspace* inout_colorspace, heif_chroma* inout_chroma) const
 {
 #if 0
@@ -545,6 +597,20 @@ Error ImageItem::get_coded_image_colorspace(heif_colorspace* out_colorspace, hei
 
 int ImageItem::get_luma_bits_per_pixel() const
 {
+  std::lock_guard<std::mutex> lock(m_decode_mutex);
+  return get_luma_bits_per_pixel_unlocked();
+}
+
+
+int ImageItem::get_chroma_bits_per_pixel() const
+{
+  std::lock_guard<std::mutex> lock(m_decode_mutex);
+  return get_chroma_bits_per_pixel_unlocked();
+}
+
+
+int ImageItem::get_luma_bits_per_pixel_unlocked() const
+{
   auto decoderResult = get_decoder();
   if (!decoderResult) {
     return -1;
@@ -556,7 +622,7 @@ int ImageItem::get_luma_bits_per_pixel() const
 }
 
 
-int ImageItem::get_chroma_bits_per_pixel() const
+int ImageItem::get_chroma_bits_per_pixel_unlocked() const
 {
   auto decoderResult = get_decoder();
   if (!decoderResult) {
@@ -885,19 +951,6 @@ void ImageItem::set_pixel_ratio(uint32_t h, uint32_t v)
 }
 
 
-void ImageItem::set_color_profile_nclx(const nclx_profile& profile)
-{
-  ImageDescription::set_color_profile_nclx(profile);
-  add_property(create_colr_box_nclx(), false);
-}
-
-
-void ImageItem::set_color_profile_icc(const std::shared_ptr<const color_profile_raw>& profile)
-{
-  ImageDescription::set_color_profile_icc(profile);
-  add_property(create_colr_box_icc(), false);
-}
-
 void ImageItem::set_omaf_image_projection(heif_omaf_image_projection projection)
 {
   ImageDescription::set_omaf_image_projection(projection);
@@ -1216,6 +1269,32 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
   }
 
 
+  // --- bound the total size of the images decoded for this top-level decode
+
+  // The decode operations counted above are not equally expensive, and what the
+  // referencing item uses of the decoded image may be much smaller than the image
+  // (e.g. a 'clap' crop of a large overlay canvas, used as a 1x1 grid tile). This has
+  // to be checked with the size the item is about to produce, before the decoding,
+  // because a failed grid tile is only a warning in non-strict mode.
+
+  uint32_t coded_width, coded_height;
+  if (decode_coded_tile_only) {
+    get_tile_size(coded_width, coded_height);
+  }
+  else {
+    get_coded_image_size(coded_width, coded_height);
+  }
+
+  const uint64_t num_coded_pixels = static_cast<uint64_t>(coded_width) * coded_height;
+
+  if (decode_state.pixel_budget &&
+      !decode_state.pixel_budget->count_item_decode(m_id, num_coded_pixels)) {
+    return Error{heif_error_Invalid_input,
+                 heif_suberror_Security_limit_exceeded,
+                 "Too many pixels decoded for derived images (possible reference amplification)"};
+  }
+
+
   // --- transform tile position
 
   // The alpha image gets the requested tile position and converts it according to
@@ -1240,6 +1319,52 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
     }
   }
 
+  // --- validate and limit image transformations before decoding derived inputs
+
+  Result<std::vector<std::shared_ptr<Box>>> properties_result = get_properties();
+  if (!properties_result) {
+    return properties_result.error();
+  }
+
+  bool has_rotation = false;
+  bool has_mirror = false;
+  bool has_crop = false;
+  for (const auto& property : *properties_result) {
+    bool* seen = nullptr;
+    bool applied = true;
+    if (std::dynamic_pointer_cast<Box_irot>(property)) {
+      seen = &has_rotation;
+    }
+    else if (std::dynamic_pointer_cast<Box_imir>(property)) {
+      seen = &has_mirror;
+    }
+    else if (std::dynamic_pointer_cast<Box_clap>(property)) {
+      seen = &has_crop;
+      applied = !decode_tile_only; // A tile uses a shifted grid instead of a crop.
+    }
+
+    if (seen) {
+      // HEIF permits at most one association of each type per item, even when
+      // the same property index appears repeatedly in 'ipma'.
+      if (*seen) {
+        return Error{heif_error_Invalid_input, heif_suberror_Invalid_property,
+                     "Multiple irot, imir, or clap properties associated with one item"};
+      }
+      *seen = true;
+      if (applied && !options.ignore_transformations) {
+        ++decode_state.num_transformations;
+      }
+    }
+  }
+
+  // A derived-image chain can apply one full-image pass at each item. The state
+  // is copied by value at each hop, so this bounds each decode path separately.
+  if (decode_state.max_transformations != 0 &&
+      decode_state.num_transformations > decode_state.max_transformations) {
+    return Error{heif_error_Invalid_input, heif_suberror_Security_limit_exceeded,
+                 "Too many image transformations along the decode path"};
+  }
+
   // --- decode image
 
   Result<std::shared_ptr<HeifPixelImage>> decodingResult = decode_compressed_image(options, decode_coded_tile_only, tile_x0, tile_y0, decode_state);
@@ -1252,6 +1377,14 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
     // Safety net: no known decoding path returns a null image without an error anymore.
     return Error(heif_error_Decoder_plugin_error, heif_suberror_Unspecified,
                  "Decoding returned no image");
+  }
+
+  // Without an 'ispe', the size of the coded image is only known now.
+  if (decode_state.pixel_budget && num_coded_pixels == 0 &&
+      !decode_state.pixel_budget->count_item_decode(m_id, static_cast<uint64_t>(img->get_width()) * img->get_height())) {
+    return Error{heif_error_Invalid_input,
+                 heif_suberror_Security_limit_exceeded,
+                 "Too many pixels decoded for derived images (possible reference amplification)"};
   }
 
   // --- validate the decoded image against the signaled size (pre-transform)
@@ -1272,12 +1405,7 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
   // --- apply image transformations
 
   if (options.ignore_transformations == false) {
-    Result<std::vector<std::shared_ptr<Box>>> propertiesResult = get_properties();
-    if (!propertiesResult) {
-      return propertiesResult.error();
-    }
-
-    const std::vector<std::shared_ptr<Box>>& properties = *propertiesResult;
+    const std::vector<std::shared_ptr<Box>>& properties = *properties_result;
 
     for (const auto& property : properties) {
       if (auto rot = std::dynamic_pointer_cast<Box_irot>(property)) {
@@ -1435,65 +1563,11 @@ Result<std::shared_ptr<HeifPixelImage>> ImageItem::decode_image(const heif_decod
   const auto heif_nclx = get_color_profile_nclx();
   if (heif_nclx.is_defined()) {
 
-    // Since we have a HEIF colr box, we overwrite the bitstream's CICP parameter
-    // with that parameter from the colr box.
-    nclx_profile consolidated_nclx = heif_nclx;
-
-    // If the decoder plugin populated an NCLX profile from the bitstream's
-    // color signalling (e.g. HEVC SPS VUI, AV1 sequence header), compare it
-    // against the colr box. Per ISO/IEC 14496-12 and ISO/IEC 23000-22 (MIAF)
-    // the colr box overrides the bitstream, but a mismatch is a strong
-    // indication of a muxer bug.
-    const auto bitstream_nclx = img->get_color_profile_nclx();
-    if (bitstream_nclx.is_defined()) {
-
-      // Check whether there is a CICP mismatch between the HEIF colr box and the compressed bitstream
-      // If yes, output a warning.
-
-      auto cicp_mismatch = [](uint16_t bs, uint16_t cr) {
-        return bs != 2 /*unspecified*/ && cr != 2 && bs != cr;
-      };
-
-      if (cicp_mismatch(bitstream_nclx.m_colour_primaries,        heif_nclx.m_colour_primaries)        ||
-          cicp_mismatch(bitstream_nclx.m_transfer_characteristics, heif_nclx.m_transfer_characteristics) ||
-          cicp_mismatch(bitstream_nclx.m_matrix_coefficients,     heif_nclx.m_matrix_coefficients)     ||
-          bitstream_nclx.m_full_range_flag != heif_nclx.m_full_range_flag) {
-        std::stringstream msg;
-        msg << "colr box NCLX ("
-            << heif_nclx.m_colour_primaries << "/"
-            << heif_nclx.m_transfer_characteristics << "/"
-            << heif_nclx.m_matrix_coefficients << "/"
-            << (heif_nclx.m_full_range_flag ? "full" : "limited")
-            << ") disagrees with bitstream signalling ("
-            << bitstream_nclx.m_colour_primaries << "/"
-            << bitstream_nclx.m_transfer_characteristics << "/"
-            << bitstream_nclx.m_matrix_coefficients << "/"
-            << (bitstream_nclx.m_full_range_flag ? "full" : "limited")
-            << "); colr takes precedence per ISO/IEC 14496-12 and ISO/IEC 23000-22 (MIAF)";
-        add_decoding_warning({heif_error_Invalid_input,
-                              heif_suberror_NCLX_colr_VUI_mismatch,
-                              msg.str()});
-      }
-
-      // Fix full-range flag in images that are probably broken.
-
-      if (options.version >= 9 && options.autocorrect_broken_input) {
-
-        // Some Sony cameras mis-tag full_range_flag=0 in colr while the bitstream VUI is correct (full_range_flag=1), see issue #1770.
-        // Rationale for the fix: if the bitstream explicitly says full_range=1, it probably does with for a reason.
-        // Thus, we keep the full-range flag.
-
-        if (bitstream_nclx.get_full_range_flag() == true &&
-            heif_nclx.get_full_range_flag() == false) {
-          add_decoding_warning({
-                                 heif_error_Invalid_input,
-                                 heif_suberror_NCLX_colr_VUI_mismatch,
-                                 "Autocorrecting full-range flag to ON (colr=limited, bitstream=full)"
-                               });
-
-          consolidated_nclx.set_full_range_flag(true);
-        }
-      }
+    std::vector<Error> warnings;
+    nclx_profile consolidated_nclx = consolidate_colr_and_bitstream_nclx(heif_nclx, img->get_color_profile_nclx(),
+                                                                         options, warnings);
+    for (auto& warning : warnings) {
+      add_decoding_warning(std::move(warning));
     }
 
     img->set_color_profile_nclx(consolidated_nclx);
@@ -1664,8 +1738,9 @@ Error ImageItem::check_decoded_image_bit_depth(const HeifPixelImage& img) const
   // the decoded image with the bit depth it got from the handle would then read out of
   // bounds, so the decoded image must not contradict the handle (GHSA-vv35-6hxg-95x8).
 
-  int luma_bpp = get_luma_bits_per_pixel();
-  int chroma_bpp = get_chroma_bits_per_pixel();
+  // decode_image() already holds this item's non-recursive decode mutex.
+  int luma_bpp = get_luma_bits_per_pixel_unlocked();
+  int chroma_bpp = get_chroma_bits_per_pixel_unlocked();
 
   bool mismatch = false;
 

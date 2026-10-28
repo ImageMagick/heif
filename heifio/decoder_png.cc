@@ -196,6 +196,13 @@ heif_error loadPNG(const char* filename, int output_bit_depth, InputImage *input
     bit_depth = 8;
   }
 
+  /* Expand a tRNS chunk (single-color transparency key for RGB and grayscale images,
+   * or per-entry alpha for palette images) into a full alpha channel.
+   */
+  if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) {
+    png_set_tRNS_to_alpha(png_ptr);
+  }
+
   /* Set the background color to draw transparent and alpha images over.
    * It is possible to set the red, green, and blue components directly
    * for paletted images instead of supplying a palette index.  Note that
@@ -382,7 +389,7 @@ heif_error loadPNG(const char* filename, int output_bit_depth, InputImage *input
       }
     }
   }
-  else if (band == 1) {
+  else if (band == 1 || (band == 2 && bit_depth > 8)) {
     assert(bit_depth > 8);
 
     err = heif_image_create((int) width, (int) height,
@@ -418,7 +425,7 @@ heif_error loadPNG(const char* filename, int output_bit_depth, InputImage *input
           uint16_t va = (uint16_t) (((p[2] << 8) | p[3]) >> bdShift);
 
           py[x + y * y_stride] = vp;
-          pa[x + y * y_stride] = va;
+          pa[x + y * a_stride] = va;
 
           p += 4;
         }

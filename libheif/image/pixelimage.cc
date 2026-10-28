@@ -519,6 +519,17 @@ Error HeifPixelImage::ComponentStorage::alloc(uint32_t width, uint32_t height, h
 
   uint64_t stride_64 = static_cast<uint64_t>(m_mem_width) * bytes_per_pixel;
   stride_64 = (stride_64 + alignment - 1U) & ~static_cast<uint64_t>(alignment - 1U);
+
+  // L1 data caches are set associative. The set that holds a cache line is selected by the
+  // line's position within a 4 KB (x86) or 8/16 KB (ARM) window of the address space, and a set
+  // holds only 4 to 12 lines. With a stride that is a multiple of 512 bytes, 8 or more of any 64
+  // consecutive rows fall into the same set, so a loop that walks down a column of rows, such as
+  // the blocked rotation, evicts the rows before it comes back to them. One extra cache line
+  // makes the stride an odd number of lines, which spreads consecutive rows over all sets.
+  if (stride_64 % 512 == 0) {
+    stride_64 += 64;
+  }
+
   if (stride_64 > std::numeric_limits<size_t>::max()) {
     return {heif_error_Memory_allocation_error,
             heif_suberror_Security_limit_exceeded,
@@ -597,7 +608,15 @@ Error HeifPixelImage::ComponentStorage::alloc(uint32_t width, uint32_t height, h
 Error HeifPixelImage::extend_padding_to_size(uint32_t width, uint32_t height, bool adjust_size,
                                              const heif_security_limits* limits)
 {
-  for (auto& component : m_storage) {
+  if (width < m_width || height < m_height) {
+    return Error{heif_error_Usage_error,
+                 heif_suberror_Invalid_parameter_value,
+                 "Cannot extend padding to a size smaller than the image."};
+  }
+
+  // Check every plane before changing any of them. In particular, the new
+  // allocation must fit the old plane in both directions before it is copied.
+  for (const auto& component : m_storage) {
     // get_subsampled_size() only adjusts the size for Cb/Cr; for every other
     // channel it assumes the component has the full logical image size. We
     // cannot compute a correct padded size for a non-Cb/Cr component that does
@@ -611,6 +630,19 @@ Error HeifPixelImage::extend_padding_to_size(uint32_t width, uint32_t height, bo
                    "Cannot extend padding for an image with non-uniform component sizes."};
     }
 
+    uint32_t subsampled_width, subsampled_height;
+    get_subsampled_size(width, height, component.m_channel, m_chroma,
+                        &subsampled_width, &subsampled_height);
+
+    if (subsampled_width < component.m_width ||
+        subsampled_height < component.m_height) {
+      return Error{heif_error_Usage_error,
+                   heif_suberror_Invalid_parameter_value,
+                   "Cannot extend padding to a size smaller than an existing plane."};
+    }
+  }
+
+  for (auto& component : m_storage) {
     uint32_t subsampled_width, subsampled_height;
     get_subsampled_size(width, height, component.m_channel, m_chroma,
                         &subsampled_width, &subsampled_height);
@@ -652,6 +684,10 @@ Error HeifPixelImage::extend_padding_to_size(uint32_t width, uint32_t height, bo
       std::free(component.allocated_mem);
 
       component = newPlane;
+      // alloc() set the logical plane size to the allocation size. Growing
+      // padding alone must not change the plane's visible dimensions.
+      component.m_width = old_width;
+      component.m_height = old_height;
     }
 
     // extend plane size
@@ -1722,6 +1758,28 @@ Result<std::shared_ptr<HeifPixelImage>> HeifPixelImage::rotate_ccw(int angle_deg
   return out_img;
 }
 
+// Transposes the 8x8 block of 8-bit samples held in eight 64-bit words, row i in r[i] and its
+// column j in byte j of that word (little-endian), by exchanging its 4x4, 2x2 and 1x1 sub-blocks.
+static void transpose_8x8(uint64_t r[8])
+{
+  for (int i = 0; i < 4; i++) {
+    uint64_t t = ((r[i] >> 32) ^ r[i + 4]) & 0x00000000FFFFFFFFULL;
+    r[i] ^= t << 32;
+    r[i + 4] ^= t;
+  }
+  for (int i : {0, 1, 4, 5}) {
+    uint64_t t = ((r[i] >> 16) ^ r[i + 2]) & 0x0000FFFF0000FFFFULL;
+    r[i] ^= t << 16;
+    r[i + 2] ^= t;
+  }
+  for (int i : {0, 2, 4, 6}) {
+    uint64_t t = ((r[i] >> 8) ^ r[i + 1]) & 0x00FF00FF00FF00FFULL;
+    r[i] ^= t << 8;
+    r[i + 1] ^= t;
+  }
+}
+
+
 template<typename T>
 void HeifPixelImage::ComponentStorage::rotate_ccw(int angle_degrees,
                                             ComponentStorage& out_plane) const
@@ -1735,21 +1793,84 @@ void HeifPixelImage::ComponentStorage::rotate_ccw(int angle_degrees,
   size_t out_stride = out_plane.stride / sizeof(T);
   T* out_data = static_cast<T*>(out_plane.mem);
 
-  if (angle_degrees == 270) {
-    for (uint32_t x = 0; x < h; x++)
-      for (uint32_t y = 0; y < w; y++) {
-        out_data[y * out_stride + x] = in_data[(h - 1 - x) * in_stride + y];
-      }
-  } else if (angle_degrees == 180) {
+  if (angle_degrees == 180) {
     for (uint32_t y = 0; y < h; y++)
       for (uint32_t x = 0; x < w; x++) {
         out_data[y * out_stride + x] = in_data[(h - 1 - y) * in_stride + (w - 1 - x)];
       }
-  } else if (angle_degrees == 90) {
-    for (uint32_t x = 0; x < h; x++)
-      for (uint32_t y = 0; y < w; y++) {
-        out_data[y * out_stride + x] = in_data[x * in_stride + (w - 1 - y)];
+    return;
+  }
+
+  if (angle_degrees != 90 && angle_degrees != 270) {
+    return;
+  }
+
+  // Rotating by 90 or 270 degrees transposes the plane: going along the rows of one plane goes down
+  // the columns of the other, which misses the cache on nearly every sample. The plane is therefore
+  // rotated in blocks of 64x64 samples, whose rows stay in the cache while the block is copied.
+  constexpr uint32_t block = 64;
+
+  // End of the block that starts at `start` in a dimension of `size` samples. `start + block`
+  // would wrap for sizes close to 2^32 (reachable with the security limits disabled).
+  auto block_end = [](uint32_t start, uint32_t size) {
+    return size - start > block ? start + block : size;
+  };
+
+  // 8-bit samples move as 8x8 tiles, read as eight 64-bit words and transposed in registers. The
+  // columns and rows at the edges that do not fill a tile are left to the loop below.
+  uint32_t w8 = 0;
+  uint32_t h8 = 0;
+  if constexpr (sizeof(T) == 1 && std::endian::native == std::endian::little) {
+    w8 = w & ~7U;
+    h8 = h & ~7U;
+    for (uint32_t y0 = 0; y0 < w8; y0 = block_end(y0, w8)) {
+      for (uint32_t x0 = 0; x0 < h8; x0 = block_end(x0, h8)) {
+        for (uint32_t y = y0; y < block_end(y0, w8); y += 8) {
+          for (uint32_t x = x0; x < block_end(x0, h8); x += 8) {
+            // Output rows y to y+7, columns x to x+7.
+            uint64_t r[8];
+            if (angle_degrees == 270) {
+              for (uint32_t j = 0; j < 8; j++) {
+                memcpy(&r[j], in_data + (h - 1 - x - j) * in_stride + y, 8);
+              }
+              transpose_8x8(r);
+            }
+            else {
+              for (uint32_t j = 0; j < 8; j++) {
+                memcpy(&r[j], in_data + (x + j) * in_stride + (w - 8 - y), 8);
+              }
+              transpose_8x8(r);
+            }
+            // Word i is output row y+i at 270 degrees and row y+7-i at 90 degrees.
+            for (uint32_t i = 0; i < 8; i++) {
+              uint32_t row = angle_degrees == 270 ? y + i : y + 7 - i;
+              memcpy(out_data + row * out_stride + x, &r[i], 8);
+            }
+          }
+        }
       }
+    }
+  }
+
+  for (uint32_t y0 = 0; y0 < w; y0 = block_end(y0, w)) {
+    uint32_t y1 = block_end(y0, w);
+    for (uint32_t x0 = 0; x0 < h; x0 = block_end(x0, h)) {
+      uint32_t x1 = block_end(x0, h);
+      for (uint32_t y = y0; y < y1; y++) {
+        T* out_row = out_data + y * out_stride;
+        uint32_t x_start = std::max(x0, y < w8 ? h8 : 0);
+        if (angle_degrees == 270) {
+          for (uint32_t x = x_start; x < x1; x++) {
+            out_row[x] = in_data[(h - 1 - x) * in_stride + y];
+          }
+        }
+        else {
+          for (uint32_t x = x_start; x < x1; x++) {
+            out_row[x] = in_data[x * in_stride + (w - 1 - y)];
+          }
+        }
+      }
+    }
   }
 }
 
